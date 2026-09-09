@@ -29,6 +29,10 @@ static void rn_layout_measure(GtkLayoutManager * /*manager*/,
 // struct.
 static void rn_view_notify_allocation(RnView *self, int width, int height);
 static void rn_view_scroll_offset(RnView *self, double *offset_x, double *offset_y);
+// Defined below, for the same reason: allocate runs before the struct is
+// complete, so it reaches the fields through accessors.
+static gboolean rn_view_layout_transform(RnView *self, graphene_matrix_t *out);
+static int rn_view_layout_z_index(RnView *self);
 
 static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
                                GtkWidget *widget,
@@ -57,6 +61,25 @@ static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
     origin.y = frame.origin.y - static_cast<float>(scroll_y);
 
     GskTransform *transform = gsk_transform_translate(nullptr, &origin);
+
+    // A transform is anchored on the view's centre, which is where every other
+    // React Native platform anchors it and what transformOrigin is measured
+    // from. Composing it here rather than in snapshot() is what makes
+    // gtk_widget_pick follow it, so a transformed view is hit where it looks.
+    graphene_matrix_t matrix;
+    if (rn_view_layout_transform(RN_VIEW(child), &matrix)) {
+      graphene_point_t centre;
+      centre.x = frame.size.width / 2.0f;
+      centre.y = frame.size.height / 2.0f;
+      graphene_point_t back;
+      back.x = -centre.x;
+      back.y = -centre.y;
+
+      transform = gsk_transform_translate(transform, &centre);
+      transform = gsk_transform_matrix(transform, &matrix);
+      transform = gsk_transform_translate(transform, &back);
+    }
+
     gtk_widget_allocate(child,
                         static_cast<int>(frame.size.width),
                         static_cast<int>(frame.size.height),
@@ -104,6 +127,17 @@ struct _RnView {
   double scroll_x;
   double scroll_y;
 
+  graphene_size_t border_radii[4];
+  gboolean has_border_radii;
+  float border_widths[4];
+  GdkRGBA border_colors[4];
+  gboolean has_borders;
+
+  graphene_matrix_t transform;
+  gboolean has_transform;
+
+  int z_index;
+
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
   int allocated_width;
@@ -143,26 +177,41 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     gtk_snapshot_push_opacity(snapshot, self->opacity);
   }
 
-  if (self->clips_children) {
-    graphene_rect_t bounds;
-    bounds.origin.x = 0.0f;
-    bounds.origin.y = 0.0f;
-    bounds.size.width = static_cast<float>(width);
-    bounds.size.height = static_cast<float>(height);
-    gtk_snapshot_push_clip(snapshot, &bounds);
-  }
+  graphene_rect_t bounds;
+  bounds.origin.x = 0.0f;
+  bounds.origin.y = 0.0f;
+  bounds.size.width = static_cast<float>(width);
+  bounds.size.height = static_cast<float>(height);
 
+  GskRoundedRect box;
+  gsk_rounded_rect_init(&box,
+                        &bounds,
+                        &self->border_radii[0],
+                        &self->border_radii[1],
+                        &self->border_radii[2],
+                        &self->border_radii[3]);
+
+  // The background is always clipped to the rounded box, even when children are
+  // not: overflow: 'visible' lets a child escape the corner, but the view's own
+  // fill still has to respect its border radius.
   if (self->has_background_color) {
-    graphene_rect_t bounds;
-    bounds.origin.x = 0.0f;
-    bounds.origin.y = 0.0f;
-    bounds.size.width = static_cast<float>(width);
-    bounds.size.height = static_cast<float>(height);
+    if (self->has_border_radii) {
+      gtk_snapshot_push_rounded_clip(snapshot, &box);
+    }
     gtk_snapshot_append_color(snapshot, &self->background_color, &bounds);
+    if (self->has_border_radii) {
+      gtk_snapshot_pop(snapshot);
+    }
   }
 
-  // TODO(borders): borderRadii/borderWidth/borderColor want a rounded-rect
-  // clip here (gtk_snapshot_push_rounded_clip) plus a border node.
+  // Content clipping is separate, and only happens with overflow: 'hidden'.
+  if (self->clips_children) {
+    if (self->has_border_radii) {
+      gtk_snapshot_push_rounded_clip(snapshot, &box);
+    } else {
+      gtk_snapshot_push_clip(snapshot, &bounds);
+    }
+  }
 
   if (self->texture != nullptr && width > 0 && height > 0) {
     const float viewWidth = static_cast<float>(width);
@@ -223,13 +272,50 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     gtk_snapshot_append_layout(snapshot, self->text_layout, &self->text_color);
   }
 
+  // zIndex only reorders painting. The child list itself stays in mutation
+  // order, because Fabric's Insert and Remove index into it.
+  gboolean needs_sorting = FALSE;
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
        child = gtk_widget_get_next_sibling(child)) {
-    gtk_widget_snapshot_child(widget, child, snapshot);
+    if (RN_IS_VIEW(child) && rn_view_layout_z_index(RN_VIEW(child)) != 0) {
+      needs_sorting = TRUE;
+      break;
+    }
+  }
+
+  if (!needs_sorting) {
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
+         child = gtk_widget_get_next_sibling(child)) {
+      gtk_widget_snapshot_child(widget, child, snapshot);
+    }
+  } else {
+    GPtrArray *ordered = g_ptr_array_new();
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
+         child = gtk_widget_get_next_sibling(child)) {
+      g_ptr_array_add(ordered, child);
+    }
+    // A stable sort, so equal zIndex keeps document order -- which is what CSS
+    // and React Native both promise.
+    g_ptr_array_sort_values(ordered, [](gconstpointer a, gconstpointer b) -> int {
+      auto *wa = static_cast<GtkWidget *>(const_cast<gpointer>(a));
+      auto *wb = static_cast<GtkWidget *>(const_cast<gpointer>(b));
+      const int za = RN_IS_VIEW(wa) ? rn_view_layout_z_index(RN_VIEW(wa)) : 0;
+      const int zb = RN_IS_VIEW(wb) ? rn_view_layout_z_index(RN_VIEW(wb)) : 0;
+      return za - zb;
+    });
+    for (guint i = 0; i < ordered->len; i++) {
+      gtk_widget_snapshot_child(widget, GTK_WIDGET(g_ptr_array_index(ordered, i)), snapshot);
+    }
+    g_ptr_array_free(ordered, TRUE);
   }
 
   if (self->clips_children) {
     gtk_snapshot_pop(snapshot);
+  }
+
+  // Borders paint over the content, as they do on every other platform.
+  if (self->has_borders) {
+    gtk_snapshot_append_border(snapshot, &box, self->border_widths, self->border_colors);
   }
 
   if (needs_opacity_layer) {
@@ -279,6 +365,16 @@ static void rn_view_init(RnView *self) {
   self->clips_children = FALSE;
   self->scroll_x = 0.0;
   self->scroll_y = 0.0;
+  for (int i = 0; i < 4; i++) {
+    self->border_radii[i] = graphene_size_t{0.0f, 0.0f};
+    self->border_widths[i] = 0.0f;
+    self->border_colors[i] = GdkRGBA{0.0f, 0.0f, 0.0f, 0.0f};
+  }
+  self->has_border_radii = FALSE;
+  self->has_borders = FALSE;
+  graphene_matrix_init_identity(&self->transform);
+  self->has_transform = FALSE;
+  self->z_index = 0;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -415,6 +511,76 @@ void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
 static void rn_view_scroll_offset(RnView *self, double *offset_x, double *offset_y) {
   *offset_x = self->scroll_x;
   *offset_y = self->scroll_y;
+}
+
+static gboolean rn_view_layout_transform(RnView *self, graphene_matrix_t *out) {
+  if (!self->has_transform) {
+    return FALSE;
+  }
+  graphene_matrix_init_from_matrix(out, &self->transform);
+  return TRUE;
+}
+
+static int rn_view_layout_z_index(RnView *self) {
+  return self->z_index;
+}
+
+void rn_view_set_border_radii(RnView *self, const graphene_size_t radii[4]) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  gboolean any = FALSE;
+  for (int i = 0; i < 4; i++) {
+    self->border_radii[i] = radii != nullptr ? radii[i] : graphene_size_t{0.0f, 0.0f};
+    if (self->border_radii[i].width > 0.0f || self->border_radii[i].height > 0.0f) {
+      any = TRUE;
+    }
+  }
+  self->has_border_radii = any;
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+void rn_view_set_borders(RnView *self, const float widths[4], const GdkRGBA colors[4]) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  gboolean any = FALSE;
+  for (int i = 0; i < 4; i++) {
+    self->border_widths[i] = widths != nullptr ? widths[i] : 0.0f;
+    self->border_colors[i] = colors != nullptr ? colors[i] : GdkRGBA{0.0f, 0.0f, 0.0f, 0.0f};
+    if (self->border_widths[i] > 0.0f && self->border_colors[i].alpha > 0.0f) {
+      any = TRUE;
+    }
+  }
+  self->has_borders = any;
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  if (matrix == nullptr) {
+    graphene_matrix_init_identity(&self->transform);
+    self->has_transform = FALSE;
+  } else {
+    graphene_matrix_init_from_matrix(&self->transform, matrix);
+    self->has_transform = !graphene_matrix_is_identity(matrix);
+  }
+  // Composed during the *parent's* allocation, alongside the frame, so it is
+  // the parent that has to be redone. Queueing on this widget leaves a cleared
+  // transform still applied until something else moves the parent.
+  GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(self));
+  gtk_widget_queue_allocate(parent != nullptr ? parent : GTK_WIDGET(self));
+}
+
+void rn_view_set_z_index(RnView *self, int z_index) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->z_index == z_index) {
+    return;
+  }
+  self->z_index = z_index;
+  GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(self));
+  if (parent != nullptr) {
+    gtk_widget_queue_draw(parent);
+  }
 }
 
 void rn_view_set_clips_children(RnView *self, gboolean clips) {

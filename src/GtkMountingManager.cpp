@@ -5,6 +5,7 @@
 
 #include <react/renderer/components/image/ImageEventEmitter.h>
 #include <react/renderer/components/view/AccessibilityProps.h>
+#include <react/renderer/graphics/Transform.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
@@ -555,8 +556,64 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
   // phase-1 screenshots show a child outgrowing its shrunk parent.
   rn_view_set_clips_children(view, props->getClipsContentToBounds() ? TRUE : FALSE);
 
-  // TODO(props): borderRadii, borderWidth/Colors, transform, pointerEvents,
-  // accessibility. Each maps onto a GTK snapshot node or an AT-SPI attribute.
+  rn_view_set_z_index(view, props->zIndex.value_or(0));
+
+  // Radii and widths depend on the frame -- percentage radii, and the clamping
+  // that stops opposite corners overlapping -- so they are resolved against the
+  // layout metrics rather than read raw.
+  const auto borders = props->resolveBorderMetrics(shadowView.layoutMetrics);
+
+  // GRAPHENE_SIZE_INIT is a C99 compound literal, which C++ rejects here.
+  const auto cornerSize = [](const auto &corner) {
+    return graphene_size_t{static_cast<float>(corner.horizontal), static_cast<float>(corner.vertical)};
+  };
+  const graphene_size_t radii[4] = {
+      cornerSize(borders.borderRadii.topLeft),
+      cornerSize(borders.borderRadii.topRight),
+      cornerSize(borders.borderRadii.bottomRight),
+      cornerSize(borders.borderRadii.bottomLeft),
+  };
+  rn_view_set_border_radii(view, radii);
+
+  // GTK's border node wants top, right, bottom, left -- the order CSS names
+  // them in, and the order React Native's RectangleEdges is not stored in.
+  const float widths[4] = {
+      static_cast<float>(borders.borderWidths.top),
+      static_cast<float>(borders.borderWidths.right),
+      static_cast<float>(borders.borderWidths.bottom),
+      static_cast<float>(borders.borderWidths.left),
+  };
+  const auto edgeColor = [](const facebook::react::SharedColor &color) {
+    return color ? toRgba(colorComponentsFromColor(color)) : GdkRGBA{0.0F, 0.0F, 0.0F, 0.0F};
+  };
+  const GdkRGBA colors[4] = {
+      edgeColor(borders.borderColors.top),
+      edgeColor(borders.borderColors.right),
+      edgeColor(borders.borderColors.bottom),
+      edgeColor(borders.borderColors.left),
+  };
+  rn_view_set_borders(view, widths, colors);
+
+  // resolveTransform folds in transformOrigin, but only when one was set: the
+  // default anchor is the view's centre, and the widget layer applies that.
+  const auto transform = props->resolveTransform(shadowView.layoutMetrics);
+  if (transform == facebook::react::Transform::Identity()) {
+    rn_view_set_transform(view, nullptr);
+  } else {
+    // React Native's matrix is CSS matrix3d order, which puts translation at
+    // indices 12..14 -- the same slots graphene uses. Rotations are the
+    // transpose of each other, which is why the demo checks a rotation on
+    // screen rather than trusting the memory layout.
+    float values[16];
+    for (int i = 0; i < 16; i++) {
+      values[i] = static_cast<float>(transform.matrix[static_cast<size_t>(i)]);
+    }
+    graphene_matrix_t matrix;
+    graphene_matrix_init_from_float(&matrix, values);
+    rn_view_set_transform(view, &matrix);
+  }
+
+  // TODO(props): borderStyles (dashed/dotted), pointerEvents, backfaceVisibility.
 }
 
 void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shadowView) {
@@ -567,8 +624,13 @@ void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shad
                     static_cast<float>(frame.size.width),
                     static_cast<float>(frame.size.height));
 
-  // TODO(layout): displayType == DisplayType::None should hide the widget;
-  // pointScaleFactor matters once fractional scaling is wired up.
+  // display: 'none' keeps the node in the shadow tree but takes it out of
+  // layout and painting. gtk_widget_should_layout is false for an invisible
+  // widget, so RnLayout skips it too.
+  gtk_widget_set_visible(GTK_WIDGET(view),
+                         shadowView.layoutMetrics.displayType != facebook::react::DisplayType::None);
+
+  // TODO(layout): pointScaleFactor matters once fractional scaling is wired up.
 }
 
 } // namespace rnlinux

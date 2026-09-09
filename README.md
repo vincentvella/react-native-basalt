@@ -220,6 +220,10 @@ Verified, on screen:
   Ubuntu 24.04 arm64: 40/40 unit tests under a real Wayland compositor, the demo
   rendering correctly, and the end-to-end suite passing with *real* pointer
   events through the X server rather than injected ones.
+- **`<View>`'s prop surface is largely complete.** Border radii (elliptical, per
+  corner), per-edge border widths and colours, `transform`, `zIndex`,
+  `overflow` and `display: 'none'` all work. A transform is composed during
+  layout rather than at paint time, so hit testing follows it.
 - **Accessibility.** `accessibilityRole`, `accessibilityLabel`,
   `accessibilityHint` and `accessibilityState` reach GTK's accessible layer, and
   so AT-SPI. A `<Text>` calls itself a label and an `<Image>` an image without

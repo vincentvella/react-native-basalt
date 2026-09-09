@@ -14,14 +14,14 @@ Not scheduled. Roughly by value.
 
 ## Correctness gaps in what exists
 
-- `borderRadii` / `borderWidth` / `borderColor` — needs
-  `gtk_snapshot_push_rounded_clip` plus a border node.
-- `transform` — `gsk_transform_*`, including transform-origin.
-- `displayType == DisplayType::None` should hide the widget.
+- `borderStyles` — dashed and dotted borders. GTK's border node paints solid
+  only, so these need a custom path.
+- `backfaceVisibility` — needs the transform's determinant sign at paint time.
 - `pointScaleFactor` — fractional scaling under Wayland.
-- `zIndex` — needs an explicit paint order in `RnView::snapshot`; GTK paints in
-  child order today. (react-native-gtkx has measurements on the cost of doing
-  this without a GObject vfunc chain-up.)
+- `transformOrigin` is passed through but never exercised; the default centre
+  anchor is.
+- 3D transforms have no perspective: `gsk_transform_perspective` exists, and
+  `Transform` carries the matrix, but nothing sets it up.
 
 ## Host wiring
 

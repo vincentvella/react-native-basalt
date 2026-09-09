@@ -54,6 +54,28 @@ void rn_view_set_background_color(RnView *self, gboolean has_color, const GdkRGB
 // BaseViewProps::opacity.
 void rn_view_set_opacity(RnView *self, double opacity);
 
+// Corner radii, in the order top-left, top-right, bottom-right, bottom-left.
+// Each is a width/height pair, because React Native's radii are elliptical.
+// Pass NULL for square corners.
+void rn_view_set_border_radii(RnView *self, const graphene_size_t radii[4]);
+
+// Border widths and colours, in the order top, right, bottom, left -- which is
+// the order GTK's border node wants and the order CSS names them in.
+void rn_view_set_borders(RnView *self, const float widths[4], const GdkRGBA colors[4]);
+
+// BaseViewProps::transform, already resolved by React Native.
+//
+// Applied in the layout manager rather than at paint time, so that GTK's own
+// hit testing follows it: a transformed view is picked where it appears, not
+// where its frame says it is. Anchored on the view's centre, which is what
+// every other React Native platform does and what transformOrigin is measured
+// against. Pass NULL for identity.
+void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix);
+
+// BaseViewProps::zIndex. GTK paints in child order, so this reorders painting
+// without touching the child list that mutations index into.
+void rn_view_set_z_index(RnView *self, int z_index);
+
 // The text of a <Paragraph>, already laid out.
 //
 // A Paragraph is a View that also paints text, so it gets no separate widget

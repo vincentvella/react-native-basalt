@@ -321,3 +321,34 @@ component name this platform defines -- which is the same blocker as a real
 `linux` Metro platform. It is a packaging problem wearing a rendering problem's
 clothes, and doing it by halves would mean either an unbuildable descriptor or
 a bundle that lies about what platform it is on.
+
+## transform is composed during layout, not at paint time — 2026-09-09
+
+`gtk_snapshot_transform` would have been the obvious place, and it would have
+been wrong: a transform applied while painting moves the pixels but not the
+widget, so `gtk_widget_pick` still finds the view at its untransformed frame and
+a rotated button is clickable where it *used* to be.
+
+Composing it into the `GskTransform` that `RnLayout::allocate` hands to
+`gtk_widget_allocate` moves the widget itself, and GTK's own picking follows --
+the same reason the scroll offset lives there.
+
+The anchor is the view's centre. `resolveTransform` folds in `transformOrigin`
+only when one is set, and the offsets it produces are measured *from the
+centre*, so the platform has to supply that anchor. Every other React Native
+platform does the same, iOS through its layer's default anchor point.
+
+React Native's matrix is CSS `matrix3d` order and graphene's is nominally
+row-major. The two coincide in memory for translation and scale but are
+transposes for rotation, which no unit test on an axis-aligned box can tell
+apart. The demo therefore rotates a card with a marker in one corner: a positive
+angle turns clockwise, so the marker must end up on the other side. It does, so
+no transpose is needed.
+
+## zIndex reorders painting, never the child list — 2026-09-09
+
+Fabric's Insert and Remove mutations carry an `index` into the parent's child
+list, so that list has to stay in mutation order. `RnView::snapshot` therefore
+sorts a *copy* by zIndex when any child has one, and skips the sort entirely
+when none does, which is the common case. The sort is stable, so equal zIndex
+keeps document order -- what CSS and React Native both promise.

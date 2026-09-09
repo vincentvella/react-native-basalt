@@ -145,6 +145,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     tests/test_hittest.cpp
     tests/test_image.cpp
     tests/test_accessibility.cpp
+    tests/test_viewprops.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
     src/GtkTouchDispatcher.cpp)

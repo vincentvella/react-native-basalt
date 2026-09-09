@@ -195,9 +195,14 @@ def test_initial_render(bundle: Path) -> None:
     expect_contains(tree, "role=button", "the buttons did not take their accessibilityRole")
     expect_contains(tree, "role=list", "the ScrollView did not take its accessibilityRole")
 
-    # The ScrollView must clip, or its content paints over its siblings.
-    scroller = [line for line in tree.splitlines() if "bg=#1a1e28ff" in line]
-    if not scroller or "clip" not in scroller[0]:
+    # The ScrollView must clip, or its content paints over its siblings. It is
+    # found by its accessibilityRole rather than its colour: more than one view
+    # in the demo shares a background, and matching on that picked the wrong
+    # one as soon as the demo grew.
+    scroller = [line for line in tree.splitlines() if "role=list" in line]
+    if not scroller:
+        raise Failure("no view reported itself as a list; is the ScrollView mounted?")
+    if "clip" not in scroller[0]:
         raise Failure("the ScrollView is not clipping")
 
     if scroll_offset(tree) != 0.0:
