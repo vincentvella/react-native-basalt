@@ -158,6 +158,26 @@ and returns the deepest widget at a point -- the answer React Native's own hit
 testing is looking for, now that every view is allocated at the frame Yoga gave
 it.
 
+## View flattening, and why the widget tree is flatter than the JSX
+
+The mutation stream does not mirror the component tree. React Native flattens
+views that do not need to group anything natively, and hoists their children
+into the nearest ancestor that does, with layout metrics rebased onto it. A
+`<View>` holding a row of an `<Image>` and a `<Text>` arrives as three
+*siblings* of the scroll content, not as a parent and two children.
+
+This is visible in a `RN_LINUX_DUMP_TREE` dump and is easy to mistake for a
+mounting bug, because it is invisible on screen: each view is placed at the
+frame Fabric gave it either way. A `<Pressable>` is not flattened -- it handles
+touches, so it forms a stacking context -- which is why its label *does* appear
+nested.
+
+Two consequences worth knowing. Hit testing returns the innermost view under a
+point, which may be a hoisted child rather than the component that handles the
+press; the responder system bubbles through the shadow tree, so `onPress` still
+fires, and `scripts/integration_test.py` has a scenario that pins that down.
+And `overflow: hidden` still works, because a view that clips is not flattened.
+
 ## Component registry
 
 `getDefaultComponentRegistryFactory()` is declared in ReactCommon and
@@ -221,6 +241,13 @@ are documented in the project README.
 | 6 | `<Image>`, `<ScrollView>` | **done** |
 | 7 | AT-SPI accessibility, `<TextInput>` | next |
 | 8 | `react-native-linux` npm package, `run-linux` CLI, packaging | |
+
+## Testing
+
+Two suites: `build/rn_tests` for everything reachable without a JavaScript
+runtime, and `scripts/integration_test.py` for the whole stack, asserting on the
+widget tree the host dumps rather than on a screenshot. See `docs/TESTING.md`,
+which also records what is still not covered and why.
 
 ## Risks
 

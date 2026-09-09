@@ -2,6 +2,15 @@
 
 Not scheduled. Roughly by value.
 
+## Testing
+
+- No rendering assertions: the widget tree says a view has a colour and a
+  frame, not that the right pixels reached the screen. See `docs/TESTING.md`.
+- Nothing exercises the JS thread and the main thread concurrently.
+- The end-to-end scenarios hard-code tap coordinates from the demo's layout.
+  Finding a button by its label in the dumped tree would survive a restyle.
+- Neither suite runs in CI, because there is no CI.
+
 ## Correctness gaps in what exists
 
 - `borderRadii` / `borderWidth` / `borderColor` — needs
@@ -42,10 +51,8 @@ Not scheduled. Roughly by value.
   maths would.
 - No keyboard, no focus, no key events.
 - Multi-touch is not modelled: one pointer, identifier 0.
-- Real GDK event delivery is unverified in automation. `RN_LINUX_TEST_TAP`
-  enters at the gesture callback, so everything downstream is covered and GDK's
-  routing is not. Verifying it needs a machine where synthesising a pointer
-  event is allowed.
+- Real GDK event delivery is unverified in automation; `xdotool` or `ydotool` on
+  the Linux box would close it. See `docs/TESTING.md`.
 
 ## Image
 
@@ -63,10 +70,8 @@ Not scheduled. Roughly by value.
 
 ## ScrollView
 
-- Wheel and trackpad scrolling is implemented but unverified: synthesising a
-  scroll event needs the same permission a pointer event does. The command path
-  (`scrollTo`, `scrollToEnd`) is verified, and it shares everything except
-  GDK delivery and the wheel-to-pixels conversion.
+- Wheel and trackpad scrolling is implemented but unverified; see
+  `docs/TESTING.md` for why and how to close it.
 - No momentum, so `onMomentumScrollBegin` and `onMomentumScrollEnd` never fire
   and `onScrollEndDrag` reports zero velocity. `ScrollView._isAnimating()` is
   wrong as a result.

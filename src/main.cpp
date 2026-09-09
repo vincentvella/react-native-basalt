@@ -386,8 +386,30 @@ void onActivate(GtkApplication *app, gpointer data) {
   }
 }
 
+// RN_LINUX_DUMP_TREE: write the widget tree to a file on the way out, so an
+// automated run can assert on what React actually produced rather than on a
+// screenshot. See docs/TESTING.md.
+void dumpTreeIfRequested(Host *host) {
+  const char *path = g_getenv("RN_LINUX_DUMP_TREE");
+  if (path == nullptr || host->root == nullptr) {
+    return;
+  }
+  char *description = rn_view_describe_tree(host->root);
+  GError *error = nullptr;
+  if (g_file_set_contents(path, description, -1, &error) == FALSE) {
+    g_warning("could not write %s: %s", path, error != nullptr ? error->message : "unknown error");
+    g_clear_error(&error);
+  } else {
+    g_message("wrote widget tree to %s", path);
+  }
+  g_free(description);
+}
+
 void onShutdown(GApplication * /*app*/, gpointer data) {
   auto *host = static_cast<Host *>(data);
+
+  // Before the surface stops, which tears the tree down.
+  dumpTreeIfRequested(host);
 
   if (host->choreographer != nullptr) {
     host->choreographer->detach();

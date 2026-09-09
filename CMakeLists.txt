@@ -130,6 +130,27 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
+  # ---------------------------------------------------------------------------
+  # rn_tests -- the test suite.
+  #
+  # Needs a display: every test touches widgets, and GTK cannot create one
+  # before gtk_init succeeds. It presents no window. On a headless machine run
+  # it under Xvfb; see docs/TESTING.md.
+  # ---------------------------------------------------------------------------
+  add_executable(rn_tests
+    tests/TestHarness.cpp
+    tests/test_mounting.cpp
+    tests/test_view.cpp
+    tests/test_text.cpp
+    tests/test_hittest.cpp
+    tests/test_image.cpp
+    # Hit testing lives with the touch dispatcher, which the host builds; the
+    # tests need it too, and it pulls in nothing else.
+    src/GtkTouchDispatcher.cpp)
+  target_link_libraries(rn_tests PRIVATE rn_mounting)
+  target_include_directories(rn_tests PRIVATE tests)
+  target_compile_options(rn_tests PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
+
   message(STATUS "rn_mounting enabled (RN_DIR=${RN_DIR})")
 else()
   message(STATUS "rn_mounting skipped (pass -DRN_DIR=... to enable)")

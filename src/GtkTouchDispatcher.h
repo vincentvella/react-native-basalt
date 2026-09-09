@@ -24,6 +24,14 @@
 
 namespace rnlinux {
 
+// The tag of the React Native view under a point, in `root`'s coordinates, or 0
+// if the point hits nothing.
+//
+// A free function because it is a pure function of the widget tree and nothing
+// else, which is also what makes it testable: hit testing is the part of input
+// most likely to be quietly wrong, and it needs no gestures to exercise.
+facebook::react::Tag hitTestTag(RnView *root, double x, double y);
+
 class GtkTouchDispatcher {
  public:
   GtkTouchDispatcher(GtkMountingManager *mountingManager, RnView *surfaceRoot);
@@ -54,9 +62,6 @@ class GtkTouchDispatcher {
   void dispatchTouchMove(double x, double y);
   void dispatchTouchEnd(double x, double y);
   void dispatchTouchCancel();
-
-  // The tag under (x, y), or 0 if the point hits no React Native view.
-  facebook::react::Tag hitTest(double x, double y) const;
 
   enum class TouchKind { Start, Move, End, Cancel };
 

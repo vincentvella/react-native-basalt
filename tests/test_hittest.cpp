@@ -1,0 +1,140 @@
+// Tests for hit testing.
+//
+// This is the part of input most likely to be quietly wrong, and it is a pure
+// function of the widget tree, so it can be tested without a gesture, a
+// display server, or permission to synthesise a pointer event. That matters:
+// synthesising a real click needs accessibility permission an automated run
+// does not have, so everything below GDK is tested here instead.
+
+#include "TestHarness.h"
+
+#include "GtkTouchDispatcher.h"
+#include "RnView.h"
+
+#include <sstream>
+
+namespace {
+
+RnView *addChild(RnView *parent, int tag, float x, float y, float width, float height) {
+  RnView *child = rn_view_new(tag);
+  g_object_ref_sink(child);
+  rn_view_set_frame(child, x, y, width, height);
+  rn_view_insert_child(parent, child, 0);
+  return child;
+}
+
+// gtk_widget_pick skips widgets that are not mapped, and a widget is only
+// mapped inside a window that has been shown. So these tests put the tree in a
+// real window rather than allocating it in isolation the way the layout tests
+// do -- which is also closer to what happens when a pointer actually arrives.
+//
+// Allocation happens in the frame clock's layout phase, not synchronously when
+// a child is added, so every structural change is followed by a pump that
+// spins the main loop until a frame has actually gone through. Draining the
+// context without waiting is not enough: with no frame due, the iteration
+// returns immediately and the child is still unallocated.
+struct Scene {
+  GtkWidget *window;
+  RnView *root;
+
+  explicit Scene(int width, int height) {
+    root = rn_view_new(1);
+    window = gtk_window_new();
+    gtk_window_set_default_size(GTK_WINDOW(window), width, height);
+    gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(root));
+  }
+
+  ~Scene() { gtk_window_destroy(GTK_WINDOW(window)); }
+
+  Scene(const Scene &) = delete;
+  Scene &operator=(const Scene &) = delete;
+
+  // Call once the tree is built.
+  void show() {
+    gtk_widget_set_visible(window, TRUE);
+    pump();
+  }
+
+  // Spins the main loop for long enough that a frame is drawn and the tree is
+  // allocated. Bounded, so a machine that never produces a frame fails the
+  // assertion rather than hanging the suite.
+  static void pump() {
+    const gint64 deadline = g_get_monotonic_time() + 500000; // 500ms
+    while (g_get_monotonic_time() < deadline) {
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
+      g_usleep(1000);
+    }
+  }
+};
+
+} // namespace
+
+TEST(hit_test_finds_the_view_under_a_point) {
+  Scene scene(400, 400);
+  addChild(scene.root, 20, 10.0F, 10.0F, 100.0F, 100.0F);
+  scene.show();
+
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 50.0, 50.0)), 20);
+}
+
+TEST(hit_test_misses_return_the_root_not_a_child) {
+  Scene scene(400, 400);
+  addChild(scene.root, 21, 10.0F, 10.0F, 50.0F, 50.0F);
+  scene.show();
+
+  // Outside the child but inside the root.
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 300.0, 300.0)), 1);
+}
+
+TEST(hit_test_returns_the_deepest_view) {
+  Scene scene(400, 400);
+  RnView *outer = addChild(scene.root, 30, 0.0F, 0.0F, 200.0F, 200.0F);
+  addChild(outer, 31, 20.0F, 20.0F, 60.0F, 60.0F);
+  scene.show();
+
+  // Inside the inner view: the inner one wins.
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 50.0, 50.0)), 31);
+  // Inside the outer view but outside the inner one.
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 150.0, 150.0)), 30);
+}
+
+TEST(hit_test_respects_sibling_order) {
+  Scene scene(400, 400);
+
+  // Two overlapping siblings. GTK paints in child order, so the later one is on
+  // top and should win a hit in the overlap.
+  addChild(scene.root, 40, 0.0F, 0.0F, 100.0F, 100.0F);
+  RnView *second = rn_view_new(41);
+  g_object_ref_sink(second);
+  rn_view_set_frame(second, 50.0F, 50.0F, 100.0F, 100.0F);
+  rn_view_insert_child(scene.root, second, 1);
+  scene.show();
+
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 25.0, 25.0)), 40);
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 125.0, 125.0)), 41);
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 75.0, 75.0)), 41);
+}
+
+TEST(hit_test_follows_a_scroll_offset) {
+  // The reason scrolling is expressed as an offset applied during allocation
+  // rather than as a paint-time translation: children really do move, so GTK's
+  // own picking follows them and hit testing needs no special case.
+  Scene scene(400, 400);
+  RnView *scroller = addChild(scene.root, 50, 0.0F, 0.0F, 200.0F, 200.0F);
+  addChild(scroller, 51, 0.0F, 300.0F, 200.0F, 100.0F);
+  scene.show();
+
+  // The row sits below the viewport, so nothing of it is under this point.
+  EXPECT(rnlinux::hitTestTag(scene.root, 100.0, 50.0) != 51);
+
+  rn_view_set_scroll_offset(scroller, 0.0, 300.0);
+  Scene::pump();
+
+  // Scrolled into view, the same point now lands on it.
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(scene.root, 100.0, 50.0)), 51);
+}
+
+TEST(hit_test_on_a_null_root_is_a_miss) {
+  EXPECT_EQ(static_cast<int>(rnlinux::hitTestTag(nullptr, 0.0, 0.0)), 0);
+}

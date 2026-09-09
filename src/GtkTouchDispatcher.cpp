@@ -87,8 +87,11 @@ void GtkTouchDispatcher::synthesiseTap(double x, double y) {
 // Hit testing
 // ---------------------------------------------------------------------------
 
-Tag GtkTouchDispatcher::hitTest(double x, double y) const {
-  GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(surfaceRoot_), x, y, GTK_PICK_DEFAULT);
+Tag hitTestTag(RnView *root, double x, double y) {
+  if (root == nullptr) {
+    return 0;
+  }
+  GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
 
   // The deepest widget may not be a React Native view -- and even when every
   // widget is one, walking up is what makes a touch on a child count as a touch
@@ -107,7 +110,7 @@ Tag GtkTouchDispatcher::hitTest(double x, double y) const {
 // ---------------------------------------------------------------------------
 
 void GtkTouchDispatcher::dispatchTouchStart(double x, double y) {
-  const Tag target = hitTest(x, y);
+  const Tag target = hitTestTag(surfaceRoot_, x, y);
   g_debug("touch start at (%.0f, %.0f) -> tag %d%s",
           x,
           y,

@@ -96,6 +96,18 @@ void rn_view_set_clips_children(RnView *self, gboolean clips);
 void rn_view_set_scroll_offset(RnView *self, double offset_x, double offset_y);
 void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y);
 
+// A textual description of the widget tree rooted here, one indented line per
+// view.
+//
+// This is what makes the full stack testable rather than merely watchable.
+// Everything below GDK has unit tests, but the path from JavaScript through
+// React, Fabric and the mounting manager can only be exercised by running the
+// real host -- and until now the only way to check the result was to look at a
+// screenshot. A dump can be asserted on.
+//
+// Returns a newly allocated string; free with g_free.
+char *rn_view_describe_tree(RnView *self);
+
 // Child management. Mirrors Insert/Remove mutations; index is the position
 // within the parent's child list, as Fabric numbers it.
 void rn_view_insert_child(RnView *self, RnView *child, int index);

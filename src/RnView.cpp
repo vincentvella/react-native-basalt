@@ -382,6 +382,67 @@ void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y)
   rn_view_scroll_offset(self, offset_x, offset_y);
 }
 
+static void rn_view_describe_into(RnView *self, GString *out, int depth) {
+  for (int i = 0; i < depth; i++) {
+    g_string_append(out, "  ");
+  }
+
+  g_string_append_printf(out,
+                         "view tag=%d frame=(%g,%g %gx%g)",
+                         self->tag,
+                         static_cast<double>(self->frame.origin.x),
+                         static_cast<double>(self->frame.origin.y),
+                         static_cast<double>(self->frame.size.width),
+                         static_cast<double>(self->frame.size.height));
+
+  if (self->has_background_color) {
+    g_string_append_printf(out,
+                           " bg=#%02x%02x%02x%02x",
+                           static_cast<unsigned>(self->background_color.red * 255.0 + 0.5),
+                           static_cast<unsigned>(self->background_color.green * 255.0 + 0.5),
+                           static_cast<unsigned>(self->background_color.blue * 255.0 + 0.5),
+                           static_cast<unsigned>(self->background_color.alpha * 255.0 + 0.5));
+  }
+  if (self->opacity < 1.0) {
+    g_string_append_printf(out, " opacity=%g", self->opacity);
+  }
+  if (self->clips_children) {
+    g_string_append(out, " clip");
+  }
+  if (self->scroll_x != 0.0 || self->scroll_y != 0.0) {
+    g_string_append_printf(out, " scroll=(%g,%g)", self->scroll_x, self->scroll_y);
+  }
+  if (self->texture != nullptr) {
+    g_string_append_printf(out,
+                           " texture=%dx%d",
+                           gdk_texture_get_width(self->texture),
+                           gdk_texture_get_height(self->texture));
+  }
+  if (self->text_layout != nullptr) {
+    const char *text = pango_layout_get_text(self->text_layout);
+    if (text != nullptr && *text != '\0') {
+      char *escaped = g_strescape(text, nullptr);
+      g_string_append_printf(out, " text=\"%s\"", escaped);
+      g_free(escaped);
+    }
+  }
+  g_string_append_c(out, '\n');
+
+  for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(self)); child != nullptr;
+       child = gtk_widget_get_next_sibling(child)) {
+    if (RN_IS_VIEW(child)) {
+      rn_view_describe_into(RN_VIEW(child), out, depth + 1);
+    }
+  }
+}
+
+char *rn_view_describe_tree(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+  GString *out = g_string_new(nullptr);
+  rn_view_describe_into(self, out, 0);
+  return g_string_free(out, FALSE);
+}
+
 void rn_view_insert_child(RnView *self, RnView *child, int index) {
   GtkWidget *child_widget = GTK_WIDGET(child);
   GtkWidget *parent_widget = GTK_WIDGET(self);

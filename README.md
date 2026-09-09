@@ -211,11 +211,12 @@ Verified, on screen:
 - This project's own sources build under `-Wall -Wextra` with zero diagnostics,
   enforced by the build rather than asserted.
 
-Two gaps in the evidence, both the same cause: synthesising real pointer or
-scroll events needs accessibility permission this machine's automated runs do
-not have. Taps are injected where GTK's gesture callback would call, and wheel
-scrolling is exercised only through the command path. Everything downstream of
-GDK is covered; GDK's own delivery is not.
+None of that is checked by eye any more. `build/rn_tests` covers the mutation
+walk, the widget layer, text measurement, hit testing and the image loader
+without a JavaScript runtime; `scripts/integration_test.py` runs the real host
+against the real bundle, injects taps, and asserts on the widget tree it dumps.
+See `docs/TESTING.md`, including what is still not covered -- chiefly GDK's own
+event delivery, which needs a real pointer event and so needs the Linux box.
 
 Not yet done:
 
@@ -227,6 +228,14 @@ Not yet done:
 - **No LogBox and no accessibility.**
 
 See `plan/backlog.md` for the per-component detail.
+
+## Testing
+
+    ./build/rn_tests                    # unit
+    scripts/integration_test.py         # end to end, needs a built bundle
+
+Both need a display; on a headless machine prefix with `xvfb-run -a`. See
+`docs/TESTING.md`.
 
 ## Running it
 
@@ -260,6 +269,9 @@ Environment:
                               surface-root coordinates. Enters where GTK's
                               gesture callback would, so it exercises hit
                               testing and event delivery but not GDK itself.
+    RN_LINUX_DUMP_TREE        write the widget tree to a file on the way out.
+                              Useful on its own for seeing what React actually
+                              produced, and what the end-to-end tests assert on.
 
 ## Why the bundle says `android`
 
