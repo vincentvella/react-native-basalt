@@ -76,8 +76,19 @@ preserves mutation ordering.
 
 ## Build
 
-    cmake -B build -G Ninja -DRN_DIR=/path/to/react-native/packages/react-native
-    cmake --build build
+    git clone --depth 1 https://github.com/react/react-native ../react-native
+    scripts/bootstrap.sh ../react-native
+
+    cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+      -DRN_DIR=../react-native/packages/react-native
+    nice -n 10 cmake --build build -j 12
+
+`scripts/bootstrap.sh` fetches the vendored third-party sources, builds Hermes,
+and runs React Native's codegen -- everything below that is not in the repo. It
+is idempotent, and `--force` redoes it. See `docs/HANDOFF.md` for setting up on
+a different machine.
+
+The manual equivalents of each bootstrap step are documented below.
 
 Produces `librn_view.a`, `librn_mounting.a` and the `demo_layout` executable.
 Omit `-DRN_DIR` to build only the widget layer and the demo.
