@@ -130,8 +130,17 @@ fi
 if [ ! -d "$TP/codegen/react" ]; then
   if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
     log "installing React Native's monorepo dependencies (needed by codegen)"
-    command -v yarn >/dev/null || ${NODE_RUN[@]+"${NODE_RUN[@]}"} npm install -g yarn@1.22.22
-    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
+    # Never install yarn globally. On Linux npm's global prefix is usually
+    # root-owned (/usr/lib/node_modules), so `npm install -g` fails with EACCES
+    # unless the whole bootstrap runs under sudo, which it should not have to.
+    # Homebrew's node has a user-writable prefix, which is why this only shows
+    # up off macOS.
+    if command -v yarn >/dev/null; then
+      YARN=(yarn)
+    else
+      YARN=(npx --yes yarn@1.22.22)
+    fi
+    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} "${YARN[@]}" install --network-timeout 600000)
   fi
 
   log "generating codegen artifacts"
