@@ -27,6 +27,12 @@ interface has exactly two pure-virtual methods — `executeMount` and
 
     src/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
     src/GtkMountingManager.*    IMountingManager implementation.
+    src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
+    src/LinuxComponentRegistry.h     Which components this platform supports.
+    src/LinuxNetworking.cpp     http/websocket seam. Unimplemented, on purpose.
+    src/main.cpp                The host: ReactHost, Hermes, one live surface.
+    js/demo.js                  Drives Fabric's JSI binding by hand. No React.
+    src/mount_harness.cpp       Hand-built mutations; no JS runtime.
     src/demo_layout.cpp         Renders hand-written frames; no RN needed.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
@@ -173,23 +179,36 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 Verified, on screen:
 
-- `mount_harness` builds RN's C++ core (220 objects) and drives **real
-  `ShadowViewMutation`s** through the real `GtkMountingManager` into real GTK4
-  widgets. A before/after pair confirms each mutation type:
-  Create+Insert place three views and a nested child; Update recolours a view
-  *and* changes its frame; Remove+Delete removes one entirely; untouched views
-  stay put. The nested child survives its parent's Update and overflows the
-  parent's shortened frame, which is correct for `overflow: visible`.
-- No JS runtime is involved. Hermes is not in the dependency closure at all.
-- `GtkMountingManager.cpp` compiles under `-Wall -Wextra` with zero
-  diagnostics; `static_assert(!std::is_abstract_v<GtkMountingManager>)` holds.
+- `rn_linux_host` runs a **real React Native surface**. Hermes executes
+  `js/demo.js`, which commits a shadow tree through `nativeFabricUIManager`;
+  Fabric lays it out with Yoga, diffs it, and the resulting mutations reach GTK4
+  widgets through `GtkMountingManager`. A second commit clones nodes rather than
+  recreating them, so Fabric emits Update and Remove, and the screenshots show a
+  recolour, a re-layout and a removal. Resizing the window drives
+  `setSurfaceConstraints` and Yoga re-lays out.
+- `mount_harness` still drives hand-built `ShadowViewMutation`s through the same
+  mounting manager with no JS runtime involved, which keeps the widget layer
+  testable in isolation.
+- Both build under `-Wall -Wextra` with zero diagnostics from this project's own
+  sources; `static_assert(!std::is_abstract_v<GtkMountingManager>)` holds.
 
 Not yet done:
 
-- No `ReactHost`, no Hermes, no Metro. Mutations are hand-built, not produced
-  by React reconciling a component tree.
+- No React and no Metro. `js/demo.js` speaks Fabric's binding protocol by hand,
+  which is exactly what React's renderer does, but it is not React.
+- No http or websocket client, so no dev server, no Fast Refresh and no
+  `fetch`. See `plan/decisions.md`.
 - Only `<View>` has a GTK peer. `hasComponent` and the component registry say
   so honestly.
+
+## Running it
+
+    ./build/rn_linux_host js/demo.js
+
+The bundle path defaults to `js/demo.js`. `RN_LINUX_QUIT_AFTER_MS=4000` makes
+the host quit on a timer, which is the only way to exercise the shutdown path
+in automation -- the window cannot be closed from a script, and killing the
+process skips `GApplication::shutdown` entirely.
 
 ## Building React Native's core
 

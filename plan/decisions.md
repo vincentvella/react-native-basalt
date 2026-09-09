@@ -43,3 +43,42 @@ participate in sizing would mean two layout systems disagreeing.
 `g_object_ref_sink` on Create, `g_object_unref` on Delete. Fabric's Remove
 detaches without destroying, and a view may be re-Inserted before its Delete
 arrives, so parenting alone cannot own the lifetime.
+
+## The first surface is driven by hand-written JS, not React — 2026-09-08
+
+`ReactHost::startSurface` with an empty module name registers a shadow tree
+without calling `AppRegistry.runApplication`: `SurfaceHandler::start` only
+reaches into JS when a module name is set. That leaves a surface a plain script
+can commit into through `nativeFabricUIManager`, the same JSI binding React's
+Fabric renderer drives.
+
+Taking that path meant phase 2 needed no `react` package, no Metro and no
+bundler, so the milestone proves exactly one thing: the mutation stream now
+comes from Fabric rather than from a harness. Bringing in React would have
+mixed a bundler problem into a runtime problem.
+
+The asymmetry to remember: `stopSurface` is *not* guarded the same way.
+`UIManager::stopSurface` always calls `RN$stopSurface` in JS, so a script with
+no React must install that global itself or every shutdown reports a fatal JS
+error.
+
+## The GTK4 replacement for size-allocate is the layout manager — 2026-09-08
+
+`ReactHost::setSurfaceConstraints` has to be driven from the window's real
+size, and the phase-2 plan assumed `GtkWidget::size-allocate`. GTK4 removed
+that signal. A layout manager's `allocate` is the supported replacement and is
+the one place a widget is told the size it actually got, so `RnLayout::allocate`
+reports it through an optional callback on `RnView` and the host attaches one to
+the surface root.
+
+## http and websocket are host seams, and start out unimplemented — 2026-09-08
+
+`getHttpClientFactory()` and `getWebSocketClientFactory()` are declared by
+ReactCxxPlatform and defined nowhere in it — like
+`getDefaultComponentRegistryFactory()`, every host supplies its own. Fantom
+stubs both. `ReactHost` throws without them even when nothing makes a request,
+so `src/LinuxNetworking.cpp` provides implementations that fail politely and
+log. React Native already ships a working C++ websocket client at
+`ReactCxxPlatform/react/http/platform/cxx/WebSocketClient.cpp` that its own
+CMakeLists does not compile; wiring that up is phase 3 work, since the packager
+connection is what needs it.

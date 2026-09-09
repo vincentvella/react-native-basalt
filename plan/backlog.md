@@ -15,6 +15,16 @@ Not scheduled. Roughly by value.
   child order today. (react-native-gtkx has measurements on the cost of doing
   this without a GObject vfunc chain-up.)
 
+## Host wiring
+
+- `Scheduler::reportMount` is never called. It only drives mount hooks (perf
+  tooling, Fantom's test observation), so nothing renders wrongly without it,
+  but a real host reports. Needs the mounting manager to hold a
+  `SchedulerTaskExecutor`, as `TesterAppDelegate` does.
+- Real http and websocket clients; see `plan/decisions.md`. Blocks Metro.
+- `IDevUIDelegate` / LogBox: JS errors currently go to `g_warning` and nothing
+  else.
+
 ## Platform surface
 
 - `IImageLoader` via GdkPixbuf or glycin.

@@ -1,5 +1,9 @@
 # Phase 2 — ReactHost + Hermes + a live surface
 
+> **Done, 2026-09-08.** `src/main.cpp` and `js/demo.js`. What the plan got
+> wrong, and the answers to the questions left open below, are recorded at the
+> bottom of this file and in `plan/decisions.md`.
+
 **Goal:** a GTK window running a real React Native surface, with the JS side
 being a hand-written script rather than a Metro bundle. Success is the mutation
 stream arriving from Fabric instead of from `mount_harness`.
@@ -102,13 +106,26 @@ avoid needing a parser path first.
   `now()` and `onAnimationFrame(timestamp)`. This is the natural home for the
   GTK frame clock.
 
+## Answered by doing it
+
+- **`turboModuleProviders = {}` is fine.** `ReactHost` wraps whatever it is
+  given in `ReactCxxTurboModuleProvider`, which supplies the core modules
+  itself. An empty list means "no extra modules", not "no modules".
+- **No barrier is needed.** Fantom's `flushMessageQueue()` exists because its
+  queue is a `StubQueue` that only runs work when pumped. With the default
+  `MessageQueueThreadImpl` the queue is a real thread that drains on its own.
+  Ordering still holds: `startSurface` registers the shadow tree synchronously
+  on the calling thread, so scheduling the JS commit after it is enough.
+- **`size-allocate` does not exist in GTK4.** Step 4 above assumed it. The
+  layout manager's `allocate` is the replacement; see `plan/decisions.md`.
+- **http and websocket are not optional.** `ReactHost` throws without both
+  factories in the ContextContainer, and ReactCxxPlatform defines neither.
+- **`stopSurface` always calls into JS**, even for a surface started with an
+  empty module name, so the script must install `RN$stopSurface`.
+
 ## Still open
 
-- Does `ReactHost` come up with `turboModuleProviders = {}`, or do core modules
-  fail to resolve? Fantom never tries.
-- Fantom calls `flushMessageQueue()` after construction "to ensure ReactHost
-  initialisation is completed". With a real threaded MessageQueueThread, what
-  is the equivalent barrier?
+- `Scheduler::reportMount` is never called; see `plan/backlog.md`.
 
 ## Done when
 

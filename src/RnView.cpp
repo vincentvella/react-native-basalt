@@ -25,10 +25,14 @@ static void rn_layout_measure(GtkLayoutManager * /*manager*/,
   *natural_baseline = -1;
 }
 
+// Defined below; lets allocate report the root's size without exposing the
+// struct.
+static void rn_view_notify_allocation(RnView *self, int width, int height);
+
 static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
                                GtkWidget *widget,
-                               int /*width*/,
-                               int /*height*/,
+                               int width,
+                               int height,
                                int /*baseline*/) {
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
        child = gtk_widget_get_next_sibling(child)) {
@@ -49,6 +53,13 @@ static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
                         static_cast<int>(frame.size.height),
                         -1,
                         transform);
+  }
+
+  // Children are placed from frames RN already decided, so this is not part of
+  // laying out; it is how the widget tells the host what size the window gave
+  // it. On a surface root that becomes the next layout constraint.
+  if (RN_IS_VIEW(widget)) {
+    rn_view_notify_allocation(RN_VIEW(widget), width, height);
   }
 }
 
@@ -73,7 +84,32 @@ struct _RnView {
   gboolean has_background_color;
   GdkRGBA background_color;
   double opacity;
+
+  RnViewResizeFunc resize_callback;
+  gpointer resize_data;
+  int allocated_width;
+  int allocated_height;
 };
+
+static void rn_view_notify_allocation(RnView *self, int width, int height) {
+  if (self->resize_callback == nullptr) {
+    return;
+  }
+  // allocate runs on every layout pass, most of which change nothing. Only a
+  // real size change is worth a Fabric commit.
+  if (width == self->allocated_width && height == self->allocated_height) {
+    return;
+  }
+  self->allocated_width = width;
+  self->allocated_height = height;
+  self->resize_callback(self, width, height, self->resize_data);
+}
+
+void rn_view_set_resize_callback(RnView *self, RnViewResizeFunc callback, gpointer user_data) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  self->resize_callback = callback;
+  self->resize_data = user_data;
+}
 
 G_DEFINE_TYPE(RnView, rn_view, GTK_TYPE_WIDGET)
 
@@ -141,6 +177,11 @@ static void rn_view_init(RnView *self) {
   self->has_background_color = FALSE;
   self->background_color = GdkRGBA{0.0f, 0.0f, 0.0f, 0.0f};
   self->opacity = 1.0;
+  self->resize_callback = nullptr;
+  self->resize_data = nullptr;
+  // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
+  self->allocated_width = -1;
+  self->allocated_height = -1;
 }
 
 RnView *rn_view_new(int tag) {

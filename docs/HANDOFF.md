@@ -11,15 +11,17 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 0 | GTK view layer, mounting manager | done |
 | 1 | Real Fabric mutations → GTK widgets, no JS | done, verified on screen |
 | 2 | RN's full C++ core + Hermes + codegen building | **done**, on Linux and macOS |
-| 2 | `main.cpp`: construct `ReactHost`, run a surface | **next** |
-| 3 | Metro bundle, flexbox, Fast Refresh | |
+| 2 | `main.cpp`: construct `ReactHost`, run a surface | done, verified on screen |
+| 3 | Metro bundle, React, Fast Refresh | **next** |
 | 4+ | Pango text, images, input, AT-SPI | see `docs/ARCHITECTURE.md` |
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
-`ReactHost`), plus Hermes and codegen. `mount_harness` drives real
-`ShadowViewMutation`s through the real mounting manager into real widgets.
+`ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real surface:
+Hermes executes a script, Fabric commits and diffs a shadow tree, and the
+resulting mutations reach GTK4 widgets through `GtkMountingManager`.
 
-Nothing has yet run JS. `main.cpp` does not exist.
+There is still no React and no Metro. `js/demo.js` drives
+`nativeFabricUIManager` by hand, which is what phase 3 replaces.
 
 ## Setup
 

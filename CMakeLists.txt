@@ -15,6 +15,9 @@ pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
 # ---------------------------------------------------------------------------
 
 add_library(rn_view STATIC src/RnView.cpp)
+# This project's own sources are held to -Wall -Wextra. React Native's are not:
+# its targets set their own flags, and these are PRIVATE so they never reach it.
+target_compile_options(rn_view PRIVATE -Wall -Wextra)
 target_include_directories(rn_view PUBLIC src)
 target_link_libraries(rn_view PUBLIC PkgConfig::GTK4)
 
@@ -64,8 +67,12 @@ if(DEFINED RN_DIR)
 
   add_library(rn_mounting STATIC src/GtkMountingManager.cpp)
 
-  target_include_directories(rn_mounting PUBLIC
-    src
+  target_include_directories(rn_mounting PUBLIC src)
+
+  # SYSTEM, so -Wall -Wextra on this project's own sources does not drown in
+  # diagnostics from React Native's headers, which are not -Wextra clean (its
+  # own targets build with a narrower warning set).
+  target_include_directories(rn_mounting SYSTEM PUBLIC
     ${RN_DIR}/ReactCommon
     ${RN_DIR}/ReactCommon/jsi
     ${RN_DIR}/ReactCxxPlatform
@@ -89,7 +96,7 @@ if(DEFINED RN_DIR)
   )
 
   # RN headers carry Xcode's #pragma mark, which GCC does not recognise.
-  target_compile_options(rn_mounting PRIVATE -Wno-unknown-pragmas)
+  target_compile_options(rn_mounting PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
   target_link_libraries(rn_mounting PUBLIC rn_view rn_core)
 target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
@@ -101,6 +108,17 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   add_executable(mount_harness src/mount_harness.cpp)
   target_link_libraries(mount_harness PRIVATE rn_mounting)
   target_compile_options(mount_harness PRIVATE -Wno-unknown-pragmas)
+
+  # ---------------------------------------------------------------------------
+  # rn_linux_host -- the real thing: ReactHost, Hermes and a live surface, with
+  # the mutation stream coming from Fabric rather than from a harness.
+  # ---------------------------------------------------------------------------
+  add_executable(rn_linux_host
+    src/main.cpp
+    src/GtkAnimationChoreographer.cpp
+    src/LinuxNetworking.cpp)
+  target_link_libraries(rn_linux_host PRIVATE rn_mounting)
+  target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
   message(STATUS "rn_mounting enabled (RN_DIR=${RN_DIR})")
 else()

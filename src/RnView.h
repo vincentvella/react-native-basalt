@@ -44,6 +44,15 @@ void rn_view_set_background_color(RnView *self, gboolean has_color, const GdkRGB
 // BaseViewProps::opacity.
 void rn_view_set_opacity(RnView *self, double opacity);
 
+// Called on the GTK main thread when this widget's own allocation changes.
+//
+// The host attaches one to a surface root to drive
+// ReactHost::setSurfaceConstraints. GTK4 removed GtkWidget::size-allocate, and
+// a layout manager's allocate is the supported replacement: it is the one
+// place a widget is told the size it actually got.
+typedef void (*RnViewResizeFunc)(RnView *self, int width, int height, gpointer user_data);
+void rn_view_set_resize_callback(RnView *self, RnViewResizeFunc callback, gpointer user_data);
+
 // Child management. Mirrors Insert/Remove mutations; index is the position
 // within the parent's child list, as Fabric numbers it.
 void rn_view_insert_child(RnView *self, RnView *child, int index);
