@@ -9,7 +9,8 @@ Not scheduled. Roughly by value.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
-- Neither suite runs in CI, because there is no CI.
+- Neither suite runs in CI, because there is no CI. Everything needed is now
+  scripted, so this is mostly a matter of somewhere to run it.
 
 ## Correctness gaps in what exists
 
@@ -51,8 +52,9 @@ Not scheduled. Roughly by value.
   maths would.
 - No keyboard, no focus, no key events.
 - Multi-touch is not modelled: one pointer, identifier 0.
-- Real GDK event delivery is unverified in automation; `xdotool` or `ydotool` on
-  the Linux box would close it. See `docs/TESTING.md`.
+- Wayland input is unverified. Rendering is checked on Wayland and input on
+  X11, but not both at once: a headless compositor has no seat, so there is no
+  pointer to move. Needs a desktop session or real hardware.
 
 ## Image
 
@@ -70,8 +72,7 @@ Not scheduled. Roughly by value.
 
 ## ScrollView
 
-- Wheel and trackpad scrolling is implemented but unverified; see
-  `docs/TESTING.md` for why and how to close it.
+- Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11.
 - No momentum, so `onMomentumScrollBegin` and `onMomentumScrollEnd` never fire
   and `onScrollEndDrag` reports zero velocity. `ScrollView._isAnimating()` is
   wrong as a result.

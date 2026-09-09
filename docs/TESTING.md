@@ -71,24 +71,103 @@ the demo's spacing and the coordinates need changing too — the alternative,
 searching the dumped tree for a button by its label and tapping its centre,
 would be more robust and is worth doing if this list grows.
 
+## Input: real events, and where they are not
+
+The end-to-end suite delivers taps one of two ways, and says which at the top of
+its output.
+
+**`real`** — `xdotool` moves the pointer and clicks, so the event goes through
+the X server and GDK exactly as a person's would. This is the only mode that
+exercises event delivery itself. Chosen automatically when `DISPLAY` is set and
+`xdotool` is installed.
+
+**`injected`** — `RN_LINUX_TEST_TAP` calls the gesture callback directly,
+skipping GDK. The fallback where a real event cannot be synthesised, which
+notably includes macOS: doing it there needs accessibility permission an
+automated run does not have.
+
+Force either with `--input real` or `--input injected`.
+
+## Running on Linux
+
+The project targets Linux and is developed on a Mac, so everything here should
+be checked on Linux before it is believed. A VM is enough:
+
+```bash
+brew install lima
+limactl start --name=rnlinux <a template with vz, 8 cpus, 16GiB, 120GiB>
+limactl shell rnlinux
+```
+
+Apple Virtualization rather than QEMU: the guest is aarch64 like the host, so it
+runs at native speed. Building React Native's core and Hermes under emulation
+would take hours.
+
+Inside, on Ubuntu 24.04:
+
+```bash
+sudo apt install build-essential clang cmake ninja-build pkg-config git curl \
+  libgtk-4-dev libpango1.0-dev libglib2.0-dev libgoogle-glog-dev \
+  libboost-dev libboost-regex-dev libfmt-dev libdouble-conversion-dev \
+  libgflags-dev libssl-dev libcurl4-openssl-dev
+# Node 24: React Native needs ^22.13 || ^24.3 || >= 26, and 24.04 ships 18.
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt install nodejs
+```
+
+Then the usual bootstrap, cmake, build.
+
+### Rendering, on Wayland
+
+A real compositor, headless, with no GPU:
+
+```bash
+sudo apt install sway grim mesa-vulkan-drivers libgl1-mesa-dri
+printf 'output HEADLESS-1 resolution 1400x1000\ndefault_border none\n' > /tmp/sway.conf
+XDG_RUNTIME_DIR=/run/user/$(id -u) WLR_BACKENDS=headless WLR_RENDERER=pixman \
+  sway -c /tmp/sway.conf &
+WAYLAND_DISPLAY=wayland-1 GSK_RENDERER=cairo ./build/rn_tests
+grim shot.png
+```
+
+`WLR_RENDERER=pixman` matters: without a GPU, wlroots' default renderer fails
+with `drmGetDevices2 failed` and the compositor starts but draws nothing.
+`GSK_RENDERER=cairo` keeps GTK off the GL path for the same reason.
+
+### Input, on X11
+
+Real pointer events need a seat with input devices, which a headless Wayland
+compositor does not have — sway sees no inputs, and `swaymsg seat … cursor`
+silently does nothing. Getting one means logind, a session and `uinput`, which
+is a lot of machinery for one assertion. X11 gives the same guarantee for far
+less:
+
+```bash
+sudo apt install xvfb xdotool
+Xvfb :99 -screen 0 1400x1000x24 &
+DISPLAY=:99 GDK_BACKEND=x11 GSK_RENDERER=cairo scripts/integration_test.py
+```
+
+That is a genuine event through the X server and GDK. The wheel path checks out
+too: five `xdotool click 5` notches move the content exactly 265 points, which
+is the 53-point step in `GtkScrollViewManager` times five.
+
 ## What is still not covered
 
-**GDK's own event delivery.** Taps enter at the point GTK's gesture callback
-would call them, and wheel scrolling is exercised only through the `scrollTo`
-command path. Everything downstream is covered; what is not is GDK routing a
-real pointer or scroll event into the controller, and the wheel-notch to pixels
-conversion.
+**Wayland input.** Rendering is verified on Wayland and input on X11, but not
+both at once. Closing it needs a compositor with a real seat — a desktop session
+in the VM, or a physical Linux machine.
 
-Synthesising a real input event means driving the window system. On macOS that
-needs accessibility permission, which an automated run does not have — hence the
-injection point. Two ways to close it, both on the platform this actually
-targets:
+**Rendering.** Nothing asserts on pixels. The widget tree says a view has a
+background colour and a frame, not that the right pixels reached the screen. A
+screenshot comparison would catch paint bugs the tree cannot — wrong z-order,
+a missing clip, text drawn in the wrong colour — but it needs a reference image
+per machine, and font rendering differs enough between them that the references
+would not travel. Reasonable to add on one fixed machine, not as a portable
+suite.
 
-- **X11:** `xdotool mousemove 657 650 click 1`
-- **Wayland:** `ydotool`, or `wtype` for keys
-
-Either would let the integration suite drive the host the way a person does. It
-is worth doing on the Arch box; see `docs/HANDOFF.md`.
+**Threading.** The mounting manager asserts it is on the main thread, and text
+measurement takes a mutex, but nothing exercises the JS thread and the main
+thread concurrently.
 
 **Rendering.** Nothing asserts on pixels. The widget tree says a view has a
 background colour and a frame, not that the right pixels reached the screen. A

@@ -35,7 +35,8 @@ surface rather than the runtime: no `<TextInput>`, and no keyboard or focus
 model.
 
 There are tests now -- `build/rn_tests` and `scripts/integration_test.py`. See
-`docs/TESTING.md`.
+`docs/TESTING.md`, which also has the recipe for running everything on Linux in
+a VM, which is where it should be checked before being believed.
 
 ## Setup
 
@@ -124,6 +125,29 @@ installs yarn globally into that node if it is absent.
 exposes. A five-line Swift program over `CGWindowListCopyWindowInfo`, filtered
 by `kCGWindowOwnerPID`, gives it; compile it once with `swiftc` because
 `swift <file>` interprets slowly enough to miss the window's first frame.
+
+## Verified on Linux, 2026-09-09
+
+Everything from phase 2 onwards had only ever run on macOS against the quartz
+backend. It now also runs on Ubuntu 24.04 arm64, in a Lima VM using Apple
+Virtualization, with clang 18, GTK 4.14.5 and Pango 1.52.1.
+
+Two portability bugs turned up immediately, both invisible on macOS:
+
+- `bootstrap.sh` did `npm install -g yarn`, which needs root on a stock Ubuntu
+  because npm's global prefix is `/usr/lib/node_modules`. Homebrew's node has a
+  user-writable prefix. yarn now installs under `third_party/`.
+- React Native's targets build with `-Werror`, and on Linux clang uses
+  libstdc++, whose `std::bind` instantiates the deprecated `std::result_of`.
+  libc++ does not, so React Native never sees it.
+
+What was checked: 40/40 unit tests under a headless sway with the pixman
+renderer; the demo rendering correctly, captured with `grim`; and the
+end-to-end suite passing with real pointer events through an X server, which
+also confirmed the wheel path converts notches to pixels exactly as intended.
+
+Wayland *input* is still unverified -- a headless compositor has no seat, so
+there is no pointer to move. That needs a desktop session or real hardware.
 
 ## The honest caveat about the platform
 

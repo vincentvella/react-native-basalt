@@ -116,8 +116,18 @@ Omit `-DRN_DIR` to build only the widget layer and the demo.
 
 ### Dependencies
 
-System packages (Arch): `gtk4 pango google-glog boost gflags fmt
-double-conversion openssl curl cmake ninja clang`.
+System packages.
+
+    Arch    gtk4 pango google-glog boost gflags fmt double-conversion
+            openssl curl cmake ninja clang
+    Debian  libgtk-4-dev libpango1.0-dev libglib2.0-dev libgoogle-glog-dev
+    Ubuntu  libboost-dev libboost-regex-dev libfmt-dev libgflags-dev
+            libdouble-conversion-dev libssl-dev libcurl4-openssl-dev
+            build-essential clang cmake ninja-build pkg-config
+
+Ubuntu 24.04 ships Node 18, which React Native rejects; install 24 from
+NodeSource. See `docs/TESTING.md` for the whole recipe, including running the
+suites on Linux.
 
 `boost` is mostly headers, but `boost_regex` is linked: folly's URI parser needs
 it, and React Native's websocket client needs folly's URI parser.
@@ -206,6 +216,10 @@ Verified, on screen:
 - **Text renders and measures** through Pango, so Yoga sizes paragraphs the way
   it does on iOS and Android, and narrowing the window re-wraps them.
 - **React runs, from Metro, with Fast Refresh.**
+- **It works on Linux, not only on the Mac it is developed on.** Verified on
+  Ubuntu 24.04 arm64: 40/40 unit tests under a real Wayland compositor, the demo
+  rendering correctly, and the end-to-end suite passing with *real* pointer
+  events through the X server rather than injected ones.
 - **Accessibility.** `accessibilityRole`, `accessibilityLabel`,
   `accessibilityHint` and `accessibilityState` reach GTK's accessible layer, and
   so AT-SPI. A `<Text>` calls itself a label and an `<Image>` an image without
@@ -216,11 +230,11 @@ Verified, on screen:
   enforced by the build rather than asserted.
 
 None of that is checked by eye any more. `build/rn_tests` covers the mutation
-walk, the widget layer, text measurement, hit testing and the image loader
-without a JavaScript runtime; `scripts/integration_test.py` runs the real host
-against the real bundle, injects taps, and asserts on the widget tree it dumps.
-See `docs/TESTING.md`, including what is still not covered -- chiefly GDK's own
-event delivery, which needs a real pointer event and so needs the Linux box.
+walk, the widget layer, text measurement, hit testing, the image loader and
+accessibility without a JavaScript runtime; `scripts/integration_test.py` runs
+the real host against the real bundle and asserts on the widget tree it dumps.
+On Linux it drives the host with real pointer events, so GDK's own delivery is
+covered too. See `docs/TESTING.md` for what is still not.
 
 Not yet done:
 
