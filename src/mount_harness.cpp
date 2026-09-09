@@ -1,6 +1,10 @@
 // Drives real ShadowViewMutations through the real GtkMountingManager into
 // real GTK widgets, with no JS runtime, no Hermes and no Metro.
 //
+// Note that executeMount only *queues*: in a real host it is called on the JS
+// thread and marshals to the GTK main thread. Calling it from the main thread
+// here takes the same path, one main-loop turn later.
+//
 // This is the checkpoint between "the mounting manager compiles" and "React
 // Native runs": it exercises the actual mutation walk against the actual
 // Fabric types, so a mistake in the Create/Insert/Update/Remove/Delete
@@ -80,7 +84,7 @@ gboolean applySecondTransaction(gpointer /*user_data*/) {
 
   g_mountingManager->executeMount(kSurfaceId, makeTransaction(2, std::move(mutations)));
 
-  g_message("--- transaction 2 applied ---");
+  g_message("--- transaction 2 queued ---");
   return G_SOURCE_REMOVE;
 }
 
@@ -115,7 +119,7 @@ void onActivate(GtkApplication *app, gpointer /*user_data*/) {
 
   g_mountingManager->executeMount(kSurfaceId, makeTransaction(1, std::move(mutations)));
 
-  g_message("--- transaction 1 applied ---");
+  g_message("--- transaction 1 queued (applies on the next main-loop turn) ---");
 
   gtk_window_present(GTK_WINDOW(window));
 

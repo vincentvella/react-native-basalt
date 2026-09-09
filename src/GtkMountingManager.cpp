@@ -51,10 +51,40 @@ GtkMountingManager::~GtkMountingManager() noexcept {
 // Mutation walk
 // ---------------------------------------------------------------------------
 
+namespace {
+
+// Carries a transaction from the JS thread to the GTK main thread.
+struct PendingMount {
+  GtkMountingManager *manager;
+  SurfaceId surfaceId;
+  MountingTransaction transaction;
+};
+
+gboolean applyPendingMount(gpointer data) {
+  auto *pending = static_cast<PendingMount *>(data);
+  pending->manager->applyTransaction(pending->surfaceId, std::move(pending->transaction));
+  delete pending;
+  return G_SOURCE_REMOVE;
+}
+
+} // namespace
+
 void GtkMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction &&transaction) {
-  // Mounting touches GTK widgets, which is main-thread-only.
+  // This runs on the JS thread: Scheduler::uiManagerDidFinishTransaction queues
+  // the mount via RuntimeScheduler::scheduleRenderingUpdate, which drains in
+  // the event loop's "update the rendering" step with the jsi::Runtime live.
+  // GTK widgets are main-thread-only, so nothing here may touch them.
+  //
+  // Always queue, never invoke directly even when already on the main thread:
+  // g_idle sources at equal priority run in the order they were added, which is
+  // what keeps mutation ordering intact. iOS and Android marshal here too.
+  auto *pending = new PendingMount{this, surfaceId, std::move(transaction)};
+  g_idle_add_full(G_PRIORITY_DEFAULT, applyPendingMount, pending, nullptr);
+}
+
+void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransaction &&transaction) {
   assert(std::this_thread::get_id() == mainThreadId_ &&
-         "executeMount must run on the GTK main thread");
+         "applyTransaction must run on the GTK main thread");
 
   for (const auto &mutation : transaction.getMutations()) {
     switch (mutation.type) {

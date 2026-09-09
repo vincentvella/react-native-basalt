@@ -22,6 +22,8 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
 
   // --- IMountingManager -----------------------------------------------------
 
+  // Called on the JS thread, from the event loop's "update the rendering"
+  // step. Hands the transaction to the GTK main thread; does not touch widgets.
   void executeMount(facebook::react::SurfaceId surfaceId,
                     facebook::react::MountingTransaction &&transaction) override;
 
@@ -44,6 +46,12 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void destroySurfaceRoot(facebook::react::SurfaceId surfaceId);
   RnView *getSurfaceRoot(facebook::react::SurfaceId surfaceId) const;
 
+  // Applies a transaction to the widget tree. Invoked on the GTK main thread by
+  // executeMount's marshalling -- not part of IMountingManager, and never to be
+  // called directly.
+  void applyTransaction(facebook::react::SurfaceId surfaceId,
+                        facebook::react::MountingTransaction &&transaction);
+
  private:
   RnView *viewForTag(facebook::react::Tag tag) const;
 
@@ -56,9 +64,8 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   // thing keeping it alive.
   std::unordered_map<facebook::react::Tag, RnView *> registry_;
 
-  // Mounting must happen on the GTK main thread. The host guarantees this by
-  // driving RunLoopObserverManager from GTK's frame clock; this records the
-  // thread the manager was constructed on so the invariant can be asserted.
+  // The GTK main thread, recorded at construction. executeMount arrives on the
+  // JS thread and marshals here; applyTransaction asserts it got there.
   std::thread::id mainThreadId_;
 };
 

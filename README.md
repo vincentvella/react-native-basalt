@@ -63,11 +63,16 @@ which lets the root live in the same registry as every other view.
 
 ## Threading
 
-`executeMount` is reached from `SchedulerDelegateImpl::schedulerShouldRender
-Transactions`, which is driven by the host's `RunLoopObserverManager`. Wiring
-that observer to GTK's frame clock puts mounting on the GTK main thread by
-construction, with no marshalling. `GtkMountingManager` asserts the invariant
-rather than assuming it.
+`executeMount` arrives on the **JS thread**, from the event loop's "update the
+rendering" step (`RuntimeScheduler_Modern::updateRendering`, called with the
+`jsi::Runtime` live). GTK widgets are main-thread-only, so `executeMount` only
+queues the transaction onto a GLib idle source; `applyTransaction` does the
+widget work on the main thread and asserts it got there. iOS and Android
+marshal at the same point.
+
+Queuing is unconditional, even when the caller is already the main thread:
+equal-priority GLib idle sources run in insertion order, which is what
+preserves mutation ordering.
 
 ## Build
 

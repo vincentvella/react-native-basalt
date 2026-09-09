@@ -101,14 +101,33 @@ the root live in the same registry as every other view.
 
 ## Threading
 
-`executeMount` is reached from
-`SchedulerDelegateImpl::schedulerShouldRenderTransactions`, which is driven by
-the host's `RunLoopObserverManager`. Because the **host** owns that observer,
-wiring it to GTK's frame clock puts mounting on the GTK main thread by
-construction — no marshalling, no locks around the widget tree.
+`executeMount` runs on the **JS thread**, not the UI thread. The path is:
 
-`GtkMountingManager` records its construction thread and asserts the invariant
-rather than assuming it.
+```
+Scheduler::uiManagerDidFinishTransaction
+  -> RuntimeScheduler::scheduleRenderingUpdate      (queues)
+  -> RuntimeScheduler_Modern::updateRendering       (JS thread, jsi::Runtime live)
+  -> SchedulerDelegateImpl::schedulerShouldRenderTransactions
+  -> IMountingManager::executeMount
+```
+
+`updateRendering` is the "update the rendering" step of React Native's event
+loop, drained inside `executeTask` with the runtime live. So a mounting manager
+must not touch platform widgets there. iOS and Android both marshal at this
+point -- that is what `RCTMountingManager`'s main-thread dispatch and Android's
+`MountItemDispatcher` are for.
+
+`GtkMountingManager::executeMount` therefore only moves the transaction onto a
+`g_idle_add_full(G_PRIORITY_DEFAULT, ...)` source; `applyTransaction` does the
+widget work on the GTK main thread and asserts it got there. Queuing is
+unconditional even when already on the main thread, because GLib idle sources
+at equal priority run in insertion order, and that ordering is what keeps the
+mutation stream correct.
+
+`RunLoopObserverManager`, despite the name, is **not** what drives mounting. It
+creates the `EventBeat` that flushes the event queue in step with the run loop.
+It still needs wiring to GTK's frame clock, but for event delivery and
+animations (`AnimationChoreographer`), not for mounts.
 
 ## Component registry
 
