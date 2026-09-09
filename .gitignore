@@ -1,0 +1,10 @@
+build/
+
+# Fetched third-party sources, pinned to the versions React Native builds
+# against. See README.md for the curl/tar commands that populate these.
+third_party/folly/
+third_party/fast_float/
+
+# Local working notes, not documentation. Durable facts graduate into
+# README.md or docs/ARCHITECTURE.md.
+plan/

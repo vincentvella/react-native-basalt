@@ -1,0 +1,65 @@
+// react-native-linux — Fabric mounting layer
+//
+// Implements ReactCxxPlatform's IMountingManager: the single interface
+// ReactHost requires in order to put a React Native surface on screen.
+// Everything below translates ShadowViewMutation into GTK4 widget operations.
+
+#pragma once
+
+#include "RnView.h"
+
+#include <react/renderer/uimanager/IMountingManager.h>
+
+#include <thread>
+#include <unordered_map>
+
+namespace rnlinux {
+
+class GtkMountingManager final : public facebook::react::IMountingManager {
+ public:
+  GtkMountingManager();
+  ~GtkMountingManager() noexcept override;
+
+  // --- IMountingManager -----------------------------------------------------
+
+  void executeMount(facebook::react::SurfaceId surfaceId,
+                    facebook::react::MountingTransaction &&transaction) override;
+
+  void dispatchCommand(const facebook::react::ShadowView &shadowView,
+                       const std::string &commandName,
+                       const folly::dynamic &args) override;
+
+  facebook::react::ComponentRegistryFactory getComponentRegistryFactory() override;
+
+  bool hasComponent(const std::string &name) override;
+
+  // --- Host-facing ----------------------------------------------------------
+
+  // Fabric does not emit a Create mutation for a surface's root: the root
+  // shadow node is the base of every diff, so it must already exist. The host
+  // calls this before ReactHost::startSurface and parents the returned widget
+  // into a GtkWindow. In Fabric a SurfaceId *is* the root node's tag, which is
+  // what lets the root participate in the registry like any other view.
+  RnView *createSurfaceRoot(facebook::react::SurfaceId surfaceId);
+  void destroySurfaceRoot(facebook::react::SurfaceId surfaceId);
+  RnView *getSurfaceRoot(facebook::react::SurfaceId surfaceId) const;
+
+ private:
+  RnView *viewForTag(facebook::react::Tag tag) const;
+
+  void applyShadowView(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
+
+  // Views are held with a strong reference from Create until Delete. Between a
+  // Remove and its Delete a view has no parent, so the registry is the only
+  // thing keeping it alive.
+  std::unordered_map<facebook::react::Tag, RnView *> registry_;
+
+  // Mounting must happen on the GTK main thread. The host guarantees this by
+  // driving RunLoopObserverManager from GTK's frame clock; this records the
+  // thread the manager was constructed on so the invariant can be asserted.
+  std::thread::id mainThreadId_;
+};
+
+} // namespace rnlinux
