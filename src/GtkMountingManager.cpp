@@ -3,6 +3,8 @@
 #include "LinuxComponentRegistry.h"
 #include "PangoTextLayout.h"
 
+#include <react/renderer/components/image/ImageEventEmitter.h>
+#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -27,8 +29,10 @@ using facebook::react::ShadowView;
 using facebook::react::ShadowViewMutation;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
+using facebook::react::ImageEventEmitter;
+using facebook::react::ImageProps;
+using facebook::react::ImageResizeMode;
 using facebook::react::ParagraphState;
-using facebook::react::TouchEventEmitter;
 using facebook::react::ViewProps;
 
 namespace {
@@ -116,6 +120,7 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
           g_object_unref(it->second);
           registry_.erase(it);
           eventEmitters_.erase(tag);
+          imageUris_.erase(tag);
         } else {
           g_warning("Delete for unknown tag %d", static_cast<int>(tag));
         }
@@ -194,11 +199,108 @@ ComponentRegistryFactory GtkMountingManager::getComponentRegistryFactory() {
   return facebook::react::getDefaultComponentRegistryFactory();
 }
 
+namespace {
+
+RnImageFit toImageFit(ImageResizeMode mode) {
+  switch (mode) {
+    case ImageResizeMode::Contain:
+      return RN_IMAGE_FIT_CONTAIN;
+    case ImageResizeMode::Stretch:
+      return RN_IMAGE_FIT_STRETCH;
+    case ImageResizeMode::Center:
+    case ImageResizeMode::None:
+      return RN_IMAGE_FIT_CENTER;
+    case ImageResizeMode::Repeat:
+      // No repeating draw yet; centring is the least wrong single draw.
+      return RN_IMAGE_FIT_CENTER;
+    case ImageResizeMode::Cover:
+      break;
+  }
+  return RN_IMAGE_FIT_COVER;
+}
+
+} // namespace
+
+// React Native's cxx ImageManager is a stub that never produces an
+// ImageResponse, so nothing arrives through ImageState. The URI is read off the
+// props and loaded here instead, which is also how Android does it.
+void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "Image") {
+    return;
+  }
+
+  const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
+  if (props == nullptr) {
+    return;
+  }
+
+  const RnImageFit fit = toImageFit(props->resizeMode);
+  const std::string uri = props->sources.empty() ? std::string{} : props->sources.front().uri;
+  const Tag tag = shadowView.tag;
+
+  // A mutation that changed only layout must not restart the load, or an
+  // <Image> would flicker every time its parent resized. Re-requesting the same
+  // URI is cheap -- the loader answers from its cache on this thread -- and it
+  // reapplies the fit, which is the only thing that can have changed.
+  const auto known = imageUris_.find(tag);
+  if (known != imageUris_.end() && known->second == uri) {
+    if (!uri.empty()) {
+      imageLoader_.load(uri, [this, tag, fit](GdkTexture *texture, const std::string &) {
+        if (RnView *target = viewForTag(tag); target != nullptr) {
+          rn_view_set_texture(target, texture, fit);
+        }
+      });
+    }
+    return;
+  }
+
+  imageUris_[tag] = uri;
+
+  if (uri.empty()) {
+    rn_view_set_texture(view, nullptr, fit);
+    return;
+  }
+
+  const bool notify = props->shouldNotifyLoadEvents;
+  if (notify) {
+    if (auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
+      emitter->onLoadStart();
+    }
+  }
+
+  const auto source = props->sources.front();
+  imageLoader_.load(uri, [this, tag, fit, notify, source](GdkTexture *texture, const std::string &error) {
+    // The view may have been deleted while the image was in flight, which is
+    // why this looks the tag up again rather than capturing the widget.
+    RnView *target = viewForTag(tag);
+    if (target != nullptr) {
+      rn_view_set_texture(target, texture, fit);
+    }
+
+    if (!notify) {
+      if (texture == nullptr) {
+        g_warning("image failed to load: %s (%s)", source.uri.c_str(), error.c_str());
+      }
+      return;
+    }
+    auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag));
+    if (emitter == nullptr) {
+      return;
+    }
+    if (texture != nullptr) {
+      emitter->onLoad(source);
+    } else {
+      emitter->onError(facebook::react::ImageErrorInfo{.error = error});
+    }
+    emitter->onLoadEnd();
+  });
+}
+
 bool GtkMountingManager::hasComponent(const std::string &name) {
   // Paragraph is the mountable half of <Text>; Text and RawText exist only in
   // the shadow tree, folded into the Paragraph's AttributedString. Image still
   // needs an IImageLoader, and ScrollView a GtkScrolledWindow peer.
-  return name == "View" || name == "RootView" || name == "Paragraph";
+  return name == "View" || name == "RootView" || name == "Paragraph" || name == "Image";
 }
 
 // ---------------------------------------------------------------------------
@@ -235,13 +337,12 @@ RnView *GtkMountingManager::getSurfaceRoot(SurfaceId surfaceId) const {
 // ---------------------------------------------------------------------------
 
 void GtkMountingManager::rememberEventEmitter(const ShadowView &shadowView) {
-  auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(shadowView.eventEmitter);
-  if (emitter != nullptr) {
-    eventEmitters_[shadowView.tag] = std::move(emitter);
+  if (shadowView.eventEmitter != nullptr) {
+    eventEmitters_[shadowView.tag] = shadowView.eventEmitter;
   }
 }
 
-std::shared_ptr<const TouchEventEmitter> GtkMountingManager::eventEmitterForTag(Tag tag) const {
+facebook::react::EventEmitter::Shared GtkMountingManager::eventEmitterForTag(Tag tag) const {
   const auto it = eventEmitters_.find(tag);
   return it == eventEmitters_.end() ? nullptr : it->second;
 }
@@ -254,6 +355,7 @@ RnView *GtkMountingManager::viewForTag(Tag tag) const {
 void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
   applyText(view, shadowView);
+  applyImage(view, shadowView);
   applyLayoutMetrics(view, shadowView);
 }
 

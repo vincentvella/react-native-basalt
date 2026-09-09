@@ -67,6 +67,9 @@ if(DEFINED RN_DIR)
 
   add_library(rn_mounting STATIC
     src/GtkMountingManager.cpp
+    # The mounting manager loads <Image> pixels itself, so the loader lives
+    # here rather than with the host: mount_harness links this too.
+    src/GtkImageLoader.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     src/PangoTextLayoutManager.cpp)
@@ -102,7 +105,7 @@ if(DEFINED RN_DIR)
   # RN headers carry Xcode's #pragma mark, which GCC does not recognise.
   target_compile_options(rn_mounting PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
-  target_link_libraries(rn_mounting PUBLIC rn_view rn_core)
+  target_link_libraries(rn_mounting PUBLIC rn_view rn_core CURL::libcurl)
 target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
 
   # ---------------------------------------------------------------------------

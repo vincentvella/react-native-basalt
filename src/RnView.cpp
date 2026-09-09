@@ -88,6 +88,9 @@ struct _RnView {
   PangoLayout *text_layout;
   GdkRGBA text_color;
 
+  GdkTexture *texture;
+  RnImageFit texture_fit;
+
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
   int allocated_width;
@@ -139,6 +142,59 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
   // TODO(borders): borderRadii/borderWidth/borderColor want a rounded-rect
   // clip here (gtk_snapshot_push_rounded_clip) plus a border node.
 
+  if (self->texture != nullptr && width > 0 && height > 0) {
+    const float viewWidth = static_cast<float>(width);
+    const float viewHeight = static_cast<float>(height);
+    const float imageWidth = static_cast<float>(gdk_texture_get_width(self->texture));
+    const float imageHeight = static_cast<float>(gdk_texture_get_height(self->texture));
+
+    graphene_rect_t destination;
+    destination.origin.x = 0.0f;
+    destination.origin.y = 0.0f;
+    destination.size.width = viewWidth;
+    destination.size.height = viewHeight;
+
+    if (self->texture_fit != RN_IMAGE_FIT_STRETCH && imageWidth > 0 && imageHeight > 0) {
+      float scale = 1.0f;
+      switch (self->texture_fit) {
+        case RN_IMAGE_FIT_CONTAIN:
+          scale = MIN(viewWidth / imageWidth, viewHeight / imageHeight);
+          break;
+        case RN_IMAGE_FIT_COVER:
+          scale = MAX(viewWidth / imageWidth, viewHeight / imageHeight);
+          break;
+        case RN_IMAGE_FIT_CENTER:
+          // Centre at natural size, but never larger than the frame -- which is
+          // what React Native's `center` does.
+          scale = MIN(1.0f, MIN(viewWidth / imageWidth, viewHeight / imageHeight));
+          break;
+        case RN_IMAGE_FIT_STRETCH:
+          break;
+      }
+      destination.size.width = imageWidth * scale;
+      destination.size.height = imageHeight * scale;
+      destination.origin.x = (viewWidth - destination.size.width) / 2.0f;
+      destination.origin.y = (viewHeight - destination.size.height) / 2.0f;
+    }
+
+    // cover and center can put pixels outside the frame, and an <Image> never
+    // paints beyond its own box on iOS or Android.
+    const gboolean needs_clip = self->texture_fit == RN_IMAGE_FIT_COVER ||
+                                self->texture_fit == RN_IMAGE_FIT_CENTER;
+    if (needs_clip) {
+      graphene_rect_t clip;
+      clip.origin.x = 0.0f;
+      clip.origin.y = 0.0f;
+      clip.size.width = viewWidth;
+      clip.size.height = viewHeight;
+      gtk_snapshot_push_clip(snapshot, &clip);
+    }
+    gtk_snapshot_append_texture(snapshot, self->texture, &destination);
+    if (needs_clip) {
+      gtk_snapshot_pop(snapshot);
+    }
+  }
+
   // Text sits above the background and below any children, which is the order
   // <Text> with nested views expects.
   if (self->text_layout != nullptr) {
@@ -169,6 +225,7 @@ static void rn_view_dispose(GObject *object) {
   }
 
   g_clear_object(&self->text_layout);
+  g_clear_object(&self->texture);
 
   G_OBJECT_CLASS(rn_view_parent_class)->dispose(object);
 }
@@ -191,6 +248,8 @@ static void rn_view_init(RnView *self) {
   self->opacity = 1.0;
   self->text_layout = nullptr;
   self->text_color = GdkRGBA{0.0f, 0.0f, 0.0f, 1.0f};
+  self->texture = nullptr;
+  self->texture_fit = RN_IMAGE_FIT_COVER;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -246,6 +305,19 @@ void rn_view_set_text_layout(RnView *self, PangoLayout *layout, const GdkRGBA *c
   if (color != nullptr) {
     self->text_color = *color;
   }
+
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  if (texture != nullptr) {
+    g_object_ref(texture);
+  }
+  g_clear_object(&self->texture);
+  self->texture = texture;
+  self->texture_fit = fit;
 
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }

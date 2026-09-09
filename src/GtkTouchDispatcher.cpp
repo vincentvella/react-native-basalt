@@ -9,6 +9,7 @@ namespace rnlinux {
 using facebook::react::HighResTimeStamp;
 using facebook::react::Point;
 using facebook::react::Tag;
+using facebook::react::TouchEventEmitter;
 using facebook::react::Touch;
 using facebook::react::TouchEvent;
 using facebook::react::Touches;
@@ -151,7 +152,8 @@ void GtkTouchDispatcher::dispatchTouchCancel() {
 }
 
 void GtkTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) {
-  const auto emitter = mountingManager_->eventEmitterForTag(target);
+  const auto emitter =
+      std::dynamic_pointer_cast<const TouchEventEmitter>(mountingManager_->eventEmitterForTag(target));
   if (emitter == nullptr) {
     return;
   }

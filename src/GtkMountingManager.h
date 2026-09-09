@@ -6,9 +6,10 @@
 
 #pragma once
 
+#include "GtkImageLoader.h"
 #include "RnView.h"
 
-#include <react/renderer/components/view/TouchEventEmitter.h>
+#include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 
 #include <memory>
@@ -48,15 +49,14 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void destroySurfaceRoot(facebook::react::SurfaceId surfaceId);
   RnView *getSurfaceRoot(facebook::react::SurfaceId surfaceId) const;
 
-  // The event emitter for a mounted view, or null if the tag is unknown or its
-  // emitter is not a touch emitter. GtkTouchDispatcher uses this to turn a GTK
-  // click into an onTouchStart on the right component.
+  // The event emitter for a mounted view, or null if the tag is unknown.
+  // Callers cast to what they need: GtkTouchDispatcher to TouchEventEmitter,
+  // the image path to ImageEventEmitter.
   //
   // Emitters are kept per tag rather than on the widget because RnView holds no
   // React Native types, and because a view can be detached between a Remove and
   // its Delete while still needing to deliver a cancel.
-  std::shared_ptr<const facebook::react::TouchEventEmitter> eventEmitterForTag(
-      facebook::react::Tag tag) const;
+  facebook::react::EventEmitter::Shared eventEmitterForTag(facebook::react::Tag tag) const;
 
   // Applies a transaction to the widget tree. Invoked on the GTK main thread by
   // executeMount's marshalling -- not part of IMountingManager, and never to be
@@ -71,6 +71,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void applyShadowView(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyImage(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
   // Views are held with a strong reference from Create until Delete. Between a
@@ -79,7 +80,13 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   std::unordered_map<facebook::react::Tag, RnView *> registry_;
 
   // Parallel to registry_, and torn down with it on Delete.
-  std::unordered_map<facebook::react::Tag, std::shared_ptr<const facebook::react::TouchEventEmitter>> eventEmitters_;
+  std::unordered_map<facebook::react::Tag, facebook::react::EventEmitter::Shared> eventEmitters_;
+
+  GtkImageLoader imageLoader_;
+
+  // The source each <Image> is currently showing, so that a mutation which
+  // changed only layout does not restart the load.
+  std::unordered_map<facebook::react::Tag, std::string> imageUris_;
 
   // The GTK main thread, recorded at construction. executeMount arrives on the
   // JS thread and marshals here; applyTransaction asserts it got there.

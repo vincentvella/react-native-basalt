@@ -10,6 +10,7 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorFactory.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
@@ -30,8 +31,10 @@ inline ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       registry->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
       registry->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
       registry->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
-      // TODO: Image once IImageLoader is implemented; ScrollView once there is
-      // a GtkScrolledWindow peer.
+      // Image's descriptor pulls an ImageManager out of the ContextContainer,
+      // creating one if absent. React Native's cxx ImageManager is a stub, so
+      // it produces no pixels; GtkImageLoader does that from the props instead.
+      registry->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

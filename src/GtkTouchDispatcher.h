@@ -19,6 +19,7 @@
 #include "GtkMountingManager.h"
 #include "RnView.h"
 
+#include <react/renderer/components/view/TouchEventEmitter.h>
 #include <react/renderer/graphics/Point.h>
 
 namespace rnlinux {

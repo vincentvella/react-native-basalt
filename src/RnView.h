@@ -57,6 +57,22 @@ void rn_view_set_opacity(RnView *self, double opacity);
 // glyphs that carry no foreground attribute of their own.
 void rn_view_set_text_layout(RnView *self, PangoLayout *layout, const GdkRGBA *color);
 
+// How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
+// Repeat, which needs a repeating pattern node rather than one texture draw.
+typedef enum {
+  RN_IMAGE_FIT_COVER,
+  RN_IMAGE_FIT_CONTAIN,
+  RN_IMAGE_FIT_STRETCH,
+  RN_IMAGE_FIT_CENTER,
+} RnImageFit;
+
+// The decoded pixels of an <Image>. Takes its own reference; pass NULL to clear.
+//
+// Like the text layout above, this is a GTK type rather than a React Native
+// one, so the widget layer stays free of RN headers. GtkImageLoader produces
+// the texture and GtkMountingManager chooses the fit.
+void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit);
+
 // Called on the GTK main thread when this widget's own allocation changes.
 //
 // The host attaches one to a surface root to drive
