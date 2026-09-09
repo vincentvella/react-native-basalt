@@ -76,6 +76,10 @@ preserves mutation ordering.
 
 ## Build
 
+From inside this repo. The `../` puts React Native alongside it, which is where
+`bootstrap.sh` looks by default -- or pass the path to a checkout you already
+have, absolute or relative:
+
     git clone --depth 1 https://github.com/react/react-native ../react-native
     scripts/bootstrap.sh ../react-native
 

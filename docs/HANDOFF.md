@@ -22,10 +22,18 @@ Nothing has yet run JS. `main.cpp` does not exist.
 ## Setup
 
 ```bash
-git clone <this repo> && cd react-native-linux
+git clone https://github.com/vincentvella/react-native-linux
+cd react-native-linux
 git clone --depth 1 https://github.com/react/react-native ../react-native
 scripts/bootstrap.sh ../react-native
 ```
+
+Already have a React Native checkout? Skip that clone and point bootstrap at
+it (`scripts/bootstrap.sh /path/to/react-native`). Two caveats: bootstrap runs
+`yarn install` there if `node_modules` is empty, which rewrites its
+`yarn.lock`; and everything here is built against RN `main`, so an older tagged
+release will likely need adjustment -- `ReactCxxPlatform` carries no API
+stability guarantee.
 
 `bootstrap.sh` fetches folly/fast_float/nlohmann_json, builds Hermes, and runs
 React Native's codegen. It is idempotent; `--force` redoes everything. It caps
