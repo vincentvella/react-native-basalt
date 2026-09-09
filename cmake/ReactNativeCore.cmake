@@ -252,12 +252,27 @@ list(APPEND RN_CORE_OBJECT_TARGETS ${RN_CXX_PLATFORM_TARGETS})
 # uses uint16_t without including <cstdint>. It compiles on Meta's toolchains
 # only via transitive includes. Force-including <cstdint> fixes it without
 # patching the React Native checkout, and is harmless everywhere else.
+# React Native's own targets build with -Werror, and on Linux clang uses
+# libstdc++, whose std::bind instantiates the deprecated std::result_of
+# internally (ReactCommon/cxxreact/CxxModule.h:83 is the trigger). libc++ --
+# what Apple platforms and the Android NDK use -- does not, which is why this
+# only appears here. Nothing in React Native's code is actually wrong, so the
+# warning is suppressed rather than worked around.
+#
+# libc++ would avoid it, but every other dependency on a Linux distro
+# (glog, fmt, boost_regex, double-conversion) is built against libstdc++, and
+# mixing the two is an ABI hazard for anything passing a std::string.
+set(RN_EXTRA_FLAGS -include cstdint)
+if(NOT APPLE)
+  list(APPEND RN_EXTRA_FLAGS -Wno-deprecated-declarations)
+endif()
+
 foreach(target ${RN_CORE_OBJECT_TARGETS} yogacore)
   if(TARGET ${target})
     # A few RN targets are INTERFACE libraries, which reject PRIVATE options.
     get_target_property(target_type ${target} TYPE)
     if(NOT target_type STREQUAL "INTERFACE_LIBRARY")
-      target_compile_options(${target} PRIVATE -include cstdint)
+      target_compile_options(${target} PRIVATE ${RN_EXTRA_FLAGS})
     endif()
   endif()
 endforeach()
