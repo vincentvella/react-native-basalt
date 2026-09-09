@@ -33,8 +33,8 @@ fi
 [ -n "$RN_DIR" ] || { echo "error: pass the React Native checkout path, or set RN_DIR" >&2; exit 1; }
 RN_DIR="$(cd "$RN_DIR" && pwd)"
 
-[ -d "$RN_DIR/node_modules/react-native" ] || {
-  echo "error: $RN_DIR has no installed dependencies; run scripts/bootstrap.sh first" >&2
+[ -x "$RN_DIR/node_modules/.bin/metro" ] || {
+  echo "error: no Metro in $RN_DIR/node_modules; run scripts/bootstrap.sh first" >&2
   exit 1
 }
 

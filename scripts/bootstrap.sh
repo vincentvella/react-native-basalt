@@ -148,12 +148,18 @@ log "yarn $(yarn --version)"
 # --- React Native codegen ---------------------------------------------------
 # 24 targets need react_codegen_rncore, ReactCxxPlatform's react/runtime among
 # them, so this is mandatory for a host that runs JS.
-if [ ! -d "$TP/codegen/react" ]; then
-  if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
-    log "installing React Native's monorepo dependencies (needed by codegen)"
-    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
-  fi
+# --- React Native's dependencies --------------------------------------------
+# Deliberately not folded into the codegen step below. Codegen needs these, but
+# so does Metro when bundling, and the two are cached separately: a checkout
+# with a populated third_party/codegen and an empty node_modules skips this
+# step and then cannot bundle. That is exactly what CI hit the first time its
+# third_party cache was warm.
+if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
+  log "installing React Native's monorepo dependencies"
+  (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
+fi
 
+if [ ! -d "$TP/codegen/react" ]; then
   log "generating codegen artifacts"
   CODEGEN_TMP="$(mktemp -d)"
   (cd "$RN_DIR" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node packages/react-native/scripts/generate-codegen-artifacts.js \
