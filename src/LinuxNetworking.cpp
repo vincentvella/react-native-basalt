@@ -1,106 +1,235 @@
-// The http and websocket seam for the Linux platform.
+// The http seam for the Linux platform, backed by libcurl.
 //
-// `getHttpClientFactory()` and `getWebSocketClientFactory()` are declared by
-// ReactCxxPlatform and deliberately left undefined there, exactly like
-// `getDefaultComponentRegistryFactory()`: every host supplies its own. Fantom
-// does the same, in tester/src/platform/oss/.
+// `getHttpClientFactory()` is declared by ReactCxxPlatform and defined nowhere
+// in it, exactly like `getDefaultComponentRegistryFactory()`: every host writes
+// its own. `ReactHost` refuses to construct without one, so this file is not
+// optional even for a host that never makes a request.
 //
-// ReactHost refuses to construct without both factories in its ContextContainer
-// -- it throws "No HttpClientFactory provided" -- so a host cannot skip this
-// file even when nothing it runs makes a request.
+// Its counterpart, `getWebSocketClientFactory()`, is *not* here. React Native
+// already ships a working boost::beast client at
+// ReactCxxPlatform/react/http/platform/cxx/WebSocketClient.cpp that its own
+// CMakeLists never compiles; this project builds it as `rn_websocket` rather
+// than writing a second one. See cmake/ReactNativeCore.cmake.
 //
-// Both implementations below are placeholders that fail politely. Nothing in
-// the current milestone touches the network: the bundle is read from disk, dev
-// mode and the inspector are off, and there is no Metro connection. They become
-// real work in phase 3, where:
+// Two callers matter:
 //
-//   - websocket is what the packager connection and Fast Refresh ride on.
-//     React Native already ships a working C++ client at
-//     ReactCxxPlatform/react/http/platform/cxx/WebSocketClient.cpp (boost::beast
-//     over OpenSSL). It is not in react_cxx_platform_react_http, whose
-//     CMakeLists globs only its own directory, so wiring it up means adding
-//     that source to the build rather than writing a client.
-//   - http is what NetworkingModule (fetch/XHR) and remote images need.
-//     libcurl or libsoup is the natural Linux backing; libsoup is already in
-//     the GTK stack.
+//   - `DevServerHelper::downloadBundleResourceSync` fetches the Metro bundle
+//     and blocks on a std::future that only `onBody` completes. A client that
+//     drops its callbacks does not fail there, it hangs, so every exit path
+//     below has to end in `onResponseComplete`.
+//   - `NetworkingModule` backs fetch/XHR in JS.
+//
+// Threading: one thread per request. Callbacks run on that thread, never on the
+// GTK main thread or the JS thread. Both callers above expect that -- the dev
+// server hands the result to a promise, and NetworkingModule bounces through
+// its CallInvoker.
 
 #include <react/http/IHttpClient.h>
-#include <react/http/IWebSocketClient.h>
 
+#include <curl/curl.h>
+#include <folly/io/IOBuf.h>
 #include <glib.h>
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace facebook::react {
 
 namespace {
 
-class UnimplementedRequestToken final : public http::IRequestToken {
- public:
-  void cancel() noexcept override {}
+void ensureCurlInitialised() {
+  static std::once_flag once;
+  std::call_once(once, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+
+// Shared between the caller and the request thread. `cancelled` is the only
+// thing the caller touches after handing the request off.
+struct RequestState {
+  std::atomic<bool> cancelled{false};
 };
 
-class UnimplementedHttpClient final : public IHttpClient {
+class CurlRequestToken final : public http::IRequestToken {
  public:
-  std::unique_ptr<http::IRequestToken> sendRequest(
-      http::NetworkCallbacks && /*callbacks*/,
-      const std::string &method,
-      const std::string &url,
-      const http::Headers & /*headers*/ = {},
-      const http::Body & /*body*/ = {},
-      uint32_t /*timeout*/ = 0,
-      std::optional<std::string> /*loggingId*/ = std::nullopt) override {
-    // Dropping the callbacks means the caller never hears back. That is
-    // deliberate: a fabricated failure response would be indistinguishable from
-    // a real server error and harder to diagnose than silence.
-    g_warning("http is not implemented on this platform yet (%s %s)", method.c_str(), url.c_str());
-    return std::make_unique<UnimplementedRequestToken>();
+  explicit CurlRequestToken(std::shared_ptr<RequestState> state) : state_(std::move(state)) {}
+
+  void cancel() noexcept override {
+    state_->cancelled = true;
   }
-};
-
-class UnimplementedWebSocketClient final : public IWebSocketClient {
- public:
-  void setOnClosedCallback(OnClosedCallback &&callback) noexcept override {
-    onClosed_ = std::move(callback);
-  }
-
-  void setOnMessageCallback(OnMessageCallback &&callback) noexcept override {
-    onMessage_ = std::move(callback);
-  }
-
-  void connect(const std::string &url, OnConnectCallback &&onConnect = nullptr) override {
-    g_warning("websocket is not implemented on this platform yet (%s)", url.c_str());
-    // Reporting the failure synchronously is what lets a caller move on rather
-    // than wait for a connection that will never be established.
-    if (onConnect) {
-      onConnect(false, "websocket is not implemented on this platform yet");
-    }
-  }
-
-  void close(const std::string &reason) override {
-    if (onClosed_) {
-      onClosed_(reason);
-    }
-  }
-
-  void send(const std::string & /*message*/) override {}
-
-  void ping() override {}
 
  private:
-  OnClosedCallback onClosed_;
-  OnMessageCallback onMessage_;
+  std::shared_ptr<RequestState> state_;
+};
+
+size_t appendToString(char *data, size_t size, size_t count, void *userData) {
+  auto *out = static_cast<std::string *>(userData);
+  out->append(data, size * count);
+  return size * count;
+}
+
+size_t collectHeader(char *data, size_t size, size_t count, void *userData) {
+  auto *headers = static_cast<http::Headers *>(userData);
+  const std::string line(data, size * count);
+
+  // curl hands over the status line and the blank terminator too; neither is a
+  // header, and only lines with a colon are.
+  const auto colon = line.find(':');
+  if (colon != std::string::npos) {
+    std::string name = line.substr(0, colon);
+    std::string value = line.substr(colon + 1);
+    const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
+    value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
+    headers->emplace_back(std::move(name), std::move(value));
+  }
+  return size * count;
+}
+
+int reportProgress(void *userData,
+                   curl_off_t downloadTotal,
+                   curl_off_t downloadNow,
+                   curl_off_t uploadTotal,
+                   curl_off_t uploadNow) {
+  auto *state = static_cast<RequestState *>(userData);
+  (void)downloadTotal;
+  (void)downloadNow;
+  (void)uploadTotal;
+  (void)uploadNow;
+  // A non-zero return aborts the transfer, which surfaces as CURLE_ABORTED_BY_CALLBACK.
+  return state->cancelled ? 1 : 0;
+}
+
+// Runs on the request thread. Always ends in onResponseComplete.
+void performRequest(http::NetworkCallbacks callbacks,
+                    std::string method,
+                    std::string url,
+                    http::Headers requestHeaders,
+                    std::string requestBody,
+                    bool hasBody,
+                    uint32_t timeoutSeconds,
+                    std::shared_ptr<RequestState> state) {
+  CURL *handle = curl_easy_init();
+  if (handle == nullptr) {
+    if (callbacks.onResponseComplete) {
+      callbacks.onResponseComplete("could not initialise libcurl", false);
+    }
+    return;
+  }
+
+  std::string responseBody;
+  http::Headers responseHeaders;
+
+  curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+  curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, appendToString);
+  curl_easy_setopt(handle, CURLOPT_WRITEDATA, &responseBody);
+  curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, collectHeader);
+  curl_easy_setopt(handle, CURLOPT_HEADERDATA, &responseHeaders);
+  curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(handle, CURLOPT_XFERINFOFUNCTION, reportProgress);
+  curl_easy_setopt(handle, CURLOPT_XFERINFODATA, state.get());
+  // Without this, libcurl installs a SIGALRM-based resolver timeout that is not
+  // safe to use off the main thread.
+  curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
+
+  if (timeoutSeconds > 0) {
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT, static_cast<long>(timeoutSeconds));
+  }
+
+  if (hasBody) {
+    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, requestBody.c_str());
+    curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(requestBody.size()));
+  }
+
+  curl_slist *headerList = nullptr;
+  for (const auto &[name, value] : requestHeaders) {
+    headerList = curl_slist_append(headerList, (name + ": " + value).c_str());
+  }
+  if (headerList != nullptr) {
+    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headerList);
+  }
+
+  const CURLcode result = curl_easy_perform(handle);
+
+  long statusCode = 0;
+  curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &statusCode);
+
+  if (result == CURLE_OK) {
+    if (callbacks.onResponse) {
+      callbacks.onResponse(static_cast<uint16_t>(statusCode), responseHeaders);
+    }
+    if (callbacks.onBody) {
+      callbacks.onBody(folly::IOBuf::copyBuffer(responseBody));
+    }
+    if (callbacks.onResponseComplete) {
+      callbacks.onResponseComplete("", false);
+    }
+  } else {
+    const bool timedOut = result == CURLE_OPERATION_TIMEDOUT;
+    std::string error = curl_easy_strerror(result);
+    if (result == CURLE_ABORTED_BY_CALLBACK) {
+      error = "request cancelled";
+    }
+    if (callbacks.onResponseComplete) {
+      // A timeout reports through the dedicated flag, and DevServerHelper
+      // treats an empty error string with that flag set as "Timeout".
+      callbacks.onResponseComplete(timedOut ? "" : error, timedOut);
+    }
+  }
+
+  if (headerList != nullptr) {
+    curl_slist_free_all(headerList);
+  }
+  curl_easy_cleanup(handle);
+}
+
+class CurlHttpClient final : public IHttpClient {
+ public:
+  std::unique_ptr<http::IRequestToken> sendRequest(
+      http::NetworkCallbacks &&callbacks,
+      const std::string &method,
+      const std::string &url,
+      const http::Headers &headers = {},
+      const http::Body &body = {},
+      uint32_t timeout = 0,
+      std::optional<std::string> /*loggingId*/ = std::nullopt) override {
+    ensureCurlInitialised();
+
+    // Only a string body is supported. Blob, form-data and base64 bodies come
+    // from JS APIs that nothing on this platform can reach yet -- there is no
+    // file picker, no camera and no Blob implementation.
+    if (body.blob || body.formData || body.base64) {
+      g_warning("http: only string request bodies are supported (%s %s)",
+                method.c_str(),
+                url.c_str());
+    }
+
+    auto state = std::make_shared<RequestState>();
+
+    std::thread(performRequest,
+                std::move(callbacks),
+                method,
+                url,
+                headers,
+                body.string.value_or(std::string{}),
+                body.string.has_value(),
+                timeout,
+                state)
+        .detach();
+
+    return std::make_unique<CurlRequestToken>(state);
+  }
 };
 
 } // namespace
 
 HttpClientFactory getHttpClientFactory() {
-  return []() { return std::make_unique<UnimplementedHttpClient>(); };
-}
-
-WebSocketClientFactory getWebSocketClientFactory() {
-  return []() { return std::make_unique<UnimplementedWebSocketClient>(); };
+  return []() { return std::make_unique<CurlHttpClient>(); };
 }
 
 } // namespace facebook::react

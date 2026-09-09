@@ -60,10 +60,9 @@ constexpr SurfaceId kSurfaceId = 1;
 constexpr int kInitialWidth = 900;
 constexpr int kInitialHeight = 700;
 
-// The JS entry point this host calls once the surface is running. The script is
-// hand-written against nativeFabricUIManager -- there is no React, no
-// AppRegistry and no Metro bundle yet, which is why the surface is started with
-// an empty module name.
+// The entry point for the *scriptless* mode, where the bundle is a hand-written
+// script talking to nativeFabricUIManager directly rather than a React app.
+// See js/demo.js. Only used when no module name is given.
 constexpr const char *kRenderFunctionName = "rnLinuxRender";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +79,14 @@ struct Host {
   std::unique_ptr<ReactHost> reactHost;
 
   std::string bundlePath;
+  // Empty means the bundle is a raw Fabric script rather than a React app; see
+  // startSurface below for what that changes.
+  std::string moduleName;
+  // Metro's entry point, without the extension. Only meaningful in dev mode:
+  // DevServerHelper builds "http://host:port/<sourcePath>.bundle?..." from it,
+  // and returns an empty URL if it is unset, which silently falls back to the
+  // on-disk bundle.
+  std::string sourcePath;
   bool surfaceStarted{false};
   int scaleFactor{1};
 };
@@ -246,10 +253,26 @@ void onActivate(GtkApplication *app, gpointer data) {
   ReactInstanceConfig config;
   config.appId = "react-native-linux";
   config.deviceName = "linux";
-  // No Metro yet: without this a debug build tries the dev server first and
-  // only falls back to the bundle path after it fails to connect.
-  config.enableDevMode = false;
-  config.enableInspector = false;
+
+  // Dev mode changes three things at once, which is worth being explicit about:
+  // loadScript tries Metro before the on-disk bundle; DevServerHelper exists,
+  // which is the only condition under which ReactCxxTurboModuleProvider serves
+  // the DevSettings module a __DEV__ bundle requires; and ReactHost opens a
+  // packager connection whose reload message reloads the instance.
+  config.enableDevMode = g_getenv("RN_LINUX_DEV") != nullptr;
+  config.enableInspector = config.enableDevMode;
+  if (const char *devHost = g_getenv("RN_LINUX_DEV_HOST")) {
+    config.devServerHost = devHost;
+  }
+  if (const char *devPort = g_getenv("RN_LINUX_DEV_PORT")) {
+    config.devServerPort = static_cast<uint32_t>(g_ascii_strtoull(devPort, nullptr, 10));
+  }
+  if (config.enableDevMode) {
+    g_message("dev mode: Metro at %s:%u, entry '%s'",
+              config.devServerHost.c_str(),
+              config.devServerPort,
+              host->sourcePath.c_str());
+  }
 
   try {
     host->reactHost = std::make_unique<ReactHost>(config,
@@ -268,30 +291,41 @@ void onActivate(GtkApplication *app, gpointer data) {
     g_error("could not construct ReactHost: %s", error.what());
   }
 
-  if (!host->reactHost->loadScript(host->bundlePath, "")) {
+  if (!host->reactHost->loadScript(host->bundlePath, host->sourcePath)) {
     g_warning("could not load script: %s", host->bundlePath.c_str());
     gtk_window_present(host->window);
     return;
   }
   g_message("loaded script: %s", host->bundlePath.c_str());
 
-  // An empty module name starts the surface without calling into
-  // AppRegistry.runApplication: SurfaceHandler::start only reaches JS when a
-  // module name is set. That is what lets a script with no React in it commit
-  // into this surface.
+  // The module name decides who drives the surface.
+  //
+  // Non-empty: SurfaceHandler::start calls AppRegistry.runApplication, React
+  // mounts the registered component, and everything after this point is
+  // ordinary React Native.
+  //
+  // Empty: the surface is registered without JS being called at all, leaving it
+  // for a script to commit into through nativeFabricUIManager by hand. That is
+  // how this host ran before there was a Metro bundle, and js/demo.js still
+  // exercises it.
   host->reactHost->startSurface(kSurfaceId,
-                                "",
+                                host->moduleName,
                                 folly::dynamic::object(),
                                 constraintsFor(kInitialWidth, kInitialHeight),
                                 layoutContextFor(host->scaleFactor));
   host->surfaceStarted = true;
-  g_message("started surface %d", static_cast<int>(kSurfaceId));
+  g_message("started surface %d%s%s",
+            static_cast<int>(kSurfaceId),
+            host->moduleName.empty() ? " (no module; raw Fabric script)" : " for module ",
+            host->moduleName.c_str());
 
   gtk_window_present(host->window);
 
-  g_message("--- committing tree 1 from JS ---");
-  callRenderFunction(host, 1);
-  g_timeout_add(2000, commitSecondTree, host);
+  if (host->moduleName.empty()) {
+    g_message("--- committing tree 1 from JS ---");
+    callRenderFunction(host, 1);
+    g_timeout_add(2000, commitSecondTree, host);
+  }
 
   if (const char *quitAfter = g_getenv("RN_LINUX_QUIT_AFTER_MS")) {
     const gint64 ms = g_ascii_strtoll(quitAfter, nullptr, 10);
@@ -324,7 +358,10 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
 
 int main(int argc, char **argv) {
   Host host;
-  host.bundlePath = argc > 1 ? argv[1] : "js/demo.js";
+  host.bundlePath = argc > 1 ? argv[1] : "build/main.jsbundle.js";
+  host.moduleName = argc > 2 ? argv[2] : "RNLinuxDemo";
+  const char *sourcePath = g_getenv("RN_LINUX_DEV_ENTRY");
+  host.sourcePath = sourcePath != nullptr ? sourcePath : "index";
 
   // GTK would try to interpret argv as files to open. The bundle path is ours,
   // so the application never sees it.

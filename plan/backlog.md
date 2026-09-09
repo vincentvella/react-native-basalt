@@ -21,9 +21,16 @@ Not scheduled. Roughly by value.
   tooling, Fantom's test observation), so nothing renders wrongly without it,
   but a real host reports. Needs the mounting manager to hold a
   `SchedulerTaskExecutor`, as `TesterAppDelegate` does.
-- Real http and websocket clients; see `plan/decisions.md`. Blocks Metro.
 - `IDevUIDelegate` / LogBox: JS errors currently go to `g_warning` and nothing
-  else.
+  else. `ReactHost` takes a `logBoxSurfaceDelegate`; a second surface in its own
+  GTK window is probably the cheapest real implementation.
+- TurboModules React Native's JS asks for and does not get, none fatal today:
+  `BlobModule`, `DeviceEventManager`, `SoundManager`, `LinkingManager`,
+  `IntentAndroid`, `RedBox`, `ReactDevToolsSettingsManager`.
+- `src/LinuxNetworking.cpp` supports only string request bodies. Blob, form-data
+  and base64 need a Blob implementation first.
+- A real `linux` Metro platform, which means a JS package with its own
+  `Platform` module; see `plan/decisions.md`.
 
 ## Platform surface
 

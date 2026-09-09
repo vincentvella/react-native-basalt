@@ -9,3 +9,7 @@ third_party/hermes-build/
 third_party/nlohmann_json/
 third_party/codegen/*
 !third_party/codegen/CMakeLists.txt
+
+# Metro's Babel register cache. The demo app installs nothing of its own; see
+# js/metro.config.js for how react and react-native are resolved instead.
+js/node_modules/

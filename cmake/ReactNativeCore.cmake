@@ -283,6 +283,19 @@ add_library(rn_jsidynamic OBJECT ${REACT_COMMON_DIR}/jsi/jsi/JSIDynamic.cpp)
 target_include_directories(rn_jsidynamic PUBLIC ${REACT_COMMON_DIR} ${REACT_COMMON_DIR}/jsi ${FOLLY_DIR})
 target_link_libraries(rn_jsidynamic folly_runtime glog)
 target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_jsidynamic>)
+
+# Same situation one directory over: ReactCxxPlatform ships a working
+# boost::beast websocket client under react/http/platform/cxx, but the
+# CMakeLists for react/http globs only its own directory, so nothing compiles
+# it. It defines getWebSocketClientFactory(), the seam every host has to fill,
+# and the packager connection is what needs it.
+add_library(rn_websocket OBJECT
+        ${REACT_CXX_PLATFORM_DIR}/react/http/platform/cxx/WebSocketClient.cpp)
+target_include_directories(rn_websocket PUBLIC
+        ${REACT_CXX_PLATFORM_DIR} ${REACT_COMMON_DIR} ${FOLLY_DIR})
+target_link_libraries(rn_websocket folly_runtime glog boost fmt double-conversion)
+target_compile_options(rn_websocket PRIVATE -Wno-unknown-pragmas)
+target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_websocket>)
 target_link_libraries(rn_core INTERFACE yogacore folly_runtime glog boost fmt
         double-conversion fast_float)
 

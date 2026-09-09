@@ -29,8 +29,11 @@ interface has exactly two pure-virtual methods — `executeMount` and
     src/GtkMountingManager.*    IMountingManager implementation.
     src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
     src/LinuxComponentRegistry.h     Which components this platform supports.
-    src/LinuxNetworking.cpp     http/websocket seam. Unimplemented, on purpose.
+    src/LinuxNetworking.cpp     The IHttpClient seam, backed by libcurl.
     src/main.cpp                The host: ReactHost, Hermes, one live surface.
+    js/index.js                 The demo app. Ordinary React Native.
+    js/metro.config.js          Resolves react/react-native out of the checkout.
+    scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     src/mount_harness.cpp       Hand-built mutations; no JS runtime.
     src/demo_layout.cpp         Renders hand-written frames; no RN needed.
@@ -106,7 +109,10 @@ Omit `-DRN_DIR` to build only the widget layer and the demo.
 ### Dependencies
 
 System packages (Arch): `gtk4 pango google-glog boost gflags fmt
-double-conversion openssl cmake ninja clang`.
+double-conversion openssl curl cmake ninja clang`.
+
+`boost` is mostly headers, but `boost_regex` is linked: folly's URI parser needs
+it, and React Native's websocket client needs folly's URI parser.
 
 Vendored, pinned to the versions RN builds against
 (`packages/react-native/gradle/libs.versions.toml`):
@@ -179,36 +185,74 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 Verified, on screen:
 
-- `rn_linux_host` runs a **real React Native surface**. Hermes executes
-  `js/demo.js`, which commits a shadow tree through `nativeFabricUIManager`;
-  Fabric lays it out with Yoga, diffs it, and the resulting mutations reach GTK4
-  widgets through `GtkMountingManager`. A second commit clones nodes rather than
-  recreating them, so Fabric emits Update and Remove, and the screenshots show a
-  recolour, a re-layout and a removal. Resizing the window drives
-  `setSurfaceConstraints` and Yoga re-lays out.
-- `mount_harness` still drives hand-built `ShadowViewMutation`s through the same
-  mounting manager with no JS runtime involved, which keeps the widget layer
-  testable in isolation.
-- Both build under `-Wall -Wextra` with zero diagnostics from this project's own
-  sources; `static_assert(!std::is_abstract_v<GtkMountingManager>)` holds.
+- **React runs.** `rn_linux_host` loads a Metro bundle, `AppRegistry` starts the
+  surface, and React reconciles into GTK4 widgets. `js/index.js` is an ordinary
+  React Native app -- hooks, `StyleSheet`, flexbox -- and knows nothing about
+  GTK. State changes on a timer, so mounts, unmounts and prop updates all show
+  up as Fabric mutations.
+- **Fast Refresh works.** With Metro running and `RN_LINUX_DEV=1`, the host
+  fetches the bundle over http, opens the packager connection, and editing
+  `js/index.js` updates the running window without restarting the process.
+- **Yoga lays out.** Padding, `flexDirection`, `flex` ratios and fixed sizes all
+  behave as they do on iOS and Android, which is expected: Yoga is
+  platform-agnostic and already in the build.
+- `mount_harness` still drives hand-built `ShadowViewMutation`s with no JS
+  runtime, and `js/demo.js` still drives Fabric's JSI binding with no React.
+  Both keep the lower layers testable in isolation.
+- This project's own sources build under `-Wall -Wextra` with zero diagnostics,
+  enforced by the build rather than asserted.
 
 Not yet done:
 
-- No React and no Metro. `js/demo.js` speaks Fabric's binding protocol by hand,
-  which is exactly what React's renderer does, but it is not React.
-- No http or websocket client, so no dev server, no Fast Refresh and no
-  `fetch`. See `plan/decisions.md`.
-- Only `<View>` has a GTK peer. `hasComponent` and the component registry say
-  so honestly.
+- **No `<Text>`.** Only `<View>` has a GTK peer, so the demo is views and colour
+  alone. Text needs a Pango `TextLayoutManager`; that is phase 4 and it is the
+  single biggest gap.
+- **No input.** Nothing routes GTK events into RN's event system yet.
+- **Bundles are built for the `android` platform**, and there is no `linux`
+  platform in Metro's resolver. See below for why that is not a shortcut.
+- **No LogBox.** JS errors go to `g_warning` and nothing else.
 
 ## Running it
 
-    ./build/rn_linux_host js/demo.js
+Build a bundle once, then run:
 
-The bundle path defaults to `js/demo.js`. `RN_LINUX_QUIT_AFTER_MS=4000` makes
-the host quit on a timer, which is the only way to exercise the shutdown path
-in automation -- the window cannot be closed from a script, and killing the
-process skips `GApplication::shutdown` entirely.
+    scripts/bundle.sh ../react-native
+    ./build/rn_linux_host
+
+Or against Metro, with Fast Refresh:
+
+    scripts/metro.sh ../react-native          # one terminal
+    RN_LINUX_DEV=1 ./build/rn_linux_host      # another
+
+Arguments are `rn_linux_host [bundle] [moduleName]`, defaulting to
+`build/main.jsbundle.js` and `RNLinuxDemo`. An **empty** module name starts a
+surface without calling `AppRegistry`, which is the raw-Fabric mode `js/demo.js`
+uses:
+
+    ./build/rn_linux_host js/demo.js ""
+
+Environment:
+
+    RN_LINUX_DEV=1            load from Metro; enables Fast Refresh and DevSettings
+    RN_LINUX_DEV_HOST/_PORT   where Metro is (default localhost:8081)
+    RN_LINUX_DEV_ENTRY        Metro entry name without extension (default "index")
+    RN_LINUX_QUIT_AFTER_MS    quit on a timer; the only way to exercise shutdown
+                              in automation, since the window cannot be closed
+                              from a script and killing the process skips
+                              GApplication::shutdown
+
+## Why the bundle says `android`
+
+`ReactCxxPlatform`'s `PlatformConstantsModule` returns `PlatformConstantsAndroid`.
+React Native's JS therefore already believes it is on Android when hosted this
+way, and Metro has to resolve the matching `.android.js` files -- `Platform.js`
+is one of them. Bundling with `--platform linux` would fail to resolve React
+Native's own internals, because there are no `.linux.js` variants of them.
+
+A real `linux` platform means shipping a JS package that supplies its own
+`Platform` module and native component registry, the way `react-native-windows`
+and `react-native-macos` do. That is a later chunk of work, and pretending
+otherwise by adding `linux` to `resolver.platforms` would only move the failure.
 
 ## Building React Native's core
 

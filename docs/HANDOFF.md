@@ -12,16 +12,19 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 1 | Real Fabric mutations → GTK widgets, no JS | done, verified on screen |
 | 2 | RN's full C++ core + Hermes + codegen building | **done**, on Linux and macOS |
 | 2 | `main.cpp`: construct `ReactHost`, run a surface | done, verified on screen |
-| 3 | Metro bundle, React, Fast Refresh | **next** |
-| 4+ | Pango text, images, input, AT-SPI | see `docs/ARCHITECTURE.md` |
+| 3 | Metro bundle, React, Fast Refresh | done, verified on screen |
+| 4 | Pango text -- `<Text>` is the biggest gap | **next** |
+| 4+ | images, input, AT-SPI | see `docs/ARCHITECTURE.md` |
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
-`ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real surface:
-Hermes executes a script, Fabric commits and diffs a shadow tree, and the
-resulting mutations reach GTK4 widgets through `GtkMountingManager`.
+`ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native
+app: Metro bundles `js/index.js`, `AppRegistry` starts the surface, React
+reconciles, Yoga lays out, and the mutations reach GTK4 widgets through
+`GtkMountingManager`. Fast Refresh works against a running Metro.
 
-There is still no React and no Metro. `js/demo.js` drives
-`nativeFabricUIManager` by hand, which is what phase 3 replaces.
+What is missing is the component surface, not the runtime. Only `<View>` has a
+GTK peer, so there is no `<Text>`, no `<Image>`, no `<ScrollView>` and no input
+handling. Text is next and is the biggest single gap.
 
 ## Setup
 

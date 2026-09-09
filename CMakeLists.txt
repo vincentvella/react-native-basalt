@@ -117,7 +117,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     src/main.cpp
     src/GtkAnimationChoreographer.cpp
     src/LinuxNetworking.cpp)
-  target_link_libraries(rn_linux_host PRIVATE rn_mounting)
+  target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
   message(STATUS "rn_mounting enabled (RN_DIR=${RN_DIR})")

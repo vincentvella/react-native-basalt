@@ -22,10 +22,17 @@ target_compile_definitions(glog INTERFACE GLOG_USE_GLOG_EXPORT)
 # Nothing on a host build needs it; Fantom stubs it the same way.
 add_library(glog_init INTERFACE)
 
-# --- boost (headers only) --------------------------------------------------
+# --- boost -----------------------------------------------------------------
+# Headers only, with one exception: folly's Uri parser uses boost::regex, which
+# is a compiled library. Uri is pulled in by React Native's websocket client
+# (see rn_websocket in ReactNativeCore.cmake), so it is needed as soon as the
+# dev server is. boost::asio and boost::beast, which that client also uses, are
+# header-only.
 find_path(BOOST_INCLUDE_DIR boost/version.hpp REQUIRED)
+find_library(BOOST_REGEX_LIBRARY NAMES boost_regex boost_regex-mt REQUIRED)
 add_library(boost INTERFACE)
 target_include_directories(boost INTERFACE ${BOOST_INCLUDE_DIR})
+target_link_libraries(boost INTERFACE ${BOOST_REGEX_LIBRARY})
 
 # --- double-conversion -----------------------------------------------------
 find_library(DOUBLE_CONVERSION_LIBRARY double-conversion REQUIRED)
@@ -68,6 +75,10 @@ set(folly_runtime_SRC
         hash/SpookyHashV2.cpp
         io/IOBuf.cpp
         json/dynamic.cpp json/json_pointer.cpp json/json.cpp
+        # Not in React Native's own folly source list. Its websocket client
+        # parses the packager URL with folly::Uri, so a host that talks to the
+        # dev server needs it.
+        Uri.cpp
         lang/CString.cpp lang/Exception.cpp lang/SafeAssert.cpp lang/ToAscii.cpp
         memory/SanitizeAddress.cpp memory/detail/MallocImpl.cpp
         net/NetOps.cpp
@@ -91,6 +102,12 @@ target_include_directories(nlohmann_json INTERFACE ${NLOHMANN_JSON_DIR}/include)
 # --- OpenSSL ---------------------------------------------------------------
 # Also devsupport: the packager connection speaks WebSocket over TLS.
 find_package(OpenSSL REQUIRED)
+
+# --- libcurl ---------------------------------------------------------------
+# Backs src/LinuxNetworking.cpp's IHttpClient: the dev server bundle fetch and
+# NetworkingModule (fetch/XHR) both go through it. Present on macOS in the SDK;
+# on Linux it is the curl development package.
+find_package(CURL REQUIRED)
 
 # --- Hermes ----------------------------------------------------------------
 # Built separately from RN's pinned tarball; see README. Fantom locates the
