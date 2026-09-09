@@ -5,7 +5,9 @@ Not scheduled. Roughly by value.
 ## Testing
 
 - No rendering assertions: the widget tree says a view has a colour and a
-  frame, not that the right pixels reached the screen. See `docs/TESTING.md`.
+  frame, not that the right pixels reached the screen. This is not theoretical
+  -- GTK's cairo renderer mangled every transform in the demo and no test
+  noticed. See `docs/TESTING.md`.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
@@ -133,6 +135,10 @@ Not scheduled. Roughly by value.
   porting story actually costs.
 
 ## Upstream
+
+- GTK 4.14's cairo renderer draws a transformed widget subtree unrotated and in
+  the wrong colour; the GL renderer is correct. Worth reducing to a minimal case
+  and reporting, or confirming it is already fixed in a later GTK.
 
 - Report the `HttpUtils.h` missing-`<cstdint>` bug.
 - Consider upstreaming a Linux entry in `getHostPlatform.js` if the host build

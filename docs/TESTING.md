@@ -125,13 +125,21 @@ sudo apt install sway grim mesa-vulkan-drivers libgl1-mesa-dri
 printf 'output HEADLESS-1 resolution 1400x1000\ndefault_border none\n' > /tmp/sway.conf
 XDG_RUNTIME_DIR=/run/user/$(id -u) WLR_BACKENDS=headless WLR_RENDERER=pixman \
   sway -c /tmp/sway.conf &
-WAYLAND_DISPLAY=wayland-1 GSK_RENDERER=cairo ./build/rn_tests
+WAYLAND_DISPLAY=wayland-1 GSK_RENDERER=gl ./build/rn_linux_host build/main.jsbundle.js
 grim shot.png
 ```
 
-`WLR_RENDERER=pixman` matters: without a GPU, wlroots' default renderer fails
-with `drmGetDevices2 failed` and the compositor starts but draws nothing.
-`GSK_RENDERER=cairo` keeps GTK off the GL path for the same reason.
+Two renderer choices, for two different layers, and they are not the same one.
+
+`WLR_RENDERER=pixman` is the *compositor's*. Without a GPU, wlroots' default
+fails with `drmGetDevices2 failed` and sway starts but draws nothing.
+
+`GSK_RENDERER=gl` is *GTK's*, and it must not be `cairo`. GTK 4.14's cairo
+renderer draws a transformed widget subtree unrotated and in the wrong colour --
+the demo's rotated card comes out as a flat pink square. The GL renderer gets it
+right, and works headless through Mesa's software rasteriser, so there is no
+reason to reach for cairo. This cost an hour of suspecting the transform code,
+which is fine on macOS and fine here under GL.
 
 ### Input, on X11
 
@@ -157,7 +165,8 @@ is the 53-point step in `GtkScrollViewManager` times five.
 both at once. Closing it needs a compositor with a real seat — a desktop session
 in the VM, or a physical Linux machine.
 
-**Rendering.** Nothing asserts on pixels. The widget tree says a view has a
+**Rendering.** Nothing asserts on pixels, which is how GTK's cairo renderer
+mangled every transform in the demo without a single test noticing. The widget tree says a view has a
 background colour and a frame, not that the right pixels reached the screen. A
 screenshot comparison would catch paint bugs the tree cannot — wrong z-order,
 a missing clip, text drawn in the wrong colour — but it needs a reference image
@@ -169,7 +178,8 @@ suite.
 measurement takes a mutex, but nothing exercises the JS thread and the main
 thread concurrently.
 
-**Rendering.** Nothing asserts on pixels. The widget tree says a view has a
+**Rendering.** Nothing asserts on pixels, which is how GTK's cairo renderer
+mangled every transform in the demo without a single test noticing. The widget tree says a view has a
 background colour and a frame, not that the right pixels reached the screen. A
 screenshot comparison would catch paint bugs the tree cannot — wrong z-order,
 a missing clip, text drawn in the wrong colour — but it needs a reference image
