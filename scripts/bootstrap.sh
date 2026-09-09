@@ -34,7 +34,7 @@ die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 if [ -n "$FORCE" ]; then
   log "--force: removing fetched trees"
   rm -rf "$TP/folly" "$TP/fast_float" "$TP/nlohmann_json" "$TP/hermes" \
-         "$TP/hermes-build"
+         "$TP/hermes-build" "$TP/node"
   # Not the whole codegen dir: its CMakeLists.txt is checked in and replaces
   # the Android-only one the generator emits. Only the generated tree goes.
   rm -rf "$TP/codegen/react" "$TP"/codegen/*.h "$TP"/codegen/*.cpp
@@ -124,23 +124,34 @@ if ! ls "$TP"/hermes-build/lib/libhermesvm.* >/dev/null 2>&1; then
   nice -n 10 cmake --build "$TP/hermes-build" --target hermesvm -j "${BUILD_JOBS:-12}"
 fi
 
+# --- yarn -------------------------------------------------------------------
+# React Native's codegen shells out to `yarn install` itself, so yarn has to be
+# *on PATH*, not merely invocable -- npx is not enough.
+#
+# Installing it globally is not an option either: on Linux npm's global prefix
+# is root-owned (/usr/lib/node_modules) and `npm install -g` fails with EACCES,
+# which a bootstrap script has no business needing sudo to avoid. Homebrew's
+# node has a user-writable prefix, which is why this only bites off macOS.
+#
+# So yarn goes under third_party/ like every other fetched dependency.
+if ! command -v yarn >/dev/null; then
+  if [ ! -x "$TP/node/node_modules/.bin/yarn" ]; then
+    log "installing yarn under third_party/node"
+    mkdir -p "$TP/node"
+    ${NODE_RUN[@]+"${NODE_RUN[@]}"} npm install --prefix "$TP/node" \
+      --silent --no-fund --no-audit yarn@1.22.22
+  fi
+  export PATH="$TP/node/node_modules/.bin:$PATH"
+fi
+log "yarn $(yarn --version)"
+
 # --- React Native codegen ---------------------------------------------------
 # 24 targets need react_codegen_rncore, ReactCxxPlatform's react/runtime among
 # them, so this is mandatory for a host that runs JS.
 if [ ! -d "$TP/codegen/react" ]; then
   if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
     log "installing React Native's monorepo dependencies (needed by codegen)"
-    # Never install yarn globally. On Linux npm's global prefix is usually
-    # root-owned (/usr/lib/node_modules), so `npm install -g` fails with EACCES
-    # unless the whole bootstrap runs under sudo, which it should not have to.
-    # Homebrew's node has a user-writable prefix, which is why this only shows
-    # up off macOS.
-    if command -v yarn >/dev/null; then
-      YARN=(yarn)
-    else
-      YARN=(npx --yes yarn@1.22.22)
-    fi
-    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} "${YARN[@]}" install --network-timeout 600000)
+    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
   fi
 
   log "generating codegen artifacts"

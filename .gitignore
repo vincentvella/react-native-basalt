@@ -7,6 +7,7 @@ third_party/fast_float/
 third_party/hermes/
 third_party/hermes-build/
 third_party/nlohmann_json/
+third_party/node/
 third_party/codegen/*
 !third_party/codegen/CMakeLists.txt
 
