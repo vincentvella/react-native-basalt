@@ -8,7 +8,3 @@ third_party/hermes/
 third_party/hermes-build/
 third_party/nlohmann_json/
 third_party/codegen/
-
-# Local working notes, not documentation. Durable facts graduate into
-# README.md or docs/ARCHITECTURE.md.
-plan/
