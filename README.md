@@ -85,16 +85,60 @@ Omit `-DRN_DIR` to build only the widget layer and the demo.
 ### Dependencies
 
 System packages (Arch): `gtk4 pango google-glog boost gflags fmt
-double-conversion cmake ninja`.
+double-conversion openssl cmake ninja clang`.
 
-folly is fetched rather than installed, pinned to the version RN builds
-against (`packages/react-native/gradle/libs.versions.toml`):
+Vendored, pinned to the versions RN builds against
+(`packages/react-native/gradle/libs.versions.toml`):
 
     mkdir -p third_party && cd third_party
     curl -L https://github.com/facebook/folly/archive/v2024.11.18.00.tar.gz | tar xz
     mv folly-2024.11.18.00 folly
+    curl -L https://github.com/fastfloat/fast_float/archive/v8.0.0.tar.gz | tar xz
+    mv fast_float-8.0.0 fast_float
+    mkdir -p nlohmann_json/include/nlohmann && curl -L -o nlohmann_json/include/nlohmann/json.hpp \
+      https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
 
-Only folly's headers are used here, so it does not need to be built.
+Only headers are used from these, so none needs building.
+
+### Hermes
+
+Pinned by `ReactAndroid/hermes-engine/build.gradle.kts` (currently
+`250829098.0.0-stable`). Built with RN's own host flags:
+
+    curl -L https://github.com/facebook/hermes/tarball/250829098.0.0-stable | tar xz
+    # -> third_party/hermes
+
+    cmake -G Ninja -S third_party/hermes -B third_party/hermes-build \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+      -DJSI_DIR=$RN_DIR/ReactCommon/jsi -DCMAKE_BUILD_TYPE=Release \
+      -DHERMES_ENABLE_DEBUGGER=True -DHERMESVM_HEAP_HV_MODE=HEAP_HV_PREFER32
+    cmake --build third_party/hermes-build --target hermesvm
+
+Hermes' public headers must be on the *global* include path: RN's own
+`hermes/executor` and `hermes/inspector-modern` targets include
+`<hermes/hermes.h>` without declaring a dependency that carries it. Fantom does
+the same with a global `include_directories()`.
+
+### Codegen
+
+24 targets need `react_codegen_rncore` -- including ReactCxxPlatform's
+`react/runtime`, where `ReactHost` lives -- so codegen is mandatory for any host
+that runs JS. It is a Node tool, and RN's monorepo must be installed first.
+
+**Node version matters.** RN requires `^22.13.0 || ^24.3.0 || >= 26.0.0`.
+Node 25.x is explicitly excluded and `yarn install` fails on an engine check in
+a preinstall hook. Use e.g. `mise exec node@24 -- yarn install`.
+
+    # in the React Native checkout
+    mise exec node@24 -- yarn install
+    mise exec node@24 -- node packages/react-native/scripts/generate-codegen-artifacts.js \
+      -p packages/react-native -t android -o /tmp/rncodegen -s library -f
+
+Copy `/tmp/rncodegen/android/app/build/generated/source/codegen/jni/react` to
+`third_party/codegen/react`. The generator also emits a CMakeLists that links
+Android-only targets (`fbjni`, `turbomodulejsijni`); `third_party/codegen/
+CMakeLists.txt` in this repo replaces it, exactly as Fantom's
+`tester/codegen/CMakeLists.txt` does.
 
 ### Version drift
 
@@ -161,6 +205,13 @@ Six things a host has to get right, none of them documented:
    supports. See `src/LinuxComponentRegistry.h`. Fantom has its own version.
 6. **`JSIDynamic.cpp` is compiled by no CMakeLists in the tree**, yet
    `RawProps` references `jsi::dynamicFromValue`. Hosts must build it.
+7. **`getHttpClientFactory()` is declared but defined nowhere** -- a host must
+   implement `IHttpClient` (one method). And `getWebSocketClientFactory()` *is*
+   defined, in `react/http/platform/cxx/WebSocketClient.cpp`, which the
+   `react_cxx_platform_react_http` target does not glob. Hosts compile it.
+8. **Order matters in CMake variable assembly.** `set(RN_CORE_OBJECT_TARGETS
+   ...)` after a `list(APPEND ...)` silently discards the appended entries, and
+   the failure surfaces much later as missing objects at link time.
 
 ### Upstream bug found
 

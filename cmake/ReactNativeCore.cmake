@@ -23,36 +23,79 @@ endfunction()
 
 set(RN_CORE_SUBDIRS
         callinvoker
-        logger
-        oscompat
-        reactperflogger
-        runtimeexecutor
-        jsi/jsi
+        cxxreact
+        devtoolsruntimesettings
+        hermes/executor
+        hermes/inspector-modern
+        jserrorhandler
+        jsi
+        jsiexecutor
         jsinspector-modern
         jsinspector-modern/cdp
         jsinspector-modern/network
         jsinspector-modern/tracing
-        jserrorhandler
+        jsitooling
+        logger
+        oscompat
+        react/bridging
         react/cxxstableapi
         react/debug
         react/featureflags
-        react/timing
-        react/utils
+        react/nativemodule/core
+        react/nativemodule/cputime
+        react/nativemodule/defaults
+        react/nativemodule/devtoolsruntimesettings
+        react/nativemodule/dom
+        react/nativemodule/featureflags
+        react/nativemodule/idlecallbacks
+        react/nativemodule/intersectionobserver
+        react/nativemodule/microtasks
+        react/nativemodule/mutationobserver
+        react/nativemodule/resizeobserver
+        react/nativemodule/viewtransition
+        react/nativemodule/webperformance
+        react/performance/cdpmetrics
         react/performance/timeline
+        react/renderer/animated
+        react/renderer/animationbackend
+        react/renderer/attributedstring
+        react/renderer/bridging
         react/renderer/componentregistry
+        react/renderer/componentregistry/native
+        react/renderer/components/image
+        react/renderer/components/legacyviewmanagerinterop
+        react/renderer/components/modal
+        react/renderer/components/root
+        react/renderer/components/scrollview
+        react/renderer/components/text
+        react/renderer/components/view
         react/renderer/consistency
         react/renderer/core
         react/renderer/css
         react/renderer/debug
+        react/renderer/dom
         react/renderer/graphics
+        react/renderer/imagemanager
+        react/renderer/leakchecker
         react/renderer/mapbuffer
         react/renderer/mounting
+        react/renderer/observers/events
+        react/renderer/observers/intersection
+        react/renderer/observers/mutation
+        react/renderer/observers/resize
         react/renderer/runtimescheduler
+        react/renderer/scheduler
         react/renderer/telemetry
-        react/renderer/components/root
-        react/renderer/components/view
-        react/renderer/components/scrollview
-        react/renderer/components/legacyviewmanagerinterop
+        react/renderer/textlayoutmanager
+        react/renderer/uimanager
+        react/renderer/uimanager/consistency
+        react/renderer/viewtransition
+        react/runtime
+        react/runtime/hermes
+        react/timing
+        react/utils
+        reactperflogger
+        runtimeexecutor
         yoga)
 
 # Seams with per-platform variants: a host must choose one of each, globally,
@@ -76,20 +119,134 @@ endforeach()
 # two the same way.
 add_library(yoga ALIAS yogacore)
 
+# ---------------------------------------------------------------------------
+# ReactCxxPlatform — the generic C++ platform: ReactHost, the scheduler
+# delegate, http, io, logging, threading, devsupport, coremodules and the
+# TurboModule host. This is the layer that makes a non-Apple, non-Android host
+# possible at all.
+# ---------------------------------------------------------------------------
+
+# React Native's generated codegen artifacts. 24 targets depend on
+# react_codegen_rncore, including ReactCxxPlatform's react/runtime -- where
+# ReactHost lives -- so this is not optional for a host that runs JS.
+add_subdirectory(${CODEGEN_DIR} codegen)
+
+function(add_react_cxx_platform_subdir relative_path)
+  add_subdirectory(${REACT_CXX_PLATFORM_DIR}/${relative_path} ReactCxxPlatform/${relative_path})
+endfunction()
+
+set(RN_CXX_PLATFORM_SUBDIRS
+        react/coremodules
+        react/devsupport
+        react/http
+        react/io
+        react/logging
+        react/nativemodule
+        react/profiling
+        react/renderer/scheduler
+        react/renderer/uimanager
+        react/runtime
+        react/threading
+        react/utils)
+
+foreach(subdir ${RN_CXX_PLATFORM_SUBDIRS})
+  add_react_cxx_platform_subdir(${subdir})
+endforeach()
+
+set(RN_CXX_PLATFORM_TARGETS
+        react_cxx_platform_react_coremodules
+        react_cxx_platform_react_devsupport
+        react_cxx_platform_react_http
+        react_cxx_platform_react_io
+        react_cxx_platform_react_logging
+        react_cxx_platform_react_nativemodule
+        react_cxx_platform_react_profiling
+        react_cxx_platform_react_renderer_scheduler
+        react_cxx_platform_react_renderer_uimanager
+        react_cxx_platform_react_runtime
+        react_cxx_platform_react_threading
+        react_cxx_platform_react_utils)
+
 # Every RN target above is an OBJECT library; collect them into one thing that
 # is convenient to link.
 set(RN_CORE_OBJECT_TARGETS
-        callinvoker logger oscompat reactperflogger
-        jsi jsinspector jsinspector_cdp jsinspector_network jsinspector_tracing
+        bridgeless
+        bridgelesshermes
+        callinvoker
+        devtoolsruntimesettings
+        hermes_executor_common
+        hermes_inspector_modern
         jserrorhandler
-        react_cxxstableapi react_debug react_featureflags react_timing
-        react_utils react_performance_timeline
+        jsi
+        jsinspector
+        jsinspector_cdp
+        jsinspector_network
+        jsinspector_tracing
+        jsireact
+        jsitooling
+        logger
+        oscompat
+        react_bridging
+        react_cxxreact
+        react_cxxstableapi
+        react_debug
+        react_featureflags
+        react_nativemodule_core
+        react_nativemodule_cpu
+        react_nativemodule_defaults
+        react_nativemodule_devtoolsruntimesettings
+        react_nativemodule_dom
+        react_nativemodule_featureflags
+        react_nativemodule_idlecallbacks
+        react_nativemodule_intersectionobserver
+        react_nativemodule_microtasks
+        react_nativemodule_mutationobserver
+        react_nativemodule_resizeobserver
+        react_nativemodule_viewtransition
+        react_nativemodule_webperformance
+        react_performance_cdpmetrics
+        react_performance_timeline
+        react_renderer_animated
+        react_renderer_animationbackend
+        react_renderer_attributedstring
+        react_renderer_bridging
         react_renderer_componentregistry
-        react_renderer_consistency react_renderer_core react_renderer_css
-        react_renderer_debug react_renderer_graphics react_renderer_mapbuffer
-        react_renderer_mounting react_renderer_runtimescheduler
+        react_renderer_consistency
+        react_renderer_core
+        react_renderer_css
+        react_renderer_debug
+        react_renderer_dom
+        react_renderer_graphics
+        react_renderer_imagemanager
+        react_renderer_leakchecker
+        react_renderer_mapbuffer
+        react_renderer_mounting
+        react_renderer_observers_events
+        react_renderer_observers_intersection
+        react_renderer_observers_mutation
+        react_renderer_observers_resize
+        react_renderer_runtimescheduler
+        react_renderer_scheduler
         react_renderer_telemetry
-        rrc_root rrc_view rrc_scrollview rrc_legacyviewmanagerinterop)
+        react_renderer_textlayoutmanager
+        react_renderer_uimanager
+        react_renderer_uimanager_consistency
+        react_renderer_viewtransition
+        react_timing
+        react_utils
+        reactperflogger
+        rrc_image
+        rrc_legacyviewmanagerinterop
+        rrc_modal
+        rrc_native
+        rrc_root
+        rrc_scrollview
+        rrc_text
+        rrc_view
+        runtimeexecutor)
+
+# Must come after the set() above, which would otherwise overwrite it.
+list(APPEND RN_CORE_OBJECT_TARGETS ${RN_CXX_PLATFORM_TARGETS})
 
 # Upstream portability bug: ReactCommon/jsinspector-modern/network/HttpUtils.h
 # uses uint16_t without including <cstdint>. It compiles on Meta's toolchains

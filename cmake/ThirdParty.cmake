@@ -75,3 +75,33 @@ target_compile_options(folly_runtime PRIVATE
 target_compile_options(folly_runtime PUBLIC ${folly_FLAGS})
 target_include_directories(folly_runtime PUBLIC ${FOLLY_DIR})
 target_link_libraries(folly_runtime glog double-conversion boost fmt fast_float)
+
+# --- nlohmann_json (vendored, header-only) ---------------------------------
+# Needed by ReactCxxPlatform's devsupport (PackagerConnection).
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json INTERFACE ${NLOHMANN_JSON_DIR}/include)
+
+# --- OpenSSL ---------------------------------------------------------------
+# Also devsupport: the packager connection speaks WebSocket over TLS.
+find_package(OpenSSL REQUIRED)
+
+# --- Hermes ----------------------------------------------------------------
+# Built separately from RN's pinned tarball; see README. Fantom locates the
+# same library out of its Android hermes-engine build dir.
+find_library(HERMES_VM_LIBRARY hermesvm
+  HINTS ${HERMES_BUILD_DIR}/API/hermes ${HERMES_BUILD_DIR}/lib
+  REQUIRED)
+add_library(hermes-engine::hermesvm INTERFACE IMPORTED)
+set_target_properties(hermes-engine::hermesvm PROPERTIES
+  INTERFACE_LINK_LIBRARIES ${HERMES_VM_LIBRARY})
+
+# Hermes' public headers must be globally visible: RN's own hermes/executor and
+# hermes/inspector-modern targets include <hermes/hermes.h> without declaring a
+# dependency that would carry the path. Fantom does the same with a global
+# include_directories() over its prefab-headers dir.
+#
+# RN's jsi is used rather than Hermes' vendored copy, so API/ and public/ only.
+include_directories(
+  ${HERMES_DIR}/API
+  ${HERMES_DIR}/public
+  ${HERMES_BUILD_DIR}/lib/config)

@@ -43,6 +43,18 @@ if(DEFINED RN_DIR)
   if(NOT DEFINED FAST_FLOAT_DIR)
     set(FAST_FLOAT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fast_float)
   endif()
+  if(NOT DEFINED NLOHMANN_JSON_DIR)
+    set(NLOHMANN_JSON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann_json)
+  endif()
+  if(NOT DEFINED CODEGEN_DIR)
+    set(CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/codegen)
+  endif()
+  if(NOT DEFINED HERMES_DIR)
+    set(HERMES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/hermes)
+  endif()
+  if(NOT DEFINED HERMES_BUILD_DIR)
+    set(HERMES_BUILD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/hermes-build)
+  endif()
 
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
@@ -77,6 +89,7 @@ if(DEFINED RN_DIR)
   target_compile_options(rn_mounting PRIVATE -Wno-unknown-pragmas)
 
   target_link_libraries(rn_mounting PUBLIC rn_view rn_core)
+target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
 
   # ---------------------------------------------------------------------------
   # mount_harness — drives real ShadowViewMutations through the real mounting
