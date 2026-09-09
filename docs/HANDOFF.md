@@ -14,8 +14,9 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 2 | `main.cpp`: construct `ReactHost`, run a surface | done, verified on screen |
 | 3 | Metro bundle, React, Fast Refresh | done, verified on screen |
 | 4 | Pango text: `<Text>` measures and renders | done, verified on screen |
-| 5 | Input: GTK events into RN's event system | **next** |
-| 5+ | images, ScrollView, AT-SPI | see `docs/ARCHITECTURE.md` |
+| 5 | Input: GTK events into RN's touch events | done, verified on screen |
+| 6 | `<Image>` and `<ScrollView>` | **next** |
+| 7+ | AT-SPI, TextInput, packaging | see `docs/ARCHITECTURE.md` |
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
 `ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native
@@ -23,10 +24,10 @@ app: Metro bundles `js/index.js`, `AppRegistry` starts the surface, React
 reconciles, Yoga lays out, and the mutations reach GTK4 widgets through
 `GtkMountingManager`. Fast Refresh works against a running Metro.
 
-`<View>` and `<Text>` both have GTK peers, the latter measured by Pango through
-React Native's `TextLayoutManager` seam. What is missing is still the component
-surface rather than the runtime: no input handling, no `<Image>`, no
-`<ScrollView>`. Input is next -- nothing on screen can be interacted with yet.
+`<View>` and `<Text>` have GTK peers, the latter measured by Pango, and presses
+reach React through the responder system, so an app is now interactive. What is
+missing is still the component surface rather than the runtime: no `<Image>`, no
+`<ScrollView>`, no `<TextInput>`, no accessibility.
 
 ## Setup
 

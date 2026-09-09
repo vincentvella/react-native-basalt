@@ -184,3 +184,44 @@ React Native's `ellipsizeMode` defaults to `Tail`, and setting
 Translating the default faithfully therefore collapsed every wrapping paragraph
 to one line. Ellipsization is only applied when `maximumNumberOfLines` is set,
 which is also the only case where React Native means it.
+
+## The event beat is not optional, and it is a GSource — 2026-09-09
+
+`EventQueue::onEnqueue` only sets a flag on the `EventBeat`. Nothing an
+`EventEmitter` produces reaches JavaScript until something calls
+`RunLoopObserverManager::onRender()`. Phases 2 to 4 never noticed, because mounts
+arrive through `executeMount` rather than the event queue; input is the first
+thing that depends on it, and without it touches are enqueued and silently
+dropped.
+
+React Native asks for `Activity::BeforeWaiting`: run once the loop has drained
+its work and is about to sleep. The GLib equivalent is a `GSource` that does the
+work in `prepare()` and never reports itself ready -- `prepare()` runs once per
+main-loop iteration before the poll, so it costs one call when the loop is busy
+and nothing when the app is idle.
+
+A `gtk_widget_add_tick_callback` on the root would also work and was the obvious
+first idea, but it holds the frame clock open and wakes the process at display
+rate for as long as the window is mapped. That is the wrong trade for a desktop
+app that spends most of its life still.
+
+## Input is touch events, and one set of controllers on the root — 2026-09-09
+
+React Native's Pressability -- what backs every `onPress` -- runs on the
+responder system in JavaScript, and the responder system is fed by
+touchstart/touchmove/touchend. W3C pointer events exist alongside them but are
+consulted only for hover, behind `shouldPressibilityUseW3CPointerEventsForHover`.
+So a desktop pointer is reported as a single touch point, which is also what
+React Native for Windows and macOS do.
+
+The controllers live on the surface root rather than on each view. Per-widget
+controllers would have to be created and destroyed on every mutation, and would
+still need a hit test; `gtk_widget_pick` already walks the tree and returns the
+deepest widget at a point, which is the answer React Native's hit testing wants
+now that every view is allocated at the frame Yoga assigned it.
+
+Two details that are easy to get wrong. A gesture reports against the view it
+*started* on for its whole life, even after the pointer leaves, because that is
+what the responder system expects. And on touchend the touch must not appear in
+`touches`, only in `changedTouches` -- leaving it in convinces the responder
+system a finger is still down and it swallows the next press.

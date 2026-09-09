@@ -1,71 +1,65 @@
 /**
  * The demo app, in React.
  *
- * Everything here is ordinary React Native: hooks, StyleSheet, flexbox, Text
- * and View. Nothing knows it is running on GTK4. The host starts a surface with
- * the module name registered at the bottom of this file, which is what makes
- * React reconcile into it.
+ * Everything here is ordinary React Native: hooks, StyleSheet, flexbox, Text,
+ * View and Pressable. Nothing knows it is running on GTK4.
  *
- * The text on screen is measured by Pango through React Native's
- * TextLayoutManager seam, so Yoga sizes these paragraphs the same way it sizes
- * them on iOS and Android.
+ * The counter is driven by presses, not a timer, so what is on screen is
+ * evidence that a GTK click reached React's responder system and came back as
+ * a re-render.
  */
 
 'use strict';
 
-import React, {useEffect, useMemo, useState} from 'react';
-import {AppRegistry, StyleSheet, Text, View} from 'react-native';
+import React, {useState} from 'react';
+import {AppRegistry, Pressable, StyleSheet, Text, View} from 'react-native';
 
 const PALETTE = ['#4285f4', '#9b59f6', '#f26f56', '#56c98a', '#f2c14e'];
 
-const PARAGRAPH =
-  'Yoga asked Pango how wide this paragraph wants to be, and Pango answered ' +
-  'in 1024ths of a pixel. It wraps because the column is narrow, not because ' +
-  'anything here counted characters.';
-
-function Swatch({color, label}) {
+function Button({label, onPress, color}) {
   return (
-    <View style={[styles.swatch, {backgroundColor: color}]}>
-      <Text style={styles.swatchLabel}>{label}</Text>
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.button,
+        {backgroundColor: color, opacity: pressed ? 0.55 : 1},
+      ]}>
+      <Text style={styles.buttonLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
 function App() {
-  const [tick, setTick] = useState(0);
+  const [count, setCount] = useState(0);
+  const [log, setLog] = useState('nothing pressed yet');
 
-  useEffect(() => {
-    const id = setInterval(() => setTick(current => current + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const colors = useMemo(
-    () => PALETTE.map((_, index) => PALETTE[(index + tick) % PALETTE.length]),
-    [tick],
-  );
+  const press = label => () => {
+    setCount(current => (label === 'reset' ? 0 : current + (label === '+1' ? 1 : -1)));
+    setLog(`last press: ${label}`);
+  };
 
   return (
     <View style={styles.root}>
       <Text style={styles.heading}>React Native on GTK4</Text>
 
-      <Text style={styles.body}>{PARAGRAPH}</Text>
-
       <Text style={styles.body}>
-        Nested spans work too:{' '}
-        <Text style={styles.bold}>bold</Text>,{' '}
-        <Text style={styles.italic}>italic</Text>, and{' '}
-        <Text style={{color: colors[2]}}>a colour that changes every second</Text>.
+        Pango measures this text, Yoga lays it out, and the buttons below run
+        through React Native's responder system. A press changes the count,
+        which is a real re-render rather than anything the widget layer did on
+        its own.
       </Text>
 
-      <Text style={styles.clipped} numberOfLines={1}>
-        This line is limited to one line and ellipsized at the tail, which is
-        Pango truncating it rather than JavaScript slicing a string.
-      </Text>
+      <View style={styles.counterRow}>
+        <View style={[styles.counter, {backgroundColor: PALETTE[count % PALETTE.length]}]}>
+          <Text style={styles.counterText}>{String(count)}</Text>
+        </View>
+        <Text style={styles.log}>{log}</Text>
+      </View>
 
       <View style={styles.row}>
-        {colors.slice(0, 4).map((color, index) => (
-          <Swatch key={index} color={color} label={String(tick + index)} />
-        ))}
+        <Button label="-1" color={PALETTE[2]} onPress={press('-1')} />
+        <Button label="reset" color={PALETTE[1]} onPress={press('reset')} />
+        <Button label="+1" color={PALETTE[3]} onPress={press('+1')} />
       </View>
     </View>
   );
@@ -78,40 +72,49 @@ const styles = StyleSheet.create({
     backgroundColor: '#11131a',
   },
   heading: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '700',
     color: '#f7f8fa',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   body: {
     fontSize: 16,
     lineHeight: 24,
     color: '#c3c9d5',
-    marginBottom: 14,
+    marginBottom: 22,
   },
-  bold: {
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 22,
+  },
+  counter: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 18,
+  },
+  counterText: {
+    fontSize: 44,
     fontWeight: '700',
-    color: '#f7f8fa',
+    color: '#11131a',
   },
-  italic: {
-    fontStyle: 'italic',
-    color: '#f7f8fa',
-  },
-  clipped: {
+  log: {
     fontSize: 16,
     color: '#7f8794',
-    marginBottom: 20,
   },
   row: {
-    flex: 1,
     flexDirection: 'row',
   },
-  swatch: {
+  button: {
     flex: 1,
+    height: 64,
     marginRight: 12,
-    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  swatchLabel: {
+  buttonLabel: {
     fontSize: 20,
     fontWeight: '600',
     color: '#11131a',

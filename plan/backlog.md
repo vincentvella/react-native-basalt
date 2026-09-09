@@ -32,6 +32,23 @@ Not scheduled. Roughly by value.
 - A real `linux` Metro platform, which means a JS package with its own
   `Platform` module; see `plan/decisions.md`.
 
+## Input
+
+- No hover: W3C pointer events are not emitted, so `onMouseEnter` and friends
+  never fire. They are a separate emitter path from touch, not a translation of
+  it.
+- `setIsJSResponder` is a no-op. It matters once something scrolls natively, so
+  it lands with `ScrollView`.
+- `Touch::offsetPoint` carries page coordinates rather than coordinates relative
+  to the target view. Pressability does not read it; anything doing its own hit
+  maths would.
+- No keyboard, no focus, no key events.
+- Multi-touch is not modelled: one pointer, identifier 0.
+- Real GDK event delivery is unverified in automation. `RN_LINUX_TEST_TAP`
+  enters at the gesture callback, so everything downstream is covered and GDK's
+  routing is not. Verifying it needs a machine where synthesising a pointer
+  event is allowed.
+
 ## Text
 
 - Inline views (`<Text><View/></Text>`) measure as zero-sized attachments.
@@ -51,10 +68,9 @@ Not scheduled. Roughly by value.
 
 ## Platform surface
 
-- Input, and it is now the biggest gap: nothing on screen can be interacted
-  with. `GtkGestureClick` / `GtkEventControllerMotion` into RN's touch and
-  pointer events, and `setIsJSResponder` for the responder system.
-- `IImageLoader` via GdkPixbuf or glycin.
+- `IImageLoader` via GdkPixbuf or glycin, for `<Image>`.
+- `ScrollView`, on a `GtkScrolledWindow` peer.
+- `TextInput`, which needs keyboard input and a focus model first.
 - Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
   events; `setIsJSResponder` for the responder system.
 - `dispatchCommand` routing (scrollTo, focus, blur) once ScrollView/TextInput

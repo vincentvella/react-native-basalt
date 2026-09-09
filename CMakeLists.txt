@@ -120,6 +120,8 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   add_executable(rn_linux_host
     src/main.cpp
     src/GtkAnimationChoreographer.cpp
+    src/GtkRunLoopObserver.cpp
+    src/GtkTouchDispatcher.cpp
     src/LinuxNetworking.cpp)
   target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)

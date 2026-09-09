@@ -8,8 +8,10 @@
 
 #include "RnView.h"
 
+#include <react/renderer/components/view/TouchEventEmitter.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 
+#include <memory>
 #include <thread>
 #include <unordered_map>
 
@@ -46,6 +48,16 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void destroySurfaceRoot(facebook::react::SurfaceId surfaceId);
   RnView *getSurfaceRoot(facebook::react::SurfaceId surfaceId) const;
 
+  // The event emitter for a mounted view, or null if the tag is unknown or its
+  // emitter is not a touch emitter. GtkTouchDispatcher uses this to turn a GTK
+  // click into an onTouchStart on the right component.
+  //
+  // Emitters are kept per tag rather than on the widget because RnView holds no
+  // React Native types, and because a view can be detached between a Remove and
+  // its Delete while still needing to deliver a cancel.
+  std::shared_ptr<const facebook::react::TouchEventEmitter> eventEmitterForTag(
+      facebook::react::Tag tag) const;
+
   // Applies a transaction to the widget tree. Invoked on the GTK main thread by
   // executeMount's marshalling -- not part of IMountingManager, and never to be
   // called directly.
@@ -54,6 +66,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
 
  private:
   RnView *viewForTag(facebook::react::Tag tag) const;
+  void rememberEventEmitter(const facebook::react::ShadowView &shadowView);
 
   void applyShadowView(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
@@ -64,6 +77,9 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   // Remove and its Delete a view has no parent, so the registry is the only
   // thing keeping it alive.
   std::unordered_map<facebook::react::Tag, RnView *> registry_;
+
+  // Parallel to registry_, and torn down with it on Delete.
+  std::unordered_map<facebook::react::Tag, std::shared_ptr<const facebook::react::TouchEventEmitter>> eventEmitters_;
 
   // The GTK main thread, recorded at construction. executeMount arrives on the
   // JS thread and marshals here; applyTransaction asserts it got there.

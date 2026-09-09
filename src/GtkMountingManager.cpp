@@ -28,6 +28,7 @@ using facebook::react::ShadowViewMutation;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
 using facebook::react::ParagraphState;
+using facebook::react::TouchEventEmitter;
 using facebook::react::ViewProps;
 
 namespace {
@@ -105,6 +106,7 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
 
         applyShadowView(view, shadowView);
         registry_[shadowView.tag] = view;
+        rememberEventEmitter(shadowView);
         break;
       }
 
@@ -113,6 +115,7 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
         if (auto it = registry_.find(tag); it != registry_.end()) {
           g_object_unref(it->second);
           registry_.erase(it);
+          eventEmitters_.erase(tag);
         } else {
           g_warning("Delete for unknown tag %d", static_cast<int>(tag));
         }
@@ -163,6 +166,9 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
           break;
         }
         applyShadowView(view, shadowView);
+        // A clone carries a new emitter instance; keeping the old one would
+        // deliver touches to a stale target.
+        rememberEventEmitter(shadowView);
         break;
       }
     }
@@ -227,6 +233,18 @@ RnView *GtkMountingManager::getSurfaceRoot(SurfaceId surfaceId) const {
 // ---------------------------------------------------------------------------
 // Applying a ShadowView to a widget
 // ---------------------------------------------------------------------------
+
+void GtkMountingManager::rememberEventEmitter(const ShadowView &shadowView) {
+  auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(shadowView.eventEmitter);
+  if (emitter != nullptr) {
+    eventEmitters_[shadowView.tag] = std::move(emitter);
+  }
+}
+
+std::shared_ptr<const TouchEventEmitter> GtkMountingManager::eventEmitterForTag(Tag tag) const {
+  const auto it = eventEmitters_.find(tag);
+  return it == eventEmitters_.end() ? nullptr : it->second;
+}
 
 RnView *GtkMountingManager::viewForTag(Tag tag) const {
   const auto it = registry_.find(tag);

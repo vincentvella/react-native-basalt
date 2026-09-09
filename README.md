@@ -33,6 +33,9 @@ interface has exactly two pure-virtual methods — `executeMount` and
     src/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
                                 measurement and painting, so they agree.
     src/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
+    src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
+    src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
+                                an emitter produces ever reaches JavaScript.
     src/main.cpp                The host: ReactHost, Hermes, one live surface.
     js/index.js                 The demo app. Ordinary React Native.
     js/metro.config.js          Resolves react/react-native out of the checkout.
@@ -188,38 +191,42 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 Verified, on screen:
 
-- **Text renders and measures.** Pango backs React Native's
-  `TextLayoutManager`, so Yoga sizes paragraphs the way it does on iOS and
-  Android. Wrapping, `fontSize`, `fontWeight`, `fontStyle`, per-span `color`,
-  `lineHeight`, and `numberOfLines` with tail ellipsis all behave. Narrowing the
-  window re-wraps the text and reflows everything below it, which is the check
-  that measurement and painting agree.
-- **React runs.** `rn_linux_host` loads a Metro bundle, `AppRegistry` starts the
-  surface, and React reconciles into GTK4 widgets. `js/index.js` is an ordinary
-  React Native app -- hooks, `StyleSheet`, `View` and `Text` -- and knows nothing
-  about GTK.
-- **Fast Refresh works.** With Metro running and `RN_LINUX_DEV=1`, editing
-  `js/index.js` updates the running window without restarting the process.
+- **Input works.** A press on a `<Pressable>` runs the whole loop: GTK hit test,
+  touch event, event beat, React Native's responder system, `onPress`,
+  `setState`, re-render, Fabric mutations, GTK widgets. The demo's counter is
+  driven by presses rather than a timer, so what is on screen is the evidence.
+- **Text renders and measures.** Pango backs React Native's `TextLayoutManager`,
+  so Yoga sizes paragraphs the way it does on iOS and Android. Narrowing the
+  window re-wraps text and reflows everything below it.
+- **React runs, from Metro, with Fast Refresh.** `js/index.js` is an ordinary
+  React Native app -- hooks, `StyleSheet`, `View`, `Text`, `Pressable` -- and
+  knows nothing about GTK.
 - `mount_harness` still drives hand-built `ShadowViewMutation`s with no JS
   runtime, and `js/demo.js` still drives Fabric's JSI binding with no React.
-  Both keep the lower layers testable in isolation.
 - This project's own sources build under `-Wall -Wextra` with zero diagnostics,
   enforced by the build rather than asserted.
 
+One gap in the evidence: synthesising a real pointer event needs accessibility
+permission this machine's automated runs do not have, so taps are injected at
+the point GTK's gesture callback would call. Everything downstream of that is
+exercised; GDK's own event delivery to the controller is not.
+
 Implemented but not exercised by the demo, so treat as untested: `letterSpacing`,
-`textAlign`, text `backgroundColor`, and `textDecorationLine`.
+`textAlign`, text `backgroundColor`, `textDecorationLine`, and drag
+(`touchmove`).
 
 Not yet done:
 
-- **No input.** Nothing routes GTK events into React Native's event system, so
-  nothing is tappable and text is not selectable.
 - **No `<Image>` or `<ScrollView>`.** Image needs an `IImageLoader`; ScrollView
   needs a `GtkScrolledWindow` peer.
-- **Inline views inside `<Text>`** measure as zero-sized attachments.
-- **No baseline alignment**, so `alignItems: 'baseline'` is wrong for text.
-- **Bundles are built for the `android` platform**, and there is no `linux`
-  platform in Metro's resolver. See below for why that is not a shortcut.
-- **No LogBox.** JS errors go to `g_warning` and nothing else.
+- **No hover.** W3C pointer events are not emitted, so `onMouseEnter`-style
+  callbacks do nothing.
+- **`setIsJSResponder` is a no-op**, which will matter once something scrolls
+  natively.
+- **No keyboard input and no focus**, so there is no `<TextInput>`.
+- **Bundles are built for the `android` platform.** See below for why that is
+  not a shortcut.
+- **No LogBox and no accessibility.**
 
 ## Running it
 
@@ -249,6 +256,10 @@ Environment:
                               in automation, since the window cannot be closed
                               from a script and killing the process skips
                               GApplication::shutdown
+    RN_LINUX_TEST_TAP         "x,y;x,y" -- synthesise taps a second apart, in
+                              surface-root coordinates. Enters where GTK's
+                              gesture callback would, so it exercises hit
+                              testing and event delivery but not GDK itself.
 
 ## Why the bundle says `android`
 

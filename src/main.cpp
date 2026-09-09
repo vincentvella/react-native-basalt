@@ -19,6 +19,8 @@
 
 #include "GtkAnimationChoreographer.h"
 #include "GtkMountingManager.h"
+#include "GtkRunLoopObserver.h"
+#include "GtkTouchDispatcher.h"
 #include "RnView.h"
 
 #include <jsi/jsi.h>
@@ -76,7 +78,12 @@ struct Host {
   std::shared_ptr<rnlinux::GtkMountingManager> mountingManager;
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<rnlinux::GtkAnimationChoreographer> choreographer;
+  std::unique_ptr<rnlinux::GtkTouchDispatcher> touchDispatcher;
   std::unique_ptr<ReactHost> reactHost;
+
+  // Drives RunLoopObserverManager::onRender, without which no event an emitter
+  // produces ever reaches JavaScript.
+  GSource *runLoopObserver{nullptr};
 
   std::string bundlePath;
   // Empty means the bundle is a raw Fabric script rather than a React app; see
@@ -176,6 +183,40 @@ gboolean quitAfterTimeout(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
+// RN_LINUX_TEST_TAP: "x,y" pairs separated by ';', each fired a second apart.
+// See GtkTouchDispatcher::synthesiseTap for why this exists.
+struct PendingTap {
+  Host *host;
+  double x;
+  double y;
+};
+
+gboolean fireTestTap(gpointer data) {
+  auto *tap = static_cast<PendingTap *>(data);
+  g_message("RN_LINUX_TEST_TAP: tapping (%.0f, %.0f)", tap->x, tap->y);
+  if (tap->host->touchDispatcher != nullptr) {
+    tap->host->touchDispatcher->synthesiseTap(tap->x, tap->y);
+  }
+  delete tap;
+  return G_SOURCE_REMOVE;
+}
+
+void scheduleTestTaps(Host *host, const char *spec) {
+  char **points = g_strsplit(spec, ";", -1);
+  guint delayMs = 1500;
+  for (char **point = points; *point != nullptr; ++point) {
+    char **parts = g_strsplit(*point, ",", 2);
+    if (parts[0] != nullptr && parts[1] != nullptr) {
+      g_timeout_add(delayMs,
+                    fireTestTap,
+                    new PendingTap{host, g_ascii_strtod(parts[0], nullptr), g_ascii_strtod(parts[1], nullptr)});
+      delayMs += 1000;
+    }
+    g_strfreev(parts);
+  }
+  g_strfreev(points);
+}
+
 gboolean commitSecondTree(gpointer data) {
   auto *host = static_cast<Host *>(data);
   g_message("--- committing tree 2 from JS ---");
@@ -249,6 +290,13 @@ void onActivate(GtkApplication *app, gpointer data) {
 
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<rnlinux::GtkAnimationChoreographer>();
+
+  // Before ReactHost, so the beat is being induced from the first event on.
+  host->runLoopObserver = rnlinux::installRunLoopObserver(host->runLoopObserverManager);
+
+  // Input. Attached to the root, which is where hit testing starts.
+  host->touchDispatcher =
+      std::make_unique<rnlinux::GtkTouchDispatcher>(host->mountingManager.get(), host->root);
 
   ReactInstanceConfig config;
   config.appId = "react-native-linux";
@@ -327,6 +375,9 @@ void onActivate(GtkApplication *app, gpointer data) {
     g_timeout_add(2000, commitSecondTree, host);
   }
 
+  if (const char *taps = g_getenv("RN_LINUX_TEST_TAP")) {
+    scheduleTestTaps(host, taps);
+  }
   if (const char *quitAfter = g_getenv("RN_LINUX_QUIT_AFTER_MS")) {
     const gint64 ms = g_ascii_strtoll(quitAfter, nullptr, 10);
     if (ms > 0) {
@@ -341,6 +392,10 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
   if (host->choreographer != nullptr) {
     host->choreographer->detach();
   }
+  // Stop feeding the beat before the manager it points at is released.
+  rnlinux::removeRunLoopObserver(host->runLoopObserver);
+  host->runLoopObserver = nullptr;
+  host->touchDispatcher.reset();
   if (host->reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
     host->reactHost->stopAllSurfaces();

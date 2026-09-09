@@ -126,8 +126,37 @@ mutation stream correct.
 
 `RunLoopObserverManager`, despite the name, is **not** what drives mounting. It
 creates the `EventBeat` that flushes the event queue in step with the run loop.
-It still needs wiring to GTK's frame clock, but for event delivery and
-animations (`AnimationChoreographer`), not for mounts.
+
+Nothing an `EventEmitter` produces reaches JavaScript without it.
+`EventQueue::onEnqueue` only sets a flag on the beat; the queue is flushed when
+something calls `RunLoopObserverManager::onRender()`. React Native asks for
+`Activity::BeforeWaiting` -- run once the loop has drained its work and is about
+to sleep, which on iOS is a `CFRunLoopObserver` and on Android the Choreographer.
+
+`src/GtkRunLoopObserver.cpp` is the GLib equivalent: a `GSource` that does the
+work in `prepare()` and never reports itself ready. `prepare()` runs once per
+main-loop iteration before the poll, so it costs a call when the loop is busy
+and nothing at all when the application is idle -- unlike a frame-clock tick
+callback, which would hold the clock open and wake the process at display rate
+forever.
+
+`AnimationChoreographer` is separate and *is* on the frame clock; see
+`src/GtkAnimationChoreographer.cpp`.
+
+## Input
+
+`src/GtkTouchDispatcher.cpp` turns GTK input into touch events. React Native's
+Pressability -- what backs every `onPress` -- runs on the responder system in
+JavaScript, and the responder system is fed by touchstart/touchmove/touchend, so
+a desktop pointer is reported as a single touch point. W3C pointer events exist
+alongside these but are only consulted for hover, behind a feature flag.
+
+Controllers are attached to the surface root, not to every view. A controller
+per widget would have to be created and destroyed on every mutation and would
+still need the same hit test, and `gtk_widget_pick` already walks the widget tree
+and returns the deepest widget at a point -- the answer React Native's own hit
+testing is looking for, now that every view is allocated at the frame Yoga gave
+it.
 
 ## Component registry
 
@@ -136,15 +165,20 @@ implemented **nowhere in the tree**. Each host writes its own, and in doing so
 declares which components its platform supports. Fantom has its own version
 registering the full set.
 
-Ours (`src/LinuxComponentRegistry.h`) registers only `ViewComponentDescriptor`.
-Adding a component to that list is a promise that a GTK peer exists for it, so
-the list grows only as peers are written:
+Ours is `src/LinuxComponentRegistry.h`. Adding a component to that list is a
+promise that a GTK peer exists for it, so the list grows only as peers are
+written:
 
-| Component | Blocked on |
+| Component | State |
 |---|---|
-| `Paragraph` / `Text` / `RawText` | a Pango `TextLayoutManager` |
-| `Image` | an `IImageLoader` implementation |
-| `ScrollView` | a `GtkScrolledWindow` peer |
+| `View` | done |
+| `Paragraph` / `Text` / `RawText` | done, on Pango |
+| `Image` | needs an `IImageLoader` implementation |
+| `ScrollView` | needs a `GtkScrolledWindow` peer |
+
+Only `Paragraph` of the three text descriptors mounts: `<Text>` becomes a Text
+node and its string a RawText node, both of which live only in the shadow tree,
+folded into the outermost `<Text>`'s `AttributedString`.
 
 ## Text layout
 
@@ -180,12 +214,13 @@ are documented in the project README.
 |---|---|---|
 | 0 | GTK view layer, mounting manager, RN core builds | **done** |
 | 1 | Real mutations → GTK widgets, no JS | **done** |
-| 2 | `ReactHost` + Hermes + a live surface | next |
-| 3 | Metro bundle, `<View>` + flexbox, Fast Refresh | |
-| 4 | Pango `TextLayoutManager`, `<Text>` | |
-| 5 | `IImageLoader`, input & gestures | |
-| 6 | AT-SPI accessibility | |
-| 7 | `react-native-linux` npm package, `run-linux` CLI, packaging | |
+| 2 | `ReactHost` + Hermes + a live surface | **done** |
+| 3 | Metro bundle, `<View>` + flexbox, Fast Refresh | **done** |
+| 4 | Pango `TextLayoutManager`, `<Text>` | **done** |
+| 5 | Input & gestures | **done** |
+| 6 | `IImageLoader`, `ScrollView` | next |
+| 7 | AT-SPI accessibility | |
+| 8 | `react-native-linux` npm package, `run-linux` CLI, packaging | |
 
 ## Risks
 
