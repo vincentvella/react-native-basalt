@@ -11,6 +11,11 @@ on:
     branches: [main, ci]
   pull_request:
   workflow_dispatch:
+    inputs:
+      drift:
+        description: "Also build against React Native main"
+        type: boolean
+        default: false
   schedule:
     # Once a week, to notice upstream drift. See the `drift` job.
     - cron: "17 6 * * 1"
@@ -85,6 +90,10 @@ jobs:
           # Hermes is the expensive one -- 400 objects, and it changes only when
           # the pin in bootstrap.sh does. Codegen output depends on the React
           # Native commit, so that is in the key too.
+          #
+          # Hashing the whole script over-invalidates: editing a comment costs a
+          # Hermes rebuild. That is the safe direction to be wrong in, and
+          # bootstrap.sh changes rarely now.
           path: third_party
           key: third-party-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.sh') }}-${{ steps.pin.outputs.sha }}
 
@@ -155,7 +164,9 @@ jobs:
     name: build against React Native main
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Opt-in when run by hand: it is a second full build, and on a private repo
+    # that is real money.
+    if: github.event_name == 'schedule' || inputs.drift
     # Upstream moving is not this repo regressing, so this must never block a
     # pull request. It exists to notice API churn in ReactCxxPlatform, which
     # carries no stability guarantee, before it piles up.
