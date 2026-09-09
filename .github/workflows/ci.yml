@@ -58,8 +58,13 @@ jobs:
           node-version: 24
 
       - name: Fetch React Native at the pinned commit
+        # Inside the workspace, not beside it. actions/cache silently declines
+        # to save a path that escapes the workspace with `..`, which cost a
+        # run: third_party restored, bootstrap skipped yarn install because
+        # codegen was already there, and then bundling failed for want of
+        # node_modules.
         run: |
-          mkdir -p ../react-native && cd ../react-native
+          mkdir -p react-native-src && cd react-native-src
           git init -q
           git remote add origin https://github.com/react/react-native
           # One commit, no history: the checkout is ~120MB even so.
@@ -70,7 +75,7 @@ jobs:
       - name: Cache React Native's node_modules
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/../react-native/node_modules
+          path: react-native-src/node_modules
           # Keyed on the commit alone: a fixed commit has a fixed yarn.lock.
           key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.sha }}
 
@@ -93,14 +98,17 @@ jobs:
       - name: Bootstrap
         run: |
           ccache --zero-stats
-          BUILD_JOBS=$(nproc) scripts/bootstrap.sh ../react-native
+          BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
+          # A run that rebuilds Hermes is a run whose cache key is wrong, and
+          # the only symptom otherwise is that CI is slow.
+          du -sh third_party react-native-src/node_modules
 
       - name: Configure
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DRN_DIR=../react-native/packages/react-native
+            -DRN_DIR=react-native-src/packages/react-native
 
       - name: Build
         run: |
@@ -122,7 +130,7 @@ jobs:
         run: ./build/rn_tests
 
       - name: Bundle the demo
-        run: scripts/bundle.sh ../react-native --prod
+        run: scripts/bundle.sh react-native-src --prod
 
       - name: End-to-end tests
         # xdotool is installed, so this runs in `real` input mode: the pointer
@@ -172,12 +180,12 @@ jobs:
 
       - name: Clone React Native main
         run: |
-          git clone -q --depth 1 https://github.com/react/react-native ../react-native
-          git -C ../react-native log --oneline -1
+          git clone -q --depth 1 https://github.com/react/react-native react-native-src
+          git -C react-native-src log --oneline -1
 
       - name: Bootstrap, build and test
         run: |
-          BUILD_JOBS=$(nproc) scripts/bootstrap.sh ../react-native
+          BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DRN_DIR=../react-native/packages/react-native
@@ -186,5 +194,5 @@ jobs:
           disown
           for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
           ./build/rn_tests
-          scripts/bundle.sh ../react-native --prod
+          scripts/bundle.sh react-native-src --prod
           scripts/integration_test.py

@@ -198,7 +198,20 @@ is allowed to fail, so upstream churn is noticed without blocking anything.
 Three caches carry the cost: React Native's `node_modules` and `third_party/`
 (which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
 with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
-of React Native core from scratch.
+of React Native core from scratch -- about forty minutes.
+
+Two things about those caches that are easy to lose an hour to:
+
+- **A cache saved on a branch is invisible to `main`.** GitHub scopes caches to
+  the branch that created them, and shares them only downwards, to that branch's
+  descendants. So the first run after merging a branch is cold all over again,
+  and only then do the caches land somewhere every later run can reach.
+- **`actions/cache` will not save a path that escapes the workspace.** It says
+  nothing about it either; the cache simply never appears. React Native is
+  therefore cloned to `react-native-src/` *inside* the checkout rather than
+  beside it. Getting this wrong is quiet until the day `third_party` hits: then
+  bootstrap skips `yarn install` because codegen is already there, and bundling
+  fails for want of `node_modules`.
 
 **Rendering.** Nothing asserts on pixels, which is how GTK's cairo renderer
 mangled every transform in the demo without a single test noticing. The widget tree says a view has a
@@ -232,4 +245,17 @@ is allowed to fail, so upstream churn is noticed without blocking anything.
 Three caches carry the cost: React Native's `node_modules` and `third_party/`
 (which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
 with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
-of React Native core from scratch.
+of React Native core from scratch -- about forty minutes.
+
+Two things about those caches that are easy to lose an hour to:
+
+- **A cache saved on a branch is invisible to `main`.** GitHub scopes caches to
+  the branch that created them, and shares them only downwards, to that branch's
+  descendants. So the first run after merging a branch is cold all over again,
+  and only then do the caches land somewhere every later run can reach.
+- **`actions/cache` will not save a path that escapes the workspace.** It says
+  nothing about it either; the cache simply never appears. React Native is
+  therefore cloned to `react-native-src/` *inside* the checkout rather than
+  beside it. Getting this wrong is quiet until the day `third_party` hits: then
+  bootstrap skips `yarn install` because codegen is already there, and bundling
+  fails for want of `node_modules`.

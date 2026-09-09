@@ -11,6 +11,10 @@ third_party/node/
 third_party/codegen/*
 !third_party/codegen/CMakeLists.txt
 
+# CI clones React Native inside the workspace, because actions/cache will not
+# save a path that escapes it.
+react-native-src/
+
 # Metro's Babel register cache. The demo app installs nothing of its own; see
 # js/metro.config.js for how react and react-native are resolved instead.
 js/node_modules/
