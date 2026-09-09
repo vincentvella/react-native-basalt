@@ -8,6 +8,7 @@
 #pragma once
 
 #include <gtk/gtk.h>
+#include <pango/pango.h>
 
 G_BEGIN_DECLS
 
@@ -43,6 +44,18 @@ void rn_view_set_background_color(RnView *self, gboolean has_color, const GdkRGB
 
 // BaseViewProps::opacity.
 void rn_view_set_opacity(RnView *self, double opacity);
+
+// The text of a <Paragraph>, already laid out.
+//
+// A Paragraph is a View that also paints text, so it gets no separate widget
+// type: same box model, same frame, same children. The mounting manager builds
+// the layout from the shadow view's AttributedString -- Pango is part of the
+// GTK stack, so taking a PangoLayout here keeps this file free of React Native
+// types the way the rest of it is.
+//
+// Takes its own reference. Pass NULL to clear. `color` is the colour to paint
+// glyphs that carry no foreground attribute of their own.
+void rn_view_set_text_layout(RnView *self, PangoLayout *layout, const GdkRGBA *color);
 
 // Called on the GTK main thread when this widget's own allocation changes.
 //

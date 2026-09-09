@@ -138,3 +138,49 @@ React Native's JS HMR client connects to Metro over `WebSocketModule`, and
 `DevSettingsModule::reloadWithReason: Fast Refresh - No root boundary`, i.e. a
 full instance reload. That is the same behaviour as iOS and Android for that
 kind of edit, not a limitation of this platform.
+
+## Text: replace React Native's stub, do not add a platform variant — 2026-09-09
+
+`TextLayoutManager` has a header in React Native's cxx platform variant and one
+implementation there, a stub that ignores every attribute and returns
+`layoutConstraints.minimumSize`. The header is already generic, so this project
+keeps it and supplies only the .cpp: `src/PangoTextLayoutManager.cpp` defines the
+same symbols against Pango, and `cmake/ReactNativeCore.cmake` removes the stub
+source from `react_renderer_textlayoutmanager` after `add_subdirectory` so the
+two do not collide.
+
+The alternative was a full `platform/linux` tree with a duplicate header. That
+buys nothing while the interface is unchanged, and it would have to be kept in
+sync with upstream by hand.
+
+## One layout builder for measuring and painting — 2026-09-09
+
+`src/PangoTextLayout.cpp` is used by both `TextLayoutManager::measure` and
+`GtkMountingManager`. This is not tidiness: if the two built layouts differently
+-- a different default font, a different wrap mode -- Yoga would allot a box
+computed one way and the widget would paint text laid out another way, and the
+result is clipped or overlapping text that looks like a rendering bug rather
+than a measurement one. Sharing the builder makes that class of bug impossible.
+
+Pango's font map is not documented as reentrant and this is reached from Fabric's
+layout thread and the GTK main thread, so a single mutex covers every use. That
+serialises all text measurement, which the `textMeasureCache_` mostly hides.
+
+## Font sizes are absolute, not points — 2026-09-09
+
+`pango_font_description_set_size` takes points and resolves them against the
+context's resolution, so at the default 96dpi a `fontSize` of 16 renders at about
+21px. React Native's `fontSize` is in density-independent pixels, and every
+coordinate on this platform -- Yoga's frames, the widget's allocation -- lives in
+that same logical space. So sizes go through `set_absolute_size`, and nothing
+here multiplies by `pointScaleFactor`: GTK applies the display scale when it
+renders the widget tree.
+
+## Ellipsization needs a line limit, or it eats the paragraph — 2026-09-09
+
+React Native's `ellipsizeMode` defaults to `Tail`, and setting
+`pango_layout_set_ellipsize(END)` without also setting a height does not mean
+"ellipsize on overflow": with no height, Pango ellipsizes to a *single line*.
+Translating the default faithfully therefore collapsed every wrapping paragraph
+to one line. Ellipsization is only applied when `maximumNumberOfLines` is set,
+which is also the only case where React Native means it.

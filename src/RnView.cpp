@@ -85,6 +85,9 @@ struct _RnView {
   GdkRGBA background_color;
   double opacity;
 
+  PangoLayout *text_layout;
+  GdkRGBA text_color;
+
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
   int allocated_width;
@@ -136,6 +139,12 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
   // TODO(borders): borderRadii/borderWidth/borderColor want a rounded-rect
   // clip here (gtk_snapshot_push_rounded_clip) plus a border node.
 
+  // Text sits above the background and below any children, which is the order
+  // <Text> with nested views expects.
+  if (self->text_layout != nullptr) {
+    gtk_snapshot_append_layout(snapshot, self->text_layout, &self->text_color);
+  }
+
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
        child = gtk_widget_get_next_sibling(child)) {
     gtk_widget_snapshot_child(widget, child, snapshot);
@@ -147,6 +156,7 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
 }
 
 static void rn_view_dispose(GObject *object) {
+  RnView *self = RN_VIEW(object);
   GtkWidget *widget = GTK_WIDGET(object);
 
   // A GtkWidget must unparent its children before it goes away, or GTK warns
@@ -157,6 +167,8 @@ static void rn_view_dispose(GObject *object) {
     gtk_widget_unparent(child);
     child = next;
   }
+
+  g_clear_object(&self->text_layout);
 
   G_OBJECT_CLASS(rn_view_parent_class)->dispose(object);
 }
@@ -177,6 +189,8 @@ static void rn_view_init(RnView *self) {
   self->has_background_color = FALSE;
   self->background_color = GdkRGBA{0.0f, 0.0f, 0.0f, 0.0f};
   self->opacity = 1.0;
+  self->text_layout = nullptr;
+  self->text_color = GdkRGBA{0.0f, 0.0f, 0.0f, 1.0f};
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -217,6 +231,22 @@ void rn_view_set_background_color(RnView *self, gboolean has_color, const GdkRGB
 
 void rn_view_set_opacity(RnView *self, double opacity) {
   self->opacity = CLAMP(opacity, 0.0, 1.0);
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+void rn_view_set_text_layout(RnView *self, PangoLayout *layout, const GdkRGBA *color) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  if (layout != nullptr) {
+    g_object_ref(layout);
+  }
+  g_clear_object(&self->text_layout);
+  self->text_layout = layout;
+
+  if (color != nullptr) {
+    self->text_color = *color;
+  }
+
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 

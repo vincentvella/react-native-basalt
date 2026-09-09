@@ -13,8 +13,9 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 2 | RN's full C++ core + Hermes + codegen building | **done**, on Linux and macOS |
 | 2 | `main.cpp`: construct `ReactHost`, run a surface | done, verified on screen |
 | 3 | Metro bundle, React, Fast Refresh | done, verified on screen |
-| 4 | Pango text -- `<Text>` is the biggest gap | **next** |
-| 4+ | images, input, AT-SPI | see `docs/ARCHITECTURE.md` |
+| 4 | Pango text: `<Text>` measures and renders | done, verified on screen |
+| 5 | Input: GTK events into RN's event system | **next** |
+| 5+ | images, ScrollView, AT-SPI | see `docs/ARCHITECTURE.md` |
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
 `ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native
@@ -22,9 +23,10 @@ app: Metro bundles `js/index.js`, `AppRegistry` starts the surface, React
 reconciles, Yoga lays out, and the mutations reach GTK4 widgets through
 `GtkMountingManager`. Fast Refresh works against a running Metro.
 
-What is missing is the component surface, not the runtime. Only `<View>` has a
-GTK peer, so there is no `<Text>`, no `<Image>`, no `<ScrollView>` and no input
-handling. Text is next and is the biggest single gap.
+`<View>` and `<Text>` both have GTK peers, the latter measured by Pango through
+React Native's `TextLayoutManager` seam. What is missing is still the component
+surface rather than the runtime: no input handling, no `<Image>`, no
+`<ScrollView>`. Input is next -- nothing on screen can be interacted with yet.
 
 ## Setup
 

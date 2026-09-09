@@ -1,7 +1,11 @@
 #include "GtkMountingManager.h"
 
 #include "LinuxComponentRegistry.h"
+#include "PangoTextLayout.h"
+
+#include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Color.h>
 
 #include <cassert>
@@ -23,6 +27,7 @@ using facebook::react::ShadowView;
 using facebook::react::ShadowViewMutation;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
+using facebook::react::ParagraphState;
 using facebook::react::ViewProps;
 
 namespace {
@@ -184,9 +189,10 @@ ComponentRegistryFactory GtkMountingManager::getComponentRegistryFactory() {
 }
 
 bool GtkMountingManager::hasComponent(const std::string &name) {
-  // Only <View> has a GTK peer so far. Text and Image need a real
-  // TextLayoutManager and IImageLoader respectively.
-  return name == "View" || name == "RootView";
+  // Paragraph is the mountable half of <Text>; Text and RawText exist only in
+  // the shadow tree, folded into the Paragraph's AttributedString. Image still
+  // needs an IImageLoader, and ScrollView a GtkScrolledWindow peer.
+  return name == "View" || name == "RootView" || name == "Paragraph";
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +235,42 @@ RnView *GtkMountingManager::viewForTag(Tag tag) const {
 
 void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
+  applyText(view, shadowView);
   applyLayoutMetrics(view, shadowView);
+}
+
+// A <Paragraph> carries its text in state, not props: ParagraphShadowNode
+// resolves the whole <Text> subtree into one AttributedString and commits it as
+// ParagraphState, which is why nothing here walks child shadow nodes.
+void GtkMountingManager::applyText(RnView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr ||
+      std::string_view(shadowView.componentName) != "Paragraph") {
+    return;
+  }
+
+  const auto state = std::dynamic_pointer_cast<const facebook::react::ConcreteState<ParagraphState>>(shadowView.state);
+  if (state == nullptr) {
+    return;
+  }
+
+  const auto &data = state->getData();
+
+  // Measurement already ran through the same builder, with the width Yoga then
+  // assigned. Rebuilding it here at that width is what makes the painted lines
+  // break where the measured ones did.
+  const float width = static_cast<float>(shadowView.layoutMetrics.frame.size.width);
+  PangoLayout *layout = rnlinux::buildTextLayout(data.attributedString, data.paragraphAttributes, width);
+
+  // Fragments carry their own colours as Pango attributes; this is the fallback
+  // for text that set none. React Native's default is opaque black.
+  GdkRGBA color{0.0F, 0.0F, 0.0F, 1.0F};
+  const auto &fragments = data.attributedString.getFragments();
+  if (!fragments.empty() && fragments.front().textAttributes.foregroundColor) {
+    color = toRgba(colorComponentsFromColor(fragments.front().textAttributes.foregroundColor));
+  }
+
+  rn_view_set_text_layout(view, layout, &color);
+  g_object_unref(layout);
 }
 
 void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) {

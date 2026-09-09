@@ -1,59 +1,71 @@
 /**
  * The demo app, in React.
  *
- * Everything here is ordinary React Native: hooks, StyleSheet, flexbox, and
- * AppRegistry. Nothing knows it is running on GTK4. The host starts a surface
- * with the module name registered at the bottom of this file, which is what
- * makes React reconcile into it.
+ * Everything here is ordinary React Native: hooks, StyleSheet, flexbox, Text
+ * and View. Nothing knows it is running on GTK4. The host starts a surface with
+ * the module name registered at the bottom of this file, which is what makes
+ * React reconcile into it.
  *
- * Only <View> has a GTK peer today, so this renders with views and colour
- * alone. <Text> needs a Pango TextLayoutManager, which is phase 4. Proving
- * reconciliation does not need text: the state changes below re-render on a
- * timer, and each re-render reaches the screen as Fabric Update mutations.
+ * The text on screen is measured by Pango through React Native's
+ * TextLayoutManager seam, so Yoga sizes these paragraphs the same way it sizes
+ * them on iOS and Android.
  */
 
 'use strict';
 
 import React, {useEffect, useMemo, useState} from 'react';
-import {AppRegistry, StyleSheet, View} from 'react-native';
+import {AppRegistry, StyleSheet, Text, View} from 'react-native';
 
 const PALETTE = ['#4285f4', '#9b59f6', '#f26f56', '#56c98a', '#f2c14e'];
 
-function Bar({color, flex}) {
-  return <View style={[styles.bar, {backgroundColor: color, flex}]} />;
+const PARAGRAPH =
+  'Yoga asked Pango how wide this paragraph wants to be, and Pango answered ' +
+  'in 1024ths of a pixel. It wraps because the column is narrow, not because ' +
+  'anything here counted characters.';
+
+function Swatch({color, label}) {
+  return (
+    <View style={[styles.swatch, {backgroundColor: color}]}>
+      <Text style={styles.swatchLabel}>{label}</Text>
+    </View>
+  );
 }
 
 function App() {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    // setInterval also exercises the timer path: RN's JS timers run on
-    // TimerManager, driven by PlatformTimerRegistryImpl on its own thread.
     const id = setInterval(() => setTick(current => current + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // A rotating palette, so every tick is a props change on views that keep
-  // their identity -- an Update rather than a teardown and rebuild.
   const colors = useMemo(
     () => PALETTE.map((_, index) => PALETTE[(index + tick) % PALETTE.length]),
     [tick],
   );
 
-  // The row grows and shrinks by one child, so mounts and unmounts are
-  // exercised too, not only updates.
-  const barCount = 3 + (tick % 3);
-
   return (
     <View style={styles.root}>
-      <View style={styles.row}>
-        {colors.slice(0, barCount).map((color, index) => (
-          <Bar key={index} color={color} flex={index === 0 ? 2 : 1} />
-        ))}
-      </View>
+      <Text style={styles.heading}>React Native on GTK4</Text>
 
-      <View style={[styles.footer, {backgroundColor: colors[4]}]}>
-        <View style={[styles.badge, {backgroundColor: colors[1]}]} />
+      <Text style={styles.body}>{PARAGRAPH}</Text>
+
+      <Text style={styles.body}>
+        Nested spans work too:{' '}
+        <Text style={styles.bold}>bold</Text>,{' '}
+        <Text style={styles.italic}>italic</Text>, and{' '}
+        <Text style={{color: colors[2]}}>a colour that changes every second</Text>.
+      </Text>
+
+      <Text style={styles.clipped} numberOfLines={1}>
+        This line is limited to one line and ellipsized at the tail, which is
+        Pango truncating it rather than JavaScript slicing a string.
+      </Text>
+
+      <View style={styles.row}>
+        {colors.slice(0, 4).map((color, index) => (
+          <Swatch key={index} color={color} label={String(tick + index)} />
+        ))}
       </View>
     </View>
   );
@@ -62,31 +74,48 @@ function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    padding: 24,
+    padding: 28,
     backgroundColor: '#11131a',
+  },
+  heading: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#f7f8fa',
+    marginBottom: 16,
+  },
+  body: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#c3c9d5',
+    marginBottom: 14,
+  },
+  bold: {
+    fontWeight: '700',
+    color: '#f7f8fa',
+  },
+  italic: {
+    fontStyle: 'italic',
+    color: '#f7f8fa',
+  },
+  clipped: {
+    fontSize: 16,
+    color: '#7f8794',
+    marginBottom: 20,
   },
   row: {
     flex: 1,
     flexDirection: 'row',
-    marginBottom: 16,
   },
-  bar: {
+  swatch: {
+    flex: 1,
     marginRight: 12,
-    borderRadius: 0,
+    padding: 12,
   },
-  footer: {
-    height: 160,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-  },
-  badge: {
-    width: 96,
-    height: 96,
-    marginLeft: 32,
+  swatchLabel: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#11131a',
   },
 });
 
-// The host passes this name to ReactHost::startSurface. A non-empty module
-// name is what makes SurfaceHandler::start call AppRegistry.runApplication,
-// which is where React takes over.
 AppRegistry.registerComponent('RNLinuxDemo', () => App);

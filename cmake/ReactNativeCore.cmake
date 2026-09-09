@@ -276,6 +276,22 @@ foreach(target ${RN_CORE_OBJECT_TARGETS})
   endif()
 endforeach()
 
+# ---------------------------------------------------------------------------
+# Text measurement: drop React Native's stub so ours is the only definition.
+#
+# react/renderer/textlayoutmanager globs platform/cxx/*.cpp, which is a
+# TextLayoutManager that ignores every attribute and hands back
+# layoutConstraints.minimumSize. src/PangoTextLayoutManager.cpp defines the same
+# symbols against Pango, so the stub has to leave the build or the two collide.
+#
+# The header is untouched and shared: only the implementation differs, which is
+# what the platform/ split in React Native's tree is for.
+# ---------------------------------------------------------------------------
+get_target_property(_tlm_sources react_renderer_textlayoutmanager SOURCES)
+list(REMOVE_ITEM _tlm_sources
+        ${REACT_COMMON_DIR}/react/renderer/textlayoutmanager/platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp)
+set_target_properties(react_renderer_textlayoutmanager PROPERTIES SOURCES "${_tlm_sources}")
+
 # ReactCommon declares jsi::dynamicFromValue (used by RawProps) but no
 # CMakeLists anywhere in the tree compiles JSIDynamic.cpp. Hosts are expected
 # to build it themselves.

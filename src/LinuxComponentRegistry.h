@@ -10,6 +10,9 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorFactory.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/text/ParagraphComponentDescriptor.h>
+#include <react/renderer/components/text/RawTextComponentDescriptor.h>
+#include <react/renderer/components/text/TextComponentDescriptor.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 
 namespace facebook::react {
@@ -20,9 +23,15 @@ inline ComponentRegistryFactory getDefaultComponentRegistryFactory() {
     static auto providerRegistry = []() {
       auto registry = std::make_shared<ComponentDescriptorProviderRegistry>();
       registry->add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
-      // TODO: Paragraph/Text/RawText once a Pango TextLayoutManager exists;
-      // Image once IImageLoader is implemented; ScrollView once there is a
-      // GtkScrolledWindow peer.
+      // Text is three descriptors, and only one of them mounts. <Text> becomes
+      // a Text node, its string a RawText node, and the outermost <Text>
+      // becomes a Paragraph that folds the whole subtree into a single
+      // AttributedString. Only Paragraph has a widget.
+      registry->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
+      registry->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
+      registry->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
+      // TODO: Image once IImageLoader is implemented; ScrollView once there is
+      // a GtkScrolledWindow peer.
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

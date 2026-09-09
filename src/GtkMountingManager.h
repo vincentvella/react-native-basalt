@@ -57,6 +57,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
 
   void applyShadowView(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyText(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
   // Views are held with a strong reference from Create until Delete. Between a

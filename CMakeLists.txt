@@ -65,7 +65,11 @@ if(DEFINED RN_DIR)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
-  add_library(rn_mounting STATIC src/GtkMountingManager.cpp)
+  add_library(rn_mounting STATIC
+    src/GtkMountingManager.cpp
+    src/PangoTextLayout.cpp
+    # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
+    src/PangoTextLayoutManager.cpp)
 
   target_include_directories(rn_mounting PUBLIC src)
 

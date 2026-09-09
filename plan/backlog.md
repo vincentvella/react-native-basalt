@@ -32,8 +32,28 @@ Not scheduled. Roughly by value.
 - A real `linux` Metro platform, which means a JS package with its own
   `Platform` module; see `plan/decisions.md`.
 
+## Text
+
+- Inline views (`<Text><View/></Text>`) measure as zero-sized attachments.
+  Doing it properly means `PangoAttrShape` placeholders sized from the child's
+  own measurement, and returning their rects from `measure`.
+- No baseline, so `alignItems: 'baseline'` is wrong for text.
+  `pango_layout_get_baseline` is the value; plumbing it needs
+  `TextLayoutManagerExtended`.
+- `numberOfLines` with `ellipsizeMode: 'clip'` does not truncate. Pango only
+  honours a line limit when ellipsizing, so clip needs a clip node in the widget.
+- Ignored: `adjustsFontSizeToFit`, `textBreakStrategy`, hyphenation,
+  `textShadow*`, `textTransform`, `fontVariant`, `fontVariationSettings`.
+- One PangoLayout is rebuilt per Paragraph per mutation, including
+  layout-only updates that did not change the text.
+- All measurement serialises on one mutex; see `plan/decisions.md`.
+- Text is not selectable and reports nothing to AT-SPI.
+
 ## Platform surface
 
+- Input, and it is now the biggest gap: nothing on screen can be interacted
+  with. `GtkGestureClick` / `GtkEventControllerMotion` into RN's touch and
+  pointer events, and `setIsJSResponder` for the responder system.
 - `IImageLoader` via GdkPixbuf or glycin.
 - Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
   events; `setIsJSResponder` for the responder system.
