@@ -1,0 +1,13 @@
+# The React Native commit CI builds against.
+#
+# This project tracks React Native `main` -- ReactCxxPlatform carries no API
+# stability guarantee, and half the work here is keeping up with it. That is
+# fine for development and useless for CI: a build that follows main turns every
+# upstream change into a red tick on an unrelated pull request, and the signal
+# stops meaning anything.
+#
+# So CI pins, and a separate scheduled job tracks main to notice drift on its
+# own schedule. Bump this after checking the tree still builds against a newer
+# commit -- that bump is the interesting change, and it should be reviewable on
+# its own.
+b830082cf5cde212e640ae2c1279918076648e90

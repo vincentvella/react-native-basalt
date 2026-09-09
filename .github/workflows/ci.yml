@@ -1,0 +1,190 @@
+name: CI
+
+# Linux is the target, so Linux is what CI checks. Development happens on a Mac,
+# and every bug this project has hit that only appears on one of the two has
+# appeared on Linux -- a root-owned npm prefix, libstdc++ against React Native's
+# -Werror, a renderer that mangles transforms. None of them were visible from
+# macOS.
+
+on:
+  push:
+    branches: [main, ci]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Once a week, to notice upstream drift. See the `drift` job.
+    - cron: "17 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Everything below is a GTK program, so everything needs a display.
+  DISPLAY: ":99"
+  GDK_BACKEND: x11
+
+jobs:
+  linux:
+    name: build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    if: github.event_name != 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the React Native pin
+        id: pin
+        # CI builds against a fixed commit so that a red tick means this repo
+        # regressed, not that React Native moved. The `drift` job below is what
+        # tracks main.
+        run: echo "sha=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential clang cmake ninja-build pkg-config ccache \
+            libgtk-4-dev libpango1.0-dev libglib2.0-dev \
+            libgoogle-glog-dev libboost-dev libboost-regex-dev libfmt-dev \
+            libdouble-conversion-dev libgflags-dev libssl-dev libcurl4-openssl-dev \
+            libgl1-mesa-dri xvfb xdotool x11-utils
+
+      - uses: actions/setup-node@v4
+        with:
+          # React Native requires ^22.13 || ^24.3 || >= 26. Node 25 is excluded
+          # and fails an engine check inside a preinstall hook.
+          node-version: 24
+
+      - name: Fetch React Native at the pinned commit
+        run: |
+          mkdir -p ../react-native && cd ../react-native
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          # One commit, no history: the checkout is ~120MB even so.
+          git fetch -q --depth 1 origin ${{ steps.pin.outputs.sha }}
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+
+      - name: Cache React Native's node_modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../react-native/node_modules
+          # Keyed on the commit alone: a fixed commit has a fixed yarn.lock.
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.sha }}
+
+      - name: Cache third_party
+        uses: actions/cache@v4
+        with:
+          # Hermes is the expensive one -- 400 objects, and it changes only when
+          # the pin in bootstrap.sh does. Codegen output depends on the React
+          # Native commit, so that is in the key too.
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.sh') }}-${{ steps.pin.outputs.sha }}
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
+
+      - name: Bootstrap
+        run: |
+          ccache --zero-stats
+          BUILD_JOBS=$(nproc) scripts/bootstrap.sh ../react-native
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DRN_DIR=../react-native/packages/react-native
+
+      - name: Build
+        run: |
+          cmake --build build -j "$(nproc)"
+          ccache --show-stats
+
+      - name: Start a display
+        # Both suites need one. No window manager is involved: the tests map
+        # their own windows, and gtk_widget_pick only needs mapped, not managed.
+        run: |
+          # Redirected and disowned: a step that leaves a process holding its
+          # stdout open can make the runner wait for it forever.
+          Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
+          disown
+          for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
+          xdpyinfo -display :99 | grep -m1 dimensions
+
+      - name: Unit tests
+        run: ./build/rn_tests
+
+      - name: Bundle the demo
+        run: scripts/bundle.sh ../react-native --prod
+
+      - name: End-to-end tests
+        # xdotool is installed, so this runs in `real` input mode: the pointer
+        # events go through the X server and GDK rather than being injected past
+        # them. That is the mode macOS cannot manage.
+        run: scripts/integration_test.py
+
+      - name: Save the widget tree on failure
+        if: failure()
+        run: |
+          RN_LINUX_DUMP_TREE="$PWD/widget-tree.txt" RN_LINUX_QUIT_AFTER_MS=6000 \
+            ./build/rn_linux_host build/main.jsbundle.js RNLinuxDemo || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: widget-tree
+          path: widget-tree.txt
+          if-no-files-found: ignore
+
+  drift:
+    name: build against React Native main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Upstream moving is not this repo regressing, so this must never block a
+    # pull request. It exists to notice API churn in ReactCxxPlatform, which
+    # carries no stability guarantee, before it piles up.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential clang cmake ninja-build pkg-config ccache \
+            libgtk-4-dev libpango1.0-dev libglib2.0-dev \
+            libgoogle-glog-dev libboost-dev libboost-regex-dev libfmt-dev \
+            libdouble-conversion-dev libgflags-dev libssl-dev libcurl4-openssl-dev \
+            libgl1-mesa-dri xvfb xdotool x11-utils
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Clone React Native main
+        run: |
+          git clone -q --depth 1 https://github.com/react/react-native ../react-native
+          git -C ../react-native log --oneline -1
+
+      - name: Bootstrap, build and test
+        run: |
+          BUILD_JOBS=$(nproc) scripts/bootstrap.sh ../react-native
+          cmake -B build -G Ninja \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DRN_DIR=../react-native/packages/react-native
+          cmake --build build -j "$(nproc)"
+          Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
+          disown
+          for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
+          ./build/rn_tests
+          scripts/bundle.sh ../react-native --prod
+          scripts/integration_test.py

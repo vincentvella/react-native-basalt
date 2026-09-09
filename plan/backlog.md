@@ -11,8 +11,8 @@ Not scheduled. Roughly by value.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
-- Neither suite runs in CI, because there is no CI. Everything needed is now
-  scripted, so this is mostly a matter of somewhere to run it.
+- CI is Linux only. macOS is covered by whoever is developing, not by a machine.
+- CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
 ## Correctness gaps in what exists
 

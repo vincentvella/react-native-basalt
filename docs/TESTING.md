@@ -1,6 +1,7 @@
 # Testing
 
-Two suites. Both need a display, because everything here is a GTK program.
+Two suites. Both need a display, because everything here is a GTK program. Both
+run in CI on Linux, which is where they matter: see `.github/workflows/ci.yml`.
 
 ```bash
 ./build/rn_tests                    # unit
@@ -178,6 +179,27 @@ suite.
 measurement takes a mutex, but nothing exercises the JS thread and the main
 thread concurrently.
 
+**macOS.** CI is Linux only, because that is the target and because every
+platform-specific bug so far has been a Linux one. Development happens on a Mac,
+so macOS is covered by whoever is working; it is not covered by a machine.
+
+## CI
+
+`.github/workflows/ci.yml`. Installs the dependencies, builds, and runs both
+suites under Xvfb with `xdotool` present, so the end-to-end suite is in `real`
+input mode.
+
+It builds against a **pinned** React Native commit, in `scripts/react-native.pin`.
+This project tracks `main`, which is right for development and wrong for CI: a
+build that follows `main` turns every upstream change into a red tick on an
+unrelated pull request. A separate `drift` job builds against `main` weekly and
+is allowed to fail, so upstream churn is noticed without blocking anything.
+
+Three caches carry the cost: React Native's `node_modules` and `third_party/`
+(which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
+with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
+of React Native core from scratch.
+
 **Rendering.** Nothing asserts on pixels, which is how GTK's cairo renderer
 mangled every transform in the demo without a single test noticing. The widget tree says a view has a
 background colour and a frame, not that the right pixels reached the screen. A
@@ -190,3 +212,24 @@ suite.
 **Threading.** The mounting manager asserts it is on the main thread, and text
 measurement takes a mutex, but nothing exercises the JS thread and the main
 thread concurrently.
+
+**macOS.** CI is Linux only, because that is the target and because every
+platform-specific bug so far has been a Linux one. Development happens on a Mac,
+so macOS is covered by whoever is working; it is not covered by a machine.
+
+## CI
+
+`.github/workflows/ci.yml`. Installs the dependencies, builds, and runs both
+suites under Xvfb with `xdotool` present, so the end-to-end suite is in `real`
+input mode.
+
+It builds against a **pinned** React Native commit, in `scripts/react-native.pin`.
+This project tracks `main`, which is right for development and wrong for CI: a
+build that follows `main` turns every upstream change into a red tick on an
+unrelated pull request. A separate `drift` job builds against `main` weekly and
+is allowed to fail, so upstream churn is noticed without blocking anything.
+
+Three caches carry the cost: React Native's `node_modules` and `third_party/`
+(which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
+with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
+of React Native core from scratch.
