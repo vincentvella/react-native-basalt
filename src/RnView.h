@@ -32,6 +32,15 @@ G_DECLARE_FINAL_TYPE(RnView, rn_view, RN, VIEW, GtkWidget)
 
 RnView *rn_view_new(int tag);
 
+// As above, but with an accessible role.
+//
+// GTK4 has no per-instance role setter: a role is a construct-only property, or
+// is set once per widget class. RnView is one class for every React Native
+// view, so the role has to be chosen when the widget is made. That is possible
+// because Fabric delivers a view's props with the Create mutation that makes
+// it -- but it does mean accessibilityRole cannot change afterwards.
+RnView *rn_view_new_with_role(int tag, GtkAccessibleRole role);
+
 // Fabric tag, for debugging and hit-test attribution.
 int rn_view_get_tag(RnView *self);
 
@@ -107,6 +116,32 @@ void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y)
 //
 // Returns a newly allocated string; free with g_free.
 char *rn_view_describe_tree(RnView *self);
+
+// Accessibility, as a screen reader sees it.
+//
+// `label` is the accessible name and `description` the hint; either may be NULL
+// or empty to leave it unset. GTK maps these onto AT-SPI, which is what Orca
+// reads.
+void rn_view_set_accessible_text(RnView *self, const char *label, const char *description);
+
+// Accessible states. Each is a tri-state: unset leaves GTK's default alone,
+// which is not the same as setting it false.
+typedef enum {
+  RN_A11Y_UNSET,
+  RN_A11Y_FALSE,
+  RN_A11Y_TRUE,
+} RnAccessibleFlag;
+
+void rn_view_set_accessible_state(RnView *self,
+                                  RnAccessibleFlag disabled,
+                                  RnAccessibleFlag checked,
+                                  RnAccessibleFlag selected,
+                                  RnAccessibleFlag expanded,
+                                  RnAccessibleFlag busy);
+
+// Hidden from assistive technology, for accessible={false} and
+// accessibilityElementsHidden.
+void rn_view_set_accessible_hidden(RnView *self, gboolean hidden);
 
 // Child management. Mirrors Insert/Remove mutations; index is the position
 // within the parent's child list, as Fabric numbers it.

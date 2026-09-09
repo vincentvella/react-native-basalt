@@ -206,6 +206,10 @@ Verified, on screen:
 - **Text renders and measures** through Pango, so Yoga sizes paragraphs the way
   it does on iOS and Android, and narrowing the window re-wraps them.
 - **React runs, from Metro, with Fast Refresh.**
+- **Accessibility.** `accessibilityRole`, `accessibilityLabel`,
+  `accessibilityHint` and `accessibilityState` reach GTK's accessible layer, and
+  so AT-SPI. A `<Text>` calls itself a label and an `<Image>` an image without
+  the app saying so.
 - `mount_harness` still drives hand-built `ShadowViewMutation`s with no JS
   runtime, and `js/demo.js` still drives Fabric's JSI binding with no React.
 - This project's own sources build under `-Wall -Wextra` with zero diagnostics,
@@ -220,7 +224,12 @@ event delivery, which needs a real pointer event and so needs the Linux box.
 
 Not yet done:
 
-- **No `<TextInput>`**, which needs keyboard input and a focus model first.
+- **No `<TextInput>`**, and the reason is not rendering: both of React Native's
+  built-in text inputs are unreachable from a bundle built for `android` without
+  fbjni. It needs a JavaScript component of our own, which is the same blocker
+  as a real `linux` Metro platform. See `plan/decisions.md`.
+- **No keyboard focus**, so nothing is reachable by Tab, and a screen reader can
+  read the interface but not drive it.
 - **No hover**, so `onMouseEnter`-style callbacks do nothing.
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
 - **Bundles are built for the `android` platform.** See below for why that is

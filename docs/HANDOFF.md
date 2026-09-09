@@ -16,8 +16,11 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 4 | Pango text: `<Text>` measures and renders | done, verified on screen |
 | 5 | Input: GTK events into RN's touch events | done, verified on screen |
 | 6 | `<Image>` and `<ScrollView>` | done, verified on screen |
-| 7 | AT-SPI accessibility, `<TextInput>` | **next** |
-| 8 | npm package, `run-linux` CLI, packaging | see `docs/ARCHITECTURE.md` |
+| 7 | Accessibility, and a test suite | done |
+| 8 | npm package with our own JS components, `run-linux` CLI | **next** |
+
+`<TextInput>` moved into phase 8: it is blocked on shipping our own JavaScript
+component, not on anything in the renderer. See `plan/decisions.md`.
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
 `ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native
@@ -27,8 +30,12 @@ reconciles, Yoga lays out, and the mutations reach GTK4 widgets through
 
 `<View>`, `<Text>`, `<Image>` and `<ScrollView>` all have GTK peers, and presses
 reach React through the responder system, so an app is interactive and can
-scroll. What is missing is still the component surface rather than the runtime:
-no `<TextInput>`, no keyboard or focus model, and no accessibility.
+scroll. Accessibility properties reach AT-SPI. What is missing is still the component
+surface rather than the runtime: no `<TextInput>`, and no keyboard or focus
+model.
+
+There are tests now -- `build/rn_tests` and `scripts/integration_test.py`. See
+`docs/TESTING.md`.
 
 ## Setup
 

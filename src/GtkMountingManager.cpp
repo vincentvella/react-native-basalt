@@ -4,6 +4,7 @@
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/image/ImageEventEmitter.h>
+#include <react/renderer/components/view/AccessibilityProps.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
@@ -37,6 +38,52 @@ using facebook::react::ParagraphState;
 using facebook::react::ViewProps;
 
 namespace {
+
+// React Native's accessibilityRole is an open string, and its vocabulary is
+// mostly ARIA's, which is also what GTK's roles are modelled on. Anything
+// unrecognised falls back to GENERIC rather than guessing: a wrong role is
+// worse for a screen reader than no role, because it makes the widget announce
+// itself as something it is not.
+GtkAccessibleRole toAccessibleRole(const std::string &role) {
+  static const std::unordered_map<std::string, GtkAccessibleRole> kRoles = {
+      {"button", GTK_ACCESSIBLE_ROLE_BUTTON},
+      {"togglebutton", GTK_ACCESSIBLE_ROLE_TOGGLE_BUTTON},
+      {"link", GTK_ACCESSIBLE_ROLE_LINK},
+      {"search", GTK_ACCESSIBLE_ROLE_SEARCH_BOX},
+      {"image", GTK_ACCESSIBLE_ROLE_IMG},
+      {"imagebutton", GTK_ACCESSIBLE_ROLE_BUTTON},
+      {"text", GTK_ACCESSIBLE_ROLE_LABEL},
+      {"header", GTK_ACCESSIBLE_ROLE_ROW_HEADER},
+      {"adjustable", GTK_ACCESSIBLE_ROLE_SLIDER},
+      {"alert", GTK_ACCESSIBLE_ROLE_ALERT},
+      {"checkbox", GTK_ACCESSIBLE_ROLE_CHECKBOX},
+      {"combobox", GTK_ACCESSIBLE_ROLE_COMBO_BOX},
+      {"menu", GTK_ACCESSIBLE_ROLE_MENU},
+      {"menubar", GTK_ACCESSIBLE_ROLE_MENU_BAR},
+      {"menuitem", GTK_ACCESSIBLE_ROLE_MENU_ITEM},
+      {"progressbar", GTK_ACCESSIBLE_ROLE_PROGRESS_BAR},
+      {"radio", GTK_ACCESSIBLE_ROLE_RADIO},
+      {"radiogroup", GTK_ACCESSIBLE_ROLE_RADIO_GROUP},
+      {"scrollbar", GTK_ACCESSIBLE_ROLE_SCROLLBAR},
+      {"spinbutton", GTK_ACCESSIBLE_ROLE_SPIN_BUTTON},
+      {"switch", GTK_ACCESSIBLE_ROLE_SWITCH},
+      {"tab", GTK_ACCESSIBLE_ROLE_TAB},
+      {"tablist", GTK_ACCESSIBLE_ROLE_TAB_LIST},
+      {"list", GTK_ACCESSIBLE_ROLE_LIST},
+      {"grid", GTK_ACCESSIBLE_ROLE_GRID},
+      {"toolbar", GTK_ACCESSIBLE_ROLE_TOOLBAR},
+      {"tooltip", GTK_ACCESSIBLE_ROLE_TOOLTIP},
+      {"none", GTK_ACCESSIBLE_ROLE_PRESENTATION},
+      {"presentation", GTK_ACCESSIBLE_ROLE_PRESENTATION},
+  };
+
+  const auto it = kRoles.find(role);
+  return it == kRoles.end() ? GTK_ACCESSIBLE_ROLE_GENERIC : it->second;
+}
+
+RnAccessibleFlag toFlag(bool value) {
+  return value ? RN_A11Y_TRUE : RN_A11Y_FALSE;
+}
 
 GdkRGBA toRgba(const ColorComponents &components) {
   GdkRGBA rgba;
@@ -104,7 +151,26 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
       case ShadowViewMutation::Create: {
         // Create allocates a view but does not attach it; an Insert follows.
         const auto &shadowView = mutation.newChildShadowView;
-        RnView *view = rn_view_new(static_cast<int>(shadowView.tag));
+
+        // The accessible role has to be decided now: GTK4 makes it
+        // construct-only, and RnView is one class for every React Native view.
+        GtkAccessibleRole role = GTK_ACCESSIBLE_ROLE_GENERIC;
+        if (const auto accessibility =
+                std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props)) {
+          role = toAccessibleRole(accessibility->accessibilityRole);
+        }
+        if (role == GTK_ACCESSIBLE_ROLE_GENERIC && shadowView.componentName != nullptr) {
+          // No explicit role, so infer one from the component. A <Text> is a
+          // label and an <Image> is an image whether or not the app said so.
+          const std::string_view name(shadowView.componentName);
+          if (name == "Paragraph") {
+            role = GTK_ACCESSIBLE_ROLE_LABEL;
+          } else if (name == "Image") {
+            role = GTK_ACCESSIBLE_ROLE_IMG;
+          }
+        }
+
+        RnView *view = rn_view_new_with_role(static_cast<int>(shadowView.tag), role);
 
         // A fresh GtkWidget carries a floating reference. Sinking it here makes
         // the registry the owner, so the view survives the gap between a
@@ -302,6 +368,62 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
   });
 }
 
+// Accessibility, as AT-SPI and therefore Orca sees it.
+//
+// The role is not here: GTK4's accessible role is construct-only, so it is
+// chosen when the widget is made. See the Create mutation.
+void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shadowView) {
+  const auto props = std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props);
+  if (props == nullptr) {
+    return;
+  }
+
+  // A label given in props wins. Falling back to a Paragraph's own text means a
+  // plain <Text> announces itself without the app having to repeat the string
+  // in an accessibilityLabel.
+  std::string label = props->accessibilityLabel;
+  if (label.empty() && shadowView.componentName != nullptr &&
+      std::string_view(shadowView.componentName) == "Paragraph") {
+    if (const auto state =
+            std::dynamic_pointer_cast<const facebook::react::ConcreteState<ParagraphState>>(shadowView.state)) {
+      label = state->getData().attributedString.getString();
+    }
+  }
+
+  rn_view_set_accessible_text(view, label.c_str(), props->accessibilityHint.c_str());
+
+  if (props->accessibilityState.has_value()) {
+    const auto &state = *props->accessibilityState;
+    RnAccessibleFlag checked = RN_A11Y_UNSET;
+    switch (state.checked) {
+      case facebook::react::AccessibilityState::Checked:
+        checked = RN_A11Y_TRUE;
+        break;
+      case facebook::react::AccessibilityState::Unchecked:
+        checked = RN_A11Y_FALSE;
+        break;
+      case facebook::react::AccessibilityState::Mixed:
+      case facebook::react::AccessibilityState::None:
+        break;
+    }
+    rn_view_set_accessible_state(
+        view,
+        toFlag(state.disabled),
+        checked,
+        toFlag(state.selected),
+        state.expanded.has_value() ? toFlag(*state.expanded) : RN_A11Y_UNSET,
+        toFlag(state.busy));
+  } else {
+    rn_view_set_accessible_state(view, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET);
+  }
+
+  // accessibilityElementsHidden hides the subtree; importantForAccessibility
+  // NoHideDescendants is Android's spelling of the same idea.
+  const bool hidden = props->accessibilityElementsHidden ||
+      props->importantForAccessibility == facebook::react::ImportantForAccessibility::NoHideDescendants;
+  rn_view_set_accessible_hidden(view, hidden ? TRUE : FALSE);
+}
+
 void GtkMountingManager::applyScrollView(RnView *view, const ShadowView &shadowView) {
   if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "ScrollView") {
     return;
@@ -372,6 +494,7 @@ void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowV
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyImage(view, shadowView);
+  applyAccessibility(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before

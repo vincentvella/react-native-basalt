@@ -239,8 +239,8 @@ are documented in the project README.
 | 4 | Pango `TextLayoutManager`, `<Text>` | **done** |
 | 5 | Input & gestures | **done** |
 | 6 | `<Image>`, `<ScrollView>` | **done** |
-| 7 | AT-SPI accessibility, `<TextInput>` | next |
-| 8 | `react-native-linux` npm package, `run-linux` CLI, packaging | |
+| 7 | Accessibility, and a test suite | **done** |
+| 8 | npm package with our own JS components, `run-linux` CLI, packaging | next |
 
 ## Testing
 

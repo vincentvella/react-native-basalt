@@ -28,6 +28,12 @@ function Button({label, onPress, color}) {
   return (
     <Pressable
       onPress={onPress}
+      // Announced by a screen reader through AT-SPI. The role decides what the
+      // widget calls itself; the hint is the longer description.
+      accessible={true}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={`Scrolls the list to the ${label.split(' ').pop()}`}
       style={({pressed}) => [
         styles.button,
         {backgroundColor: color, opacity: pressed ? 0.55 : 1},
@@ -52,6 +58,8 @@ function App() {
 
       <ScrollView
         ref={scroller}
+        accessibilityRole="list"
+        accessibilityLabel="Coloured rows"
         style={styles.scroller}
         contentContainerStyle={styles.scrollerContent}
         scrollEventThrottle={16}

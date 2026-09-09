@@ -99,9 +99,23 @@ Not scheduled. Roughly by value.
 - All measurement serialises on one mutex; see `plan/decisions.md`.
 - Text is not selectable and reports nothing to AT-SPI.
 
+## Accessibility
+
+- Not tested against a real screen reader. GTK's assertions say the properties
+  are set; Orca on the Linux box is the check that matters.
+- Accessible actions are unimplemented: `IMountingManager` declares
+  `accessibleClickAction`, `setAccessibilityFocusedView`,
+  `accessibleScrollInDirection` and `accessibleSetText`, and all are no-ops, so
+  the interface can be read but not driven.
+- `accessibilityRole` cannot change after mount; see `plan/decisions.md`.
+- `accessibilityLiveRegion`, `accessibilityLabelledBy`, `accessibilityValue`
+  and `accessibilityActions` are ignored.
+- No keyboard focus model, so nothing is reachable by Tab.
+
 ## Platform surface
 
-- `TextInput`, which needs keyboard input and a focus model first.
+- `TextInput`. Blocked on shipping our own JS component, not on rendering; see
+  `plan/decisions.md`. Needs a focus and keyboard model too.
 - `Modal`, `Switch`, `ActivityIndicator` -- the remaining core components.
 - Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
   events; `setIsJSResponder` for the responder system.

@@ -92,7 +92,9 @@ def offset_label(tree: str) -> float:
     for line in tree.splitlines():
         if 'text="contentOffset.y"' in line:
             continue
-        match = re.search(r'text="(\d+)"$', line.strip())
+        # Not anchored to the end of the line: a line may carry a role or
+        # other attributes after its text.
+        match = re.search(r'text="(\d+)"', line)
         if match:
             return float(match.group(1))
     raise Failure("no numeric offset label in the widget tree")
@@ -110,6 +112,14 @@ def test_initial_render(bundle: Path) -> None:
     expect_contains(tree, "texture=160x100", "the image never loaded or decoded")
     expect_contains(tree, 'text="row 0"', "the list did not render")
     expect_contains(tree, 'text="row 23"', "the list is short of rows")
+
+    # Accessibility: what a screen reader would be told. A <Text> should call
+    # itself a label and an <Image> an image without the app saying so, and an
+    # explicit accessibilityRole should win.
+    expect_contains(tree, "role=label", "no <Text> reported itself as a label")
+    expect_contains(tree, "role=img", "no <Image> reported itself as an image")
+    expect_contains(tree, "role=button", "the buttons did not take their accessibilityRole")
+    expect_contains(tree, "role=list", "the ScrollView did not take its accessibilityRole")
 
     # The ScrollView must clip, or its content paints over its siblings.
     scroller = [line for line in tree.splitlines() if "bg=#1a1e28ff" in line]

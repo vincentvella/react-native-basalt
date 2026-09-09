@@ -279,3 +279,45 @@ position.
 One more trap: `ScrollEvent::zoomScale` defaults to **0**, not 1, and
 VirtualizedList only repairs negative values. Leaving the default makes every
 list measurement come out as zero.
+
+## Accessible roles are chosen at construction — 2026-09-09
+
+GTK4 has no per-instance setter for an accessible role: it is a construct-only
+property, or is set once per widget class. `RnView` is one class for every React
+Native view, so the role has to be decided when the widget is made. That works
+because Fabric delivers a view's props with the Create mutation that makes it,
+but it does mean `accessibilityRole` cannot change after mount. Everything else
+-- label, hint, states -- updates freely.
+
+An unrecognised role falls back to `GENERIC` rather than a guess. A wrong role
+is worse than none: it makes a widget announce itself as something it is not.
+Where the app says nothing, the component decides -- a `<Text>` is a label and
+an `<Image>` an image whether or not anyone asked.
+
+States are tri-state on purpose. Leaving `checked` unset is not the same as
+setting it false: a view that never mentions being checked is not an unchecked
+checkbox, and a screen reader should not read it as one.
+
+## <TextInput> is blocked on shipping our own JS component — 2026-09-09
+
+Both of React Native's built-in text inputs are unusable here, for different
+reasons.
+
+Bundles are built for the `android` platform, so JavaScript asks for
+`AndroidTextInput`. Its descriptor includes `<fbjni/fbjni.h>` and reaches into
+a Java `FabricUIManager` for theme padding, so it cannot be compiled off
+Android at all.
+
+The iOS descriptor, `TextInputComponentDescriptor`, *is* portable -- it needs
+only a `TextLayoutManager`, which this platform now has. But its component name
+is `TextInput`, and JavaScript only asks for that name when the bundle is built
+for iOS: `componentNameByReactViewName` maps `SinglelineTextInputView` and
+`MultilineTextInputView` onto it. Bundling as iOS to reach it would contradict
+`PlatformConstantsModule`, which reports Android, and `DevServerHelper`, which
+hardcodes `platform=android` into the bundle URL.
+
+So `<TextInput>` needs a JavaScript component of our own, mapping to a
+component name this platform defines -- which is the same blocker as a real
+`linux` Metro platform. It is a packaging problem wearing a rendering problem's
+clothes, and doing it by halves would mean either an unbuildable descriptor or
+a bundle that lies about what platform it is on.

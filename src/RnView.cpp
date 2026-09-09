@@ -287,9 +287,70 @@ static void rn_view_init(RnView *self) {
 }
 
 RnView *rn_view_new(int tag) {
-  RnView *self = RN_VIEW(g_object_new(RN_TYPE_VIEW, nullptr));
+  return rn_view_new_with_role(tag, GTK_ACCESSIBLE_ROLE_GENERIC);
+}
+
+RnView *rn_view_new_with_role(int tag, GtkAccessibleRole role) {
+  // accessible-role is construct-only, so it goes here rather than in a setter.
+  RnView *self = RN_VIEW(g_object_new(RN_TYPE_VIEW, "accessible-role", role, nullptr));
   self->tag = tag;
   return self;
+}
+
+void rn_view_set_accessible_text(RnView *self, const char *label, const char *description) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  if (label != nullptr && *label != '\0') {
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
+  }
+  if (description != nullptr && *description != '\0') {
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION, description, -1);
+  }
+}
+
+static void rn_view_apply_flag(RnView *self, GtkAccessibleState state, RnAccessibleFlag flag) {
+  switch (flag) {
+    case RN_A11Y_UNSET:
+      // Leaving a state alone is not the same as setting it false: a view that
+      // never says anything about "checked" is not an unchecked checkbox.
+      gtk_accessible_reset_state(GTK_ACCESSIBLE(self), state);
+      return;
+    case RN_A11Y_FALSE:
+    case RN_A11Y_TRUE:
+      break;
+  }
+
+  const gboolean value = flag == RN_A11Y_TRUE ? TRUE : FALSE;
+  if (state == GTK_ACCESSIBLE_STATE_CHECKED) {
+    gtk_accessible_update_state(GTK_ACCESSIBLE(self),
+                                state,
+                                value ? GTK_ACCESSIBLE_TRISTATE_TRUE : GTK_ACCESSIBLE_TRISTATE_FALSE,
+                                -1);
+    return;
+  }
+  gtk_accessible_update_state(GTK_ACCESSIBLE(self), state, value, -1);
+}
+
+void rn_view_set_accessible_state(RnView *self,
+                                  RnAccessibleFlag disabled,
+                                  RnAccessibleFlag checked,
+                                  RnAccessibleFlag selected,
+                                  RnAccessibleFlag expanded,
+                                  RnAccessibleFlag busy) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  rn_view_apply_flag(self, GTK_ACCESSIBLE_STATE_DISABLED, disabled);
+  rn_view_apply_flag(self, GTK_ACCESSIBLE_STATE_CHECKED, checked);
+  rn_view_apply_flag(self, GTK_ACCESSIBLE_STATE_SELECTED, selected);
+  rn_view_apply_flag(self, GTK_ACCESSIBLE_STATE_EXPANDED, expanded);
+  rn_view_apply_flag(self, GTK_ACCESSIBLE_STATE_BUSY, busy);
+}
+
+void rn_view_set_accessible_hidden(RnView *self, gboolean hidden) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  gtk_accessible_update_state(GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_STATE_HIDDEN, hidden, -1);
 }
 
 int rn_view_get_tag(RnView *self) {
@@ -426,6 +487,20 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
       g_free(escaped);
     }
   }
+
+  // What a screen reader would be told, so it can be asserted on end to end
+  // rather than only in the unit tests.
+  const GtkAccessibleRole role = gtk_accessible_get_accessible_role(GTK_ACCESSIBLE(self));
+  if (role != GTK_ACCESSIBLE_ROLE_GENERIC) {
+    GEnumClass *roles = static_cast<GEnumClass *>(g_type_class_ref(GTK_TYPE_ACCESSIBLE_ROLE));
+    const GEnumValue *value = g_enum_get_value(roles, static_cast<int>(role));
+    g_string_append_printf(out, " role=%s", value != nullptr ? value->value_nick : "?");
+    g_type_class_unref(roles);
+  }
+  if (gtk_accessible_get_platform_state(GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_PLATFORM_STATE_FOCUSABLE)) {
+    g_string_append(out, " focusable");
+  }
+
   g_string_append_c(out, '\n');
 
   for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(self)); child != nullptr;
