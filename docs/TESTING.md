@@ -197,11 +197,18 @@ is allowed to fail, so upstream churn is noticed without blocking anything.
 
 Three caches carry the cost: React Native's `node_modules` and `third_party/`
 (which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
-with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
-of React Native core from scratch -- about forty minutes.
+with a rolling fallback.
+
+They are the difference between a **42 minute** run and a **2 minute** one.
+Cold, a run installs React Native's dependencies (949MB of `node_modules`),
+builds Hermes, and compiles 400-odd objects of React Native core. Warm, it
+restores 304MB of `third_party`, hits ccache, and goes straight to the tests.
 
 Two things about those caches that are easy to lose an hour to:
 
+- **The `third_party` key hashes the whole of `bootstrap.sh`**, so editing a
+  comment in it costs a Hermes rebuild. That is deliberate: over-invalidating is
+  the safe direction, and the script changes rarely now.
 - **A cache saved on a branch is invisible to `main`.** GitHub scopes caches to
   the branch that created them, and shares them only downwards, to that branch's
   descendants. So the first run after merging a branch is cold all over again,
@@ -244,11 +251,18 @@ is allowed to fail, so upstream churn is noticed without blocking anything.
 
 Three caches carry the cost: React Native's `node_modules` and `third_party/`
 (which holds the Hermes build) are keyed on the pin, and `ccache` on the commit
-with a rolling fallback. Without them a run rebuilds Hermes and 400-odd objects
-of React Native core from scratch -- about forty minutes.
+with a rolling fallback.
+
+They are the difference between a **42 minute** run and a **2 minute** one.
+Cold, a run installs React Native's dependencies (949MB of `node_modules`),
+builds Hermes, and compiles 400-odd objects of React Native core. Warm, it
+restores 304MB of `third_party`, hits ccache, and goes straight to the tests.
 
 Two things about those caches that are easy to lose an hour to:
 
+- **The `third_party` key hashes the whole of `bootstrap.sh`**, so editing a
+  comment in it costs a Hermes rebuild. That is deliberate: over-invalidating is
+  the safe direction, and the script changes rarely now.
 - **A cache saved on a branch is invisible to `main`.** GitHub scopes caches to
   the branch that created them, and shares them only downwards, to that branch's
   descendants. So the first run after merging a branch is cold all over again,

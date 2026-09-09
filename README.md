@@ -261,8 +261,9 @@ See `plan/backlog.md` for the per-component detail.
     ./build/rn_tests                    # unit
     scripts/integration_test.py         # end to end, needs a built bundle
 
-Both need a display; on a headless machine prefix with `xvfb-run -a`. See
-`docs/TESTING.md`.
+Both need a display; on a headless machine prefix with `xvfb-run -a`. Both run
+in CI on Linux, where the end-to-end suite drives the app with real pointer
+events rather than injected ones. See `docs/TESTING.md`.
 
 ## Running it
 
