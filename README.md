@@ -41,6 +41,7 @@ interface has exactly two pure-virtual methods — `executeMount` and
     src/main.cpp                The host: ReactHost, Hermes, one live surface.
     js/index.js                 The demo app. Ordinary React Native.
     js/metro.config.js          Resolves react/react-native out of the checkout.
+    packages/react-native-linux/  The `linux` platform's JavaScript half.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     src/mount_harness.cpp       Hand-built mutations; no JS runtime.
@@ -242,17 +243,17 @@ covered too. See `docs/TESTING.md` for what is still not.
 
 Not yet done:
 
-- **No `<TextInput>`**, and the reason is not rendering: both of React Native's
-  built-in text inputs are unreachable from a bundle built for `android` without
-  fbjni. It needs a JavaScript component of our own, which is the same blocker
-  as a real `linux` Metro platform. See `plan/decisions.md`.
+- **No `<TextInput>`**, and the reason is still not rendering. React Native's
+  Android text input needs fbjni and calls into a Java `FabricUIManager`; its
+  iOS one is portable but only reachable from an iOS bundle. With the `linux`
+  platform in place the way is now clear -- a `TextInput.linux.js` naming a
+  component this platform defines -- but it also needs keyboard input and a
+  focus model, neither of which exists.
 - **No keyboard focus**, so nothing is reachable by Tab, and a screen reader can
   read the interface but not drive it.
 - **No hover**, so `onMouseEnter`-style callbacks do nothing.
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
-- **Bundles are built for the `android` platform.** See below for why that is
-  not a shortcut.
-- **No LogBox and no accessibility.**
+- **No LogBox.**
 
 See `plan/backlog.md` for the per-component detail.
 
@@ -301,18 +302,35 @@ Environment:
                               Useful on its own for seeing what React actually
                               produced, and what the end-to-end tests assert on.
 
-## Why the bundle says `android`
+## The `linux` platform
 
-`ReactCxxPlatform`'s `PlatformConstantsModule` returns `PlatformConstantsAndroid`.
-React Native's JS therefore already believes it is on Android when hosted this
-way, and Metro has to resolve the matching `.android.js` files -- `Platform.js`
-is one of them. Bundling with `--platform linux` would fail to resolve React
-Native's own internals, because there are no `.linux.js` variants of them.
+`packages/react-native-linux` is the JavaScript half: the `Platform` module and
+the Metro configuration that makes Metro resolve it. With it, an app bundled
+with `--platform linux` sees `Platform.OS === 'linux'` and can use `.linux.js`
+files, in development and in a release build alike.
 
-A real `linux` platform means shipping a JS package that supplies its own
-`Platform` module and native component registry, the way `react-native-windows`
-and `react-native-macos` do. That is a later chunk of work, and pretending
-otherwise by adding `linux` to `resolver.platforms` would only move the failure.
+Getting there is mostly about a family of React Native files that cannot work on
+a platform React Native has never heard of:
+
+- **Self-importing shims.** Nine files whose entire body is
+  `import X from './X'; export default X;`, there so deep imports keep working
+  and relying on a platform-specific sibling winning the resolution. On a new
+  platform each resolves to *itself* and exports undefined. They fail one at a
+  time, far from the cause: `Platform.constants` is undefined, then a view
+  config is undefined, then a component is undefined. Each is answered with its
+  own `.android.js` sibling, because this platform reports
+  `PlatformConstantsAndroid` from C++ and shares ReactCommon's prop parsing, so
+  Android's implementation is the one that matches what is really here.
+- **Modules with no neutral file at all**, which fail to resolve rather than
+  resolve wrongly, and only in development bundles.
+- **`Platform` itself**, which is the one thing this platform genuinely
+  implements differently.
+
+One thing the C++ side cannot be told: `DevServerHelper` builds its bundle URL
+from a hardcoded `platform=android`, with no hook and no setting. Left alone an
+app would be `android` under Fast Refresh and `linux` in release, which is a
+worse trap than either on its own, so the Metro config rewrites the request on
+arrival.
 
 ## Building React Native's core
 

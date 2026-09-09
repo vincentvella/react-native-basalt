@@ -11,6 +11,7 @@ import React, {useRef, useState} from 'react';
 import {
   AppRegistry,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -80,7 +81,10 @@ function App() {
 
   return (
     <View style={styles.root}>
-      <Text style={styles.heading}>React Native on GTK4</Text>
+      <Text style={styles.heading}>
+        React Native on GTK4 &middot; Platform.OS is{' '}
+        <Text style={styles.platform}>{Platform.OS}</Text>
+      </Text>
 
       <PropsStrip />
 
@@ -125,7 +129,8 @@ function App() {
 
 const styles = StyleSheet.create({
   root: {flex: 1, padding: 24, backgroundColor: '#11131a'},
-  heading: {fontSize: 28, fontWeight: '700', color: '#f7f8fa', marginBottom: 12},
+  heading: {fontSize: 26, fontWeight: '700', color: '#f7f8fa', marginBottom: 12},
+  platform: {color: '#56c98a'},
 
   strip: {flexDirection: 'row', alignItems: 'center', marginBottom: 14},
   pill: {

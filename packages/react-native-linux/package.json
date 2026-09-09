@@ -1,0 +1,21 @@
+{
+  "name": "react-native-linux",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The JavaScript half of React Native for Linux: the platform module, the Metro configuration that resolves it, and the components that have GTK peers.",
+  "license": "MIT",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./metro-config": "./metro-config.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "metro-config.js"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

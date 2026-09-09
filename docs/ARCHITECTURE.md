@@ -240,7 +240,9 @@ are documented in the project README.
 | 5 | Input & gestures | **done** |
 | 6 | `<Image>`, `<ScrollView>` | **done** |
 | 7 | Accessibility, and a test suite | **done** |
-| 8 | npm package with our own JS components, `run-linux` CLI, packaging | next |
+| 8 | The `linux` Metro platform | **done** |
+| 9 | `<TextInput>`, keyboard and focus | next |
+| 10 | `run-linux` CLI, packaging | |
 
 ## Testing
 

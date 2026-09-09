@@ -182,7 +182,17 @@ def offset_label(tree: str) -> float:
 def test_initial_render(bundle: Path) -> None:
     tree = run_host(bundle)
 
-    expect_contains(tree, 'text="React Native on GTK4"', "React rendered no text")
+    expect_contains(tree, "React Native on GTK4", "React rendered no text")
+
+    # The platform package, end to end: an app built for `linux` has to see
+    # Platform.OS === 'linux'. Getting this wrong is quiet -- React Native's
+    # Platform shim resolves to itself and yields undefined rather than
+    # complaining -- so the demo renders it and this asserts on it.
+    expect_contains(
+        tree,
+        "Platform.OS is linux",
+        "the app did not see Platform.OS === 'linux'; was it bundled for linux?",
+    )
     expect_contains(tree, "texture=160x100", "the image never loaded or decoded")
     expect_contains(tree, 'text="row 0"', "the list did not render")
     expect_contains(tree, 'text="row 23"', "the list is short of rows")

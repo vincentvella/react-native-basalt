@@ -17,10 +17,13 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 | 5 | Input: GTK events into RN's touch events | done, verified on screen |
 | 6 | `<Image>` and `<ScrollView>` | done, verified on screen |
 | 7 | Accessibility, and a test suite | done |
-| 8 | npm package with our own JS components, `run-linux` CLI | **next** |
+| 8 | The `linux` Metro platform | done |
+| 9 | `<TextInput>`, keyboard and focus | **next** |
+| 10 | `run-linux` CLI, packaging | |
 
-`<TextInput>` moved into phase 8: it is blocked on shipping our own JavaScript
-component, not on anything in the renderer. See `plan/decisions.md`.
+`Platform.OS === 'linux'` now, in development and release alike. `<TextInput>`
+is no longer blocked on the platform, but still needs keyboard input and a
+focus model. See `plan/decisions.md`.
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
 `ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native

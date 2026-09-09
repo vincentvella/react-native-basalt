@@ -32,9 +32,15 @@ if (!fs.existsSync(path.join(rnDir, 'node_modules', 'react-native'))) {
 const rnRequire = createRequire(path.join(rnDir, 'package.json'));
 const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), {
+// The `linux` platform itself: adds it to Metro's platform list and puts this
+// project's replacements in front of the React Native modules that have no
+// .linux variant. Without it, bundling with --platform linux produces a bundle
+// that builds and then dies on Platform.constants being undefined.
+const {withLinuxPlatform} = require('../packages/react-native-linux/metro-config');
+
+module.exports = withLinuxPlatform(mergeConfig(getDefaultConfig(__dirname), {
   projectRoot: __dirname,
-  watchFolders: [rnDir],
+  watchFolders: [rnDir, path.resolve(__dirname, '..', 'packages')],
   resolver: {
     nodeModulesPaths: [path.join(rnDir, 'node_modules')],
     // Without this, two copies of React can end up in the graph -- one
@@ -43,6 +49,7 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
     extraNodeModules: {
       react: path.join(rnDir, 'node_modules', 'react'),
       'react-native': path.join(rnDir, 'node_modules', 'react-native'),
+      'react-native-linux': path.resolve(__dirname, '..', 'packages', 'react-native-linux'),
     },
   },
-});
+}));

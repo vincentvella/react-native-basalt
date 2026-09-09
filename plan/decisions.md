@@ -352,3 +352,38 @@ list, so that list has to stay in mutation order. `RnView::snapshot` therefore
 sorts a *copy* by zIndex when any child has one, and skips the sort entirely
 when none does, which is the common case. The sort is stable, so equal zIndex
 keeps document order -- what CSS and React Native both promise.
+
+## The `linux` platform is nine redirects and one real file — 2026-09-09
+
+Bundling for a platform React Native has never heard of fails in three
+different ways, and only the third is the interesting one.
+
+Nine files are self-importing shims: their whole body is
+`import X from './X'; export default X;`, marked "backwards compatibility of
+subpath (deep) imports". They exist so `react-native/Libraries/Image/Image`
+resolves, and they assume a platform-specific sibling will win. On `linux` each
+resolves to itself and exports undefined, and they fail one at a time, far from
+the cause -- `Platform.constants` undefined, then a view config undefined, then
+a component undefined. Finding them by crashing takes an afternoon; finding them
+with one grep for that note takes a minute, which is why the list is spelled out
+in `metro-config.js` rather than discovered.
+
+Each is answered with React Native's own `.android.js` sibling rather than a
+copy. This platform reports `PlatformConstantsAndroid` from C++, shares
+ReactCommon's prop parsing, and drives the components Android's JavaScript
+drives, so Android's implementation is the one that matches what is actually
+here. Nine forks would drift from upstream in silence.
+
+A second kind does not resolve at all -- `ReactDevToolsSettingsManager` ships
+only as `.android.js` and `.ios.js` -- so there is no resolution to rewrite,
+only a failure to catch. That one is a real file, a no-op, because the
+TurboModule behind it does not exist here either.
+
+`Platform` is the only module this platform genuinely implements: `OS: 'linux'`,
+and a `select` that prefers `linux`.
+
+And one thing the C++ side simply cannot be told: `DevServerHelper` builds its
+bundle URL from `constexpr DEFAULT_PLATFORM = "android"`, with no hook. Left
+alone, an app would be `Platform.OS === 'android'` under Fast Refresh and
+`'linux'` in a release build -- a worse trap than either value on its own. Metro's
+`server.rewriteRequestUrl` corrects the request on arrival instead.

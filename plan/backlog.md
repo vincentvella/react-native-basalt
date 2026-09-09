@@ -39,8 +39,11 @@ Not scheduled. Roughly by value.
   `IntentAndroid`, `RedBox`, `ReactDevToolsSettingsManager`.
 - `src/LinuxNetworking.cpp` supports only string request bodies. Blob, form-data
   and base64 need a Blob implementation first.
-- A real `linux` Metro platform, which means a JS package with its own
-  `Platform` module; see `plan/decisions.md`.
+- The `linux` platform redirects nine React Native shims to their `.android.js`
+  siblings. Each is a place this platform could diverge, and a place upstream
+  could change under it; only `Platform` diverges today.
+- Nothing checks that the shim list in `metro-config.js` still matches
+  React Native. A new shim upstream shows up as an undefined export at runtime.
 
 ## Input
 
@@ -117,8 +120,9 @@ Not scheduled. Roughly by value.
 
 ## Platform surface
 
-- `TextInput`. Blocked on shipping our own JS component, not on rendering; see
-  `plan/decisions.md`. Needs a focus and keyboard model too.
+- `TextInput`. No longer blocked on the platform package; needs a
+  `TextInput.linux.js` naming a component this platform defines, plus keyboard
+  input and a focus model.
 - `Modal`, `Switch`, `ActivityIndicator` -- the remaining core components.
 - Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
   events; `setIsJSResponder` for the responder system.
