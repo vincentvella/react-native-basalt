@@ -70,6 +70,7 @@ if(DEFINED RN_DIR)
     # The mounting manager loads <Image> pixels itself, so the loader lives
     # here rather than with the host: mount_harness links this too.
     src/GtkImageLoader.cpp
+    src/GtkScrollView.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     src/PangoTextLayoutManager.cpp)

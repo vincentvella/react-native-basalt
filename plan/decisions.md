@@ -225,3 +225,57 @@ Two details that are easy to get wrong. A gesture reports against the view it
 what the responder system expects. And on touchend the touch must not appear in
 `touches`, only in `changedTouches` -- leaving it in convinces the responder
 system a finger is still down and it swallows the next press.
+
+## <Image> loads its own pixels — 2026-09-09
+
+React Native's cxx `ImageManager` is a stub: `requestImage` returns
+`ImageRequest{source, nullptr, {}}`, so no `ImageResponse` ever arrives and
+`ImageState` never carries anything to render. The platform view is expected to
+load its own image, which is what Android does too -- Fresco, from
+`ReactImageView`, not from the shadow node.
+
+So `GtkImageLoader` reads the URI off `ImageProps::sources` and produces a
+`GdkTexture`. I/O runs on a worker thread; the decode happens back on the main
+thread, because `GdkTexture` is a GObject and the expensive part is the read.
+
+Two lifetime rules fall out. The completion looks the view up by tag rather than
+capturing the widget, because a view can be deleted while its image is in
+flight. And a mutation that changed only layout must not restart the load, or an
+`<Image>` flickers whenever its parent resizes -- so the current URI is tracked
+per tag and an unchanged one is served from cache.
+
+## <ScrollView> is an offset, not a GtkScrolledWindow — 2026-09-09
+
+`GtkScrolledWindow` sizes its child through the measure/allocate protocol, and
+this platform's whole invariant is that React Native decides sizes and
+`RnLayout` only places things. Using it would mean teaching `RnLayout` to report
+a real size, i.e. two layout systems disagreeing.
+
+Instead a ScrollView is an `RnView` that clips and carries a scroll offset, and
+`RnLayout::allocate` subtracts that offset from each child's frame. Yoga has
+already laid the content out at full size -- the ScrollView's node carries
+`overflow: scroll`, which is what lets its child exceed the viewport -- so the
+offset is the only thing missing. Placing children at their scrolled positions
+also means `gtk_widget_pick` follows the scroll, so hit testing needs no
+special case.
+
+The child structure matters and is easy to get wrong: a mounted ScrollView has
+**one** child, not N. React Native's JS wraps the children in an
+`RCTScrollContentView`, which `componentNameByReactViewName` rewrites to a plain
+`View`, so no extra descriptor is needed.
+
+## Two things happen on every scroll, and only one is throttled — 2026-09-09
+
+`onScroll` goes to JavaScript and is throttled by `scrollEventThrottle`, which
+is the platform's job on every platform. Without it VirtualizedList never
+renders past its first window.
+
+Writing `contentOffset` back into `ScrollViewState` is separate and must not be
+throttled. `ScrollViewShadowNode::getContentOriginOffset` reads it, and through
+that so do `measure`, `measureLayout`, C++ hit testing (`findNodeAtPoint`) and
+view culling. Throttling it leaves all of those quietly reporting an unscrolled
+position.
+
+One more trap: `ScrollEvent::zoomScale` defaults to **0**, not 1, and
+VirtualizedList only repairs negative values. Leaving the default makes every
+list measurement come out as zero.

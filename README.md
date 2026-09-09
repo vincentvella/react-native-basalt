@@ -34,6 +34,8 @@ interface has exactly two pure-virtual methods — `executeMount` and
                                 measurement and painting, so they agree.
     src/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
     src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
+    src/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
+    src/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
     src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
                                 an emitter produces ever reaches JavaScript.
     src/main.cpp                The host: ReactHost, Hermes, one live surface.
@@ -191,42 +193,40 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 Verified, on screen:
 
-- **Input works.** A press on a `<Pressable>` runs the whole loop: GTK hit test,
-  touch event, event beat, React Native's responder system, `onPress`,
-  `setState`, re-render, Fabric mutations, GTK widgets. The demo's counter is
-  driven by presses rather than a timer, so what is on screen is the evidence.
-- **Text renders and measures.** Pango backs React Native's `TextLayoutManager`,
-  so Yoga sizes paragraphs the way it does on iOS and Android. Narrowing the
-  window re-wraps text and reflows everything below it.
-- **React runs, from Metro, with Fast Refresh.** `js/index.js` is an ordinary
-  React Native app -- hooks, `StyleSheet`, `View`, `Text`, `Pressable` -- and
-  knows nothing about GTK.
+- **`<ScrollView>` scrolls.** Content is clipped to the viewport, `scrollTo` and
+  `scrollToEnd` work, and `onScroll` reports `contentOffset` back to React,
+  which the demo renders. The offset is also written back into `ScrollViewState`
+  on every scroll, which is what keeps `measure`, hit testing and view culling
+  honest.
+- **`<Image>` loads and paints.** Files, http(s) and base64 data URIs, decoded
+  off the main thread, with `resizeMode` cover, contain, stretch and center.
+- **Input works.** A press on a `<Pressable>` runs GTK hit test, touch event,
+  event beat, React Native's responder system, `onPress`, `setState`,
+  re-render, mutations, widgets.
+- **Text renders and measures** through Pango, so Yoga sizes paragraphs the way
+  it does on iOS and Android, and narrowing the window re-wraps them.
+- **React runs, from Metro, with Fast Refresh.**
 - `mount_harness` still drives hand-built `ShadowViewMutation`s with no JS
   runtime, and `js/demo.js` still drives Fabric's JSI binding with no React.
 - This project's own sources build under `-Wall -Wextra` with zero diagnostics,
   enforced by the build rather than asserted.
 
-One gap in the evidence: synthesising a real pointer event needs accessibility
-permission this machine's automated runs do not have, so taps are injected at
-the point GTK's gesture callback would call. Everything downstream of that is
-exercised; GDK's own event delivery to the controller is not.
-
-Implemented but not exercised by the demo, so treat as untested: `letterSpacing`,
-`textAlign`, text `backgroundColor`, `textDecorationLine`, and drag
-(`touchmove`).
+Two gaps in the evidence, both the same cause: synthesising real pointer or
+scroll events needs accessibility permission this machine's automated runs do
+not have. Taps are injected where GTK's gesture callback would call, and wheel
+scrolling is exercised only through the command path. Everything downstream of
+GDK is covered; GDK's own delivery is not.
 
 Not yet done:
 
-- **No `<Image>` or `<ScrollView>`.** Image needs an `IImageLoader`; ScrollView
-  needs a `GtkScrolledWindow` peer.
-- **No hover.** W3C pointer events are not emitted, so `onMouseEnter`-style
-  callbacks do nothing.
-- **`setIsJSResponder` is a no-op**, which will matter once something scrolls
-  natively.
-- **No keyboard input and no focus**, so there is no `<TextInput>`.
+- **No `<TextInput>`**, which needs keyboard input and a focus model first.
+- **No hover**, so `onMouseEnter`-style callbacks do nothing.
+- **No scroll momentum**, so `onMomentumScroll*` never fire.
 - **Bundles are built for the `android` platform.** See below for why that is
   not a shortcut.
 - **No LogBox and no accessibility.**
+
+See `plan/backlog.md` for the per-component detail.
 
 ## Running it
 

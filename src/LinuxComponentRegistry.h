@@ -11,6 +11,7 @@
 #include <react/renderer/componentregistry/ComponentDescriptorFactory.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
@@ -35,6 +36,13 @@ inline ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // creating one if absent. React Native's cxx ImageManager is a stub, so
       // it produces no pixels; GtkImageLoader does that from the props instead.
       registry->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+      // Unlike Image's, ScrollView's descriptor is a bare alias for
+      // ConcreteComponentDescriptor -- no manager, no ContextContainer entry.
+      // Its content child is a plain View, so nothing else is needed. Leaving
+      // it out does not fail loudly: the registry silently substitutes
+      // UnimplementedNativeView, which has no ScrollViewState, and the symptom
+      // is a ScrollView that renders but never scrolls.
+      registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

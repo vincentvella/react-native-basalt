@@ -7,6 +7,7 @@
 #pragma once
 
 #include "GtkImageLoader.h"
+#include "GtkScrollView.h"
 #include "RnView.h"
 
 #include <react/renderer/core/EventEmitter.h>
@@ -72,6 +73,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyImage(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyScrollView(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
   // Views are held with a strong reference from Create until Delete. Between a
@@ -83,6 +85,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   std::unordered_map<facebook::react::Tag, facebook::react::EventEmitter::Shared> eventEmitters_;
 
   GtkImageLoader imageLoader_;
+  GtkScrollViewManager scrollViews_;
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load.

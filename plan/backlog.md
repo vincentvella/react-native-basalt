@@ -7,8 +7,6 @@ Not scheduled. Roughly by value.
 - `borderRadii` / `borderWidth` / `borderColor` — needs
   `gtk_snapshot_push_rounded_clip` plus a border node.
 - `transform` — `gsk_transform_*`, including transform-origin.
-- `overflow: hidden` — currently everything is `visible` (visible in the phase-1
-  screenshots, where a child outgrows its shrunk parent).
 - `displayType == DisplayType::None` should hide the widget.
 - `pointScaleFactor` — fractional scaling under Wayland.
 - `zIndex` — needs an explicit paint order in `RnView::snapshot`; GTK paints in
@@ -49,6 +47,36 @@ Not scheduled. Roughly by value.
   routing is not. Verifying it needs a machine where synthesising a pointer
   event is allowed.
 
+## Image
+
+- Nothing evicts the texture cache. A long-lived app that scrolls through many
+  remote images grows without bound.
+- `resizeMode: 'repeat'` falls back to `center`; a repeating draw needs a
+  pattern node rather than one texture append.
+- `blurRadius`, `tintColor`, `overlayColor`, `fadeDuration` and
+  `progressiveRenderingEnabled` are ignored.
+- `require()`d assets are not resolved: the demo passes a path. Asset
+  registration is bundler work and belongs with the npm package.
+- `onProgress` and `onPartialLoad` are never emitted.
+- `IImageLoader` itself is still unimplemented, so `Image.getSize` and
+  `Image.prefetch` do nothing. That is a separate seam from the rendering path.
+
+## ScrollView
+
+- Wheel and trackpad scrolling is implemented but unverified: synthesising a
+  scroll event needs the same permission a pointer event does. The command path
+  (`scrollTo`, `scrollToEnd`) is verified, and it shares everything except
+  GDK delivery and the wheel-to-pixels conversion.
+- No momentum, so `onMomentumScrollBegin` and `onMomentumScrollEnd` never fire
+  and `onScrollEndDrag` reports zero velocity. `ScrollView._isAnimating()` is
+  wrong as a result.
+- `animated: true` scrolls instantly.
+- No snapping, paging or `maintainVisibleContentPosition`.
+- No scrollbars are drawn.
+- `contentBoundingRect.origin` is assumed to be zero; iOS positions its
+  container view at that origin.
+- `disableViewCulling` is never set, which will matter once AT-SPI lands.
+
 ## Text
 
 - Inline views (`<Text><View/></Text>`) measure as zero-sized attachments.
@@ -68,9 +96,8 @@ Not scheduled. Roughly by value.
 
 ## Platform surface
 
-- `IImageLoader` via GdkPixbuf or glycin, for `<Image>`.
-- `ScrollView`, on a `GtkScrolledWindow` peer.
 - `TextInput`, which needs keyboard input and a focus model first.
+- `Modal`, `Switch`, `ActivityIndicator` -- the remaining core components.
 - Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
   events; `setIsJSResponder` for the responder system.
 - `dispatchCommand` routing (scrollTo, focus, blur) once ScrollView/TextInput

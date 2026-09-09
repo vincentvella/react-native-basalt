@@ -4,6 +4,7 @@
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/image/ImageEventEmitter.h>
+#include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -48,7 +49,9 @@ GdkRGBA toRgba(const ColorComponents &components) {
 
 } // namespace
 
-GtkMountingManager::GtkMountingManager() : mainThreadId_(std::this_thread::get_id()) {}
+GtkMountingManager::GtkMountingManager()
+    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
+      mainThreadId_(std::this_thread::get_id()) {}
 
 GtkMountingManager::~GtkMountingManager() noexcept {
   for (auto &[tag, view] : registry_) {
@@ -121,6 +124,7 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
           registry_.erase(it);
           eventEmitters_.erase(tag);
           imageUris_.erase(tag);
+          scrollViews_.remove(tag);
         } else {
           g_warning("Delete for unknown tag %d", static_cast<int>(tag));
         }
@@ -184,9 +188,11 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
 
 void GtkMountingManager::dispatchCommand(const ShadowView &shadowView,
                                          const std::string &commandName,
-                                         const folly::dynamic & /*args*/) {
-  // TODO(commands): route to per-component handlers once ScrollView and
-  // TextInput exist (scrollTo, focus, blur, ...).
+                                         const folly::dynamic &args) {
+  if (scrollViews_.dispatchCommand(shadowView.tag, commandName, args)) {
+    return;
+  }
+  // TODO(commands): focus/blur once TextInput exists.
   g_debug("dispatchCommand '%s' on tag %d is not implemented",
           commandName.c_str(),
           static_cast<int>(shadowView.tag));
@@ -296,11 +302,21 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
   });
 }
 
+void GtkMountingManager::applyScrollView(RnView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "ScrollView") {
+    return;
+  }
+  scrollViews_.update(view, shadowView);
+}
+
 bool GtkMountingManager::hasComponent(const std::string &name) {
   // Paragraph is the mountable half of <Text>; Text and RawText exist only in
   // the shadow tree, folded into the Paragraph's AttributedString. Image still
   // needs an IImageLoader, and ScrollView a GtkScrolledWindow peer.
-  return name == "View" || name == "RootView" || name == "Paragraph" || name == "Image";
+  // ScrollView's content child arrives as "ScrollContentView", which the
+  // registry rewrites to "View" before it reaches here, so it needs no entry.
+  return name == "View" || name == "RootView" || name == "Paragraph" || name == "Image" ||
+      name == "ScrollView";
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +373,10 @@ void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowV
   applyText(view, shadowView);
   applyImage(view, shadowView);
   applyLayoutMetrics(view, shadowView);
+  // Last: the scroll manager clamps its offset against the frame it was just
+  // given, and iOS documents the same ordering requirement -- layout before
+  // state, or the offset is clamped against a stale size.
+  applyScrollView(view, shadowView);
 }
 
 // A <Paragraph> carries its text in state, not props: ParagraphShadowNode
@@ -408,9 +428,12 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
 
   rn_view_set_opacity(view, props->opacity);
 
-  // TODO(props): borderRadii, borderWidth/Colors, transform, overflow,
-  // pointerEvents, accessibility. Each maps onto a GTK snapshot node or an
-  // AT-SPI attribute.
+  // overflow: 'hidden'. React Native's default is 'visible', which is why the
+  // phase-1 screenshots show a child outgrowing its shrunk parent.
+  rn_view_set_clips_children(view, props->getClipsContentToBounds() ? TRUE : FALSE);
+
+  // TODO(props): borderRadii, borderWidth/Colors, transform, pointerEvents,
+  // accessibility. Each maps onto a GTK snapshot node or an AT-SPI attribute.
 }
 
 void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shadowView) {

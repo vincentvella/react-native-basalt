@@ -28,12 +28,21 @@ static void rn_layout_measure(GtkLayoutManager * /*manager*/,
 // Defined below; lets allocate report the root's size without exposing the
 // struct.
 static void rn_view_notify_allocation(RnView *self, int width, int height);
+static void rn_view_scroll_offset(RnView *self, double *offset_x, double *offset_y);
 
 static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
                                GtkWidget *widget,
                                int width,
                                int height,
                                int /*baseline*/) {
+  // A scrolling view moves its children rather than its own frame. Reading the
+  // offset here, once, keeps it out of every child's stored frame.
+  double scroll_x = 0.0;
+  double scroll_y = 0.0;
+  if (RN_IS_VIEW(widget)) {
+    rn_view_scroll_offset(RN_VIEW(widget), &scroll_x, &scroll_y);
+  }
+
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
        child = gtk_widget_get_next_sibling(child)) {
     if (!gtk_widget_should_layout(child) || !RN_IS_VIEW(child)) {
@@ -44,8 +53,8 @@ static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
     rn_view_get_frame(RN_VIEW(child), &frame);
 
     graphene_point_t origin;
-    origin.x = frame.origin.x;
-    origin.y = frame.origin.y;
+    origin.x = frame.origin.x - static_cast<float>(scroll_x);
+    origin.y = frame.origin.y - static_cast<float>(scroll_y);
 
     GskTransform *transform = gsk_transform_translate(nullptr, &origin);
     gtk_widget_allocate(child,
@@ -91,6 +100,10 @@ struct _RnView {
   GdkTexture *texture;
   RnImageFit texture_fit;
 
+  gboolean clips_children;
+  double scroll_x;
+  double scroll_y;
+
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
   int allocated_width;
@@ -128,6 +141,15 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
   const gboolean needs_opacity_layer = self->opacity < 1.0;
   if (needs_opacity_layer) {
     gtk_snapshot_push_opacity(snapshot, self->opacity);
+  }
+
+  if (self->clips_children) {
+    graphene_rect_t bounds;
+    bounds.origin.x = 0.0f;
+    bounds.origin.y = 0.0f;
+    bounds.size.width = static_cast<float>(width);
+    bounds.size.height = static_cast<float>(height);
+    gtk_snapshot_push_clip(snapshot, &bounds);
   }
 
   if (self->has_background_color) {
@@ -206,6 +228,10 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     gtk_widget_snapshot_child(widget, child, snapshot);
   }
 
+  if (self->clips_children) {
+    gtk_snapshot_pop(snapshot);
+  }
+
   if (needs_opacity_layer) {
     gtk_snapshot_pop(snapshot);
   }
@@ -250,6 +276,9 @@ static void rn_view_init(RnView *self) {
   self->text_color = GdkRGBA{0.0f, 0.0f, 0.0f, 1.0f};
   self->texture = nullptr;
   self->texture_fit = RN_IMAGE_FIT_COVER;
+  self->clips_children = FALSE;
+  self->scroll_x = 0.0;
+  self->scroll_y = 0.0;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -320,6 +349,37 @@ void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
   self->texture_fit = fit;
 
   gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+static void rn_view_scroll_offset(RnView *self, double *offset_x, double *offset_y) {
+  *offset_x = self->scroll_x;
+  *offset_y = self->scroll_y;
+}
+
+void rn_view_set_clips_children(RnView *self, gboolean clips) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->clips_children == clips) {
+    return;
+  }
+  self->clips_children = clips;
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+void rn_view_set_scroll_offset(RnView *self, double offset_x, double offset_y) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->scroll_x == offset_x && self->scroll_y == offset_y) {
+    return;
+  }
+  self->scroll_x = offset_x;
+  self->scroll_y = offset_y;
+  // Children move, so the layout has to run again; a redraw alone would leave
+  // them where they were.
+  gtk_widget_queue_allocate(GTK_WIDGET(self));
+}
+
+void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  rn_view_scroll_offset(self, offset_x, offset_y);
 }
 
 void rn_view_insert_child(RnView *self, RnView *child, int index) {

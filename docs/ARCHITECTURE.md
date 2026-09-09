@@ -173,8 +173,8 @@ written:
 |---|---|
 | `View` | done |
 | `Paragraph` / `Text` / `RawText` | done, on Pango |
-| `Image` | needs an `IImageLoader` implementation |
-| `ScrollView` | needs a `GtkScrolledWindow` peer |
+| `Image` | done, on GdkTexture; the platform loads its own pixels |
+| `ScrollView` | done, as a clipping view with a scroll offset |
 
 Only `Paragraph` of the three text descriptors mounts: `<Text>` becomes a Text
 node and its string a RawText node, both of which live only in the shadow tree,
@@ -218,8 +218,8 @@ are documented in the project README.
 | 3 | Metro bundle, `<View>` + flexbox, Fast Refresh | **done** |
 | 4 | Pango `TextLayoutManager`, `<Text>` | **done** |
 | 5 | Input & gestures | **done** |
-| 6 | `IImageLoader`, `ScrollView` | next |
-| 7 | AT-SPI accessibility | |
+| 6 | `<Image>`, `<ScrollView>` | **done** |
+| 7 | AT-SPI accessibility, `<TextInput>` | next |
 | 8 | `react-native-linux` npm package, `run-linux` CLI, packaging | |
 
 ## Risks

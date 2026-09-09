@@ -82,6 +82,20 @@ void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit);
 typedef void (*RnViewResizeFunc)(RnView *self, int width, int height, gpointer user_data);
 void rn_view_set_resize_callback(RnView *self, RnViewResizeFunc callback, gpointer user_data);
 
+// Clip children to this view's bounds.
+//
+// Off by default, because React Native's default is overflow: visible. A
+// <ScrollView> needs it, and so does any view with overflow: 'hidden'.
+void rn_view_set_clips_children(RnView *self, gboolean clips);
+
+// Shift children by a scroll offset, in points.
+//
+// Applied in the layout manager rather than by moving frames, so the frames
+// Fabric assigned stay untouched and GTK's own hit testing follows the shift
+// for free: a child allocated at its scrolled position is picked there.
+void rn_view_set_scroll_offset(RnView *self, double offset_x, double offset_y);
+void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y);
+
 // Child management. Mirrors Insert/Remove mutations; index is the position
 // within the parent's child list, as Fabric numbers it.
 void rn_view_insert_child(RnView *self, RnView *child, int index);
