@@ -1,6 +1,8 @@
 # Handoff
 
 Picking this project up on another machine, specifically an Apple Silicon Mac.
+That move is done: as of 2026-09-08 the project builds and runs there. See
+[macOS: verified](#macos-verified-2026-09-08) for what had to change.
 
 ## Where things stand
 
@@ -8,7 +10,7 @@ Picking this project up on another machine, specifically an Apple Silicon Mac.
 |---|---|---|
 | 0 | GTK view layer, mounting manager | done |
 | 1 | Real Fabric mutations → GTK widgets, no JS | done, verified on screen |
-| 2 | RN's full C++ core + Hermes + codegen building | **done** |
+| 2 | RN's full C++ core + Hermes + codegen building | **done**, on Linux and macOS |
 | 2 | `main.cpp`: construct `ReactHost`, run a surface | **next** |
 | 3 | Metro bundle, flexbox, Fast Refresh | |
 | 4+ | Pango text, images, input, AT-SPI | see `docs/ARCHITECTURE.md` |
@@ -49,10 +51,34 @@ nice -n 10 cmake --build build -j 12
 ./build/mount_harness
 ```
 
-## What is untested on macOS
+## macOS: verified 2026-09-08
 
-Everything below is reasoned from the code, **not** verified -- the project has
-only ever been built on Linux. Expect some of it to be wrong.
+Built and run on an Apple Silicon Mac (macOS 26, AppleClang 21, Homebrew GTK4
+4.22.4). `mount_harness` renders both transactions correctly on the quartz
+backend: the frames, the recolour, the removal and the overflowing nested child
+all match what the mutations describe. `demo_layout` renders too. Four things
+needed fixing, all now in the repo:
+
+- **`bootstrap.sh` died under bash 3.2**, which macOS ships. `"${arr[@]}"` of an
+  empty array is an unbound-variable error under `set -u` before bash 4.4. The
+  script now uses the `${arr[@]+"${arr[@]}"}` idiom.
+- **`-DRN_DIR=../react-native/...` broke RN's own `include()` calls**, which
+  resolve a relative path against the including file's directory. The top-level
+  `CMakeLists.txt` now absolutises `RN_DIR` against the repo root.
+- **`third_party/codegen/CMakeLists.txt` had never been committed.** The README
+  called it checked in, but `.gitignore` covered the whole directory, so it only
+  existed on the Arch box. It is recreated from Fantom's and now un-ignored.
+  Fantom's glob is right for a reason: the top-level
+  `FBReactNativeSpec-generated.cpp` includes `ReactCommon/JavaTurboModule.h`,
+  which is Android-only. Only `react/renderer/components/FBReactNativeSpec/*.cpp`
+  is compiled.
+- **Homebrew headers are not on the default include path.** The glog, fmt and
+  double-conversion interface targets in `cmake/ThirdParty.cmake` carried only
+  the library, which is fine when headers live in `/usr/include`. They now carry
+  `find_path` results too.
+
+`-DCMAKE_PREFIX_PATH="$(brew --prefix)"` was **not** needed: CMake finds
+`/opt/homebrew` on its own.
 
 ### Dependencies
 
@@ -61,45 +87,27 @@ brew install gtk4 pango glib glog boost fmt double-conversion gflags \
              openssl cmake ninja pkg-config
 ```
 
-CMake does not reliably search Homebrew's prefix on Apple Silicon. The
-`find_library`/`find_path` calls in `cmake/ThirdParty.cmake` (glog, boost, fmt,
-double-conversion) will likely need:
+Only `gtk4` was missing on the first Mac. Node came from nvm (24.x); mise is
+optional, bootstrap falls back to the ambient node and checks its major version
+against RN's engines (`^22.13 || ^24.3 || >= 26.0.0` -- **Node 25.x is
+excluded** and fails an engine check inside a preinstall hook). Bootstrap
+installs yarn globally into that node if it is absent.
 
-```bash
-cmake -B build ... -DCMAKE_PREFIX_PATH="$(brew --prefix)"
-```
+### Confirmed as predicted
 
-### Things that should already be right
+- `-latomic` guard, `GLOG_USE_GLOG_EXPORT`, Apple clang, and the Hermes host
+  flags all behaved as the reasoning above expected. Hermes needed no changes;
+  its 398 objects compile in well under a minute at `-j 12`.
+- `GtkAnimationChoreographer` links and constructs; whether the quartz frame
+  clock ticks with the same fidelity as Wayland's is still unverified, since
+  nothing animates yet.
 
-- **`-latomic`** is guarded by `if(UNIX AND NOT APPLE)` in
-  `cmake/ReactNativeCore.cmake`. macOS neither ships nor needs libatomic, and
-  Fantom's `CMakeLists.txt` carries the same guard. No change expected.
-- **`GLOG_USE_GLOG_EXPORT`** is needed just the same: Homebrew's glog is 0.7.x,
-  and RN pins 0.3.5, which predates the guard.
-- **Apple clang** should be fine. RN is a clang codebase -- that is precisely
-  why this project does not build with GCC.
-- **Hermes** builds on macOS; it is the iOS engine. `HERMESVM_HEAP_HV_MODE=
-  HEAP_HV_PREFER32` is what RN passes for host builds on every platform.
+### Screenshotting a GTK window on macOS
 
-### Things that may well break
-
-- **GTK4 on macOS** uses the quartz backend, which is far less exercised than
-  the Wayland/X11 ones. `RnLayout` and `RnView` use only portable GTK4
-  (`GtkLayoutManager`, `gtk_snapshot_append_color`, `gtk_widget_allocate`), so
-  they *should* work, but this is the least certain part.
-- **`GtkAnimationChoreographer`** depends on `gtk_widget_get_frame_clock` and
-  `gdk_frame_clock_begin_updating`. Both exist on the macOS backend; whether the
-  frame clock ticks with the same fidelity is unverified.
-- **Codegen** shells out through `mise exec node@24`. If mise is not installed,
-  `bootstrap.sh` falls back to the ambient node and checks its major version
-  against RN's engines (`^22.13 || ^24.3 || >= 26.0.0` -- note that **Node 25.x
-  is excluded** and fails an engine check inside a preinstall hook).
-
-### Developer tooling that is Linux-only
-
-The screenshot workflow used to verify rendering during development is
-Hyprland-specific (`grim`, `hyprctl -j clients`). The macOS equivalent is
-`screencapture -l$(...)` or just looking at the window.
+`screencapture -l <window-id>` needs a CGWindow id, which nothing in the shell
+exposes. A five-line Swift program over `CGWindowListCopyWindowInfo`, filtered
+by `kCGWindowOwnerPID`, gives it; compile it once with `swiftc` because
+`swift <file>` interprets slowly enough to miss the window's first frame.
 
 ## The honest caveat about the platform
 

@@ -153,7 +153,9 @@ Copy `/tmp/rncodegen/android/app/build/generated/source/codegen/jni/react` to
 `third_party/codegen/react`. The generator also emits a CMakeLists that links
 Android-only targets (`fbjni`, `turbomodulejsijni`); `third_party/codegen/
 CMakeLists.txt` in this repo replaces it, exactly as Fantom's
-`tester/codegen/CMakeLists.txt` does.
+`tester/codegen/CMakeLists.txt` does. Like Fantom, it compiles only the Fabric
+component specs: the top-level `FBReactNativeSpec-generated.cpp` is the JNI
+TurboModule binding and does not build off Android.
 
 ### Version drift
 

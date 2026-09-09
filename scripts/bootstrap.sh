@@ -34,7 +34,10 @@ die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 if [ -n "$FORCE" ]; then
   log "--force: removing fetched trees"
   rm -rf "$TP/folly" "$TP/fast_float" "$TP/nlohmann_json" "$TP/hermes" \
-         "$TP/hermes-build" "$TP/codegen"
+         "$TP/hermes-build"
+  # Not the whole codegen dir: its CMakeLists.txt is checked in and replaces
+  # the Android-only one the generator emits. Only the generated tree goes.
+  rm -rf "$TP/codegen/react" "$TP"/codegen/*.h "$TP"/codegen/*.cpp
 fi
 
 # --- locate the React Native checkout ---------------------------------------
@@ -66,6 +69,9 @@ if command -v mise >/dev/null; then
     mise install "node@${NODE_VERSION}"
   }
 else
+  # Empty array; expanded below with the ${arr[@]+"${arr[@]}"} idiom because
+  # bash < 4.4 (macOS ships 3.2) treats "${arr[@]}" of an empty array as unbound
+  # under set -u.
   NODE_RUN=()
   node_major="$(node -p 'process.versions.node.split(".")[0]')"
   case "$node_major" in
@@ -124,13 +130,13 @@ fi
 if [ ! -d "$TP/codegen/react" ]; then
   if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
     log "installing React Native's monorepo dependencies (needed by codegen)"
-    command -v yarn >/dev/null || "${NODE_RUN[@]}" npm install -g yarn@1.22.22
-    (cd "$RN_DIR" && nice -n 10 "${NODE_RUN[@]}" yarn install --network-timeout 600000)
+    command -v yarn >/dev/null || ${NODE_RUN[@]+"${NODE_RUN[@]}"} npm install -g yarn@1.22.22
+    (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
   fi
 
   log "generating codegen artifacts"
   CODEGEN_TMP="$(mktemp -d)"
-  (cd "$RN_DIR" && "${NODE_RUN[@]}" node packages/react-native/scripts/generate-codegen-artifacts.js \
+  (cd "$RN_DIR" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node packages/react-native/scripts/generate-codegen-artifacts.js \
       -p packages/react-native -t android -o "$CODEGEN_TMP" -s library -f)
 
   JNI="$CODEGEN_TMP/android/app/build/generated/source/codegen/jni"

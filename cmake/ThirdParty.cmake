@@ -11,8 +11,11 @@
 # GLOG_USE_GLOG_EXPORT when the headers are not consumed via glog's own CMake
 # target. Without it every glog header hard-errors.
 find_library(GLOG_LIBRARY glog REQUIRED)
+find_path(GLOG_INCLUDE_DIR glog/logging.h REQUIRED)
 add_library(glog INTERFACE)
 target_link_libraries(glog INTERFACE ${GLOG_LIBRARY})
+# Distros put headers in /usr/include; Homebrew does not, so carry the path.
+target_include_directories(glog INTERFACE ${GLOG_INCLUDE_DIR})
 target_compile_definitions(glog INTERFACE GLOG_USE_GLOG_EXPORT)
 
 # RN's Android build has a glog_init target that installs signal handlers.
@@ -26,13 +29,17 @@ target_include_directories(boost INTERFACE ${BOOST_INCLUDE_DIR})
 
 # --- double-conversion -----------------------------------------------------
 find_library(DOUBLE_CONVERSION_LIBRARY double-conversion REQUIRED)
+find_path(DOUBLE_CONVERSION_INCLUDE_DIR double-conversion/double-conversion.h REQUIRED)
 add_library(double-conversion INTERFACE)
 target_link_libraries(double-conversion INTERFACE ${DOUBLE_CONVERSION_LIBRARY})
+target_include_directories(double-conversion INTERFACE ${DOUBLE_CONVERSION_INCLUDE_DIR})
 
 # --- fmt -------------------------------------------------------------------
 find_library(FMT_LIBRARY fmt REQUIRED)
+find_path(FMT_INCLUDE_DIR fmt/format.h REQUIRED)
 add_library(fmt INTERFACE)
 target_link_libraries(fmt INTERFACE ${FMT_LIBRARY})
+target_include_directories(fmt INTERFACE ${FMT_INCLUDE_DIR})
 
 # --- fast_float (vendored, header-only) ------------------------------------
 add_library(fast_float INTERFACE)

@@ -37,6 +37,9 @@ target_link_libraries(demo_layout PRIVATE rn_view)
 # ---------------------------------------------------------------------------
 
 if(DEFINED RN_DIR)
+  # RN's own CMakeLists include files by ${REACT_COMMON_DIR}/..., which a
+  # relative path resolves against the wrong directory. Anchor it to this repo.
+  get_filename_component(RN_DIR "${RN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
   if(NOT DEFINED FOLLY_DIR)
     set(FOLLY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/folly)
   endif()
