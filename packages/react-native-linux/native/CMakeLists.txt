@@ -87,6 +87,12 @@ if(DEFINED RN_DIR)
     message(STATUS "ReactCxxPlatform from ${RN_CXX_PLATFORM_OVERRIDE}")
   endif()
 
+  # Expo's core, compiled from the app's own expo-modules-core when the build
+  # was pointed at one. Point RN_LINUX_EXPO_MODULES_CORE at
+  # <app>/node_modules/expo-modules-core; without it an Expo app fails at its
+  # first import exactly as before, and a plain React Native app is unaffected.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Expo.cmake)
+
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
@@ -97,6 +103,7 @@ if(DEFINED RN_DIR)
     src/GtkImageLoader.cpp
     src/GtkScrollView.cpp
     src/GtkTextInput.cpp
+    src/ExpoRuntime.cpp
     src/LinuxPlatformConstants.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
@@ -107,6 +114,13 @@ if(DEFINED RN_DIR)
   # SYSTEM, so -Wall -Wextra on this project's own sources does not drown in
   # diagnostics from React Native's headers, which are not -Wextra clean (its
   # own targets build with a narrower warning set).
+  # Expo's classes are installed by src/ExpoRuntime.cpp, so its objects and
+  # headers have to reach that translation unit and the final link.
+  if(TARGET expo_core)
+    target_link_libraries(rn_mounting PUBLIC expo_core)
+    target_sources(rn_mounting PUBLIC $<TARGET_OBJECTS:expo_core>)
+  endif()
+
   target_include_directories(rn_mounting SYSTEM PUBLIC
     ${RN_DIR}/ReactCommon
     ${RN_DIR}/ReactCommon/jsi

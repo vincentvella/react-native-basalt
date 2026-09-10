@@ -39,6 +39,7 @@
 
 #include <cstdlib>
 #include <exception>
+#include "ExpoRuntime.h"
 #include "LinuxPlatformConstants.h"
 
 #include <react/featureflags/ReactNativeFeatureFlags.h>
@@ -337,6 +338,12 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders() {
   return providers;
 }
 
+// Runs against the JavaScript runtime before the bundle is evaluated, which is
+// the only moment early enough for what goes in here.
+void installBindings(facebook::jsi::Runtime &runtime) {
+  rnlinux::installExpoRuntime(runtime);
+}
+
 std::shared_ptr<const ContextContainer> makeContextContainer() {
   auto contextContainer = std::make_shared<ContextContainer>();
 
@@ -435,7 +442,7 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                   makeTurboModuleProviders(),
                                                   nullptr,
                                                   nullptr,
-                                                  nullptr,
+                                                  installBindings,
                                                   host->choreographer);
   } catch (const std::exception &error) {
     g_error("could not construct ReactHost: %s", error.what());

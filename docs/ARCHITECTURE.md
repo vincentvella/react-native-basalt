@@ -278,7 +278,7 @@ are documented in the project README.
 | 12 | `run-linux` CLI and an installable package | in progress |
 | 12a | Build from an installed React Native, on a pinned triple | **done** |
 | 13 | Port one third-party native module end to end | |
-| 14 | Expo's native runtime | |
+| 14 | Expo's native runtime | **started** |
 | 15 | Core modules: appearance, clipboard, linking, alerts | |
 | 16 | Desktop capabilities: windows, menus, file dialogs | |
 | 17 | Packaging: Arch, Flatpak | |

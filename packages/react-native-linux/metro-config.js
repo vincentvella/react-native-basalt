@@ -168,6 +168,21 @@ function withLinuxPlatform(config = {}) {
     ? watchFolders
     : [...watchFolders, __dirname];
 
+  // Metro resolves this package's files by their real path and then looks for
+  // their dependencies by walking up from there. Installed normally that lands
+  // in the app's node_modules and everything is found. Linked from a checkout,
+  // or in a monorepo, it lands in this repository instead, where the app's
+  // dependencies are not -- and the failure names @babel/runtime, a helper this
+  // package's own compiled output needs, rather than naming the link.
+  //
+  // Naming the project's node_modules explicitly covers both.
+  const projectRoot = config.projectRoot ?? process.cwd();
+  const projectModules = path.join(projectRoot, 'node_modules');
+  const nodeModulesPaths = resolver.nodeModulesPaths ?? [];
+  const withProject = nodeModulesPaths.includes(projectModules)
+    ? nodeModulesPaths
+    : [...nodeModulesPaths, projectModules];
+
   return {
     ...config,
     watchFolders: withOverrides,
@@ -194,6 +209,7 @@ function withLinuxPlatform(config = {}) {
     resolver: {
       ...resolver,
       platforms: withLinux,
+      nodeModulesPaths: withProject,
       resolveRequest: (context, moduleName, platform) => {
         // Resolve first, then decide. Rewriting the request instead would mean
         // reimplementing Metro's resolution to know what './Platform' meant

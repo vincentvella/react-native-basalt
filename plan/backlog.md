@@ -76,11 +76,15 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   the weekly drift job, which does not block. So a regression that only affects
   `main` can wait up to a week. Building both on every run would be the fix and
   would double CI cost on a private repo.
-- **Expo does not run.** `expo-modules-core` expects `globalThis.expo`
-  installed from native code, and fails at import. Most modern React Native
-  applications import Expo unconditionally even when they use almost none of
-  it, so this is the difference between running React Native and running the
-  applications people write. Needs its own study before it is a plan.
+- **`StatusBarManager` is what a blank Expo app now stops on.** A desktop has no
+  status bar, so a module that exists and does nothing is the right answer, but
+  the codegen spec for it is not among the artifacts this build generates. See
+  `plan/15-expo-runtime.md`.
+- **Expo starts but no Expo module works.** `globalThis.expo` is installed now, from the
+  app's own expo-modules-core, so an Expo app starts and renders. What does not
+  exist is any Expo *module*: `ExpoAsset` and `ExponentConstants` are stubs that
+  exist only so Expo's start-up survives, and `expo-font`, `expo-image` and
+  every config plugin's native half are each their own port.
 - No `@shopify/react-native-skia`, which is not this platform's to fix, but is
   worth knowing as the thing that stops one real app dead.
 
