@@ -124,20 +124,30 @@ jobs:
           cmake --build build -j "$(nproc)"
           ccache --show-stats
 
-      - name: Raise inotify limits
-        # Metro watches the whole React Native checkout, roughly eight thousand
-        # directories, and libuv takes one inotify watch per directory and one
-        # instance per watcher. A runner's defaults are not sized for that, and
-        # exhausting either is silent: Metro keeps serving, and simply never
-        # notices a file change again. That is exactly what the Fast Refresh
-        # scenario saw -- a fresh bundle still carrying the old text.
-        #
-        # The values are printed as well as set, because if this is not the
-        # cause the numbers are the next thing worth knowing.
+      - name: Check the runner can watch files
+        # The Fast Refresh scenario depends on Metro noticing an edit, and in CI
+        # it does not. This narrows where to look: if a bare fs.watch sees the
+        # change, inotify is fine and the problem is Metro's; if it does not,
+        # nothing built on watching will work here. The limits are already well
+        # above what Metro needs -- 655360 watches, 1280 instances -- so they
+        # are not the answer.
         run: |
           sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances
-          sudo sysctl -w fs.inotify.max_user_watches=524288
-          sudo sysctl -w fs.inotify.max_user_instances=1024
+          node -e '
+            const fs = require("fs");
+            const file = "js/index.js";
+            let seen = false;
+            const watcher = fs.watch("js", (event, name) => {
+              if (name === "index.js") { seen = true; }
+            });
+            setTimeout(() => fs.appendFileSync(file, "\n// probe\n"), 500);
+            setTimeout(() => {
+              watcher.close();
+              console.log("fs.watch saw the edit:", seen);
+              process.exit(seen ? 0 : 1);
+            }, 4000);
+          '
+          git checkout -- js/index.js
 
       - name: Start a display
         # Both suites need one. No window manager is involved: the tests map

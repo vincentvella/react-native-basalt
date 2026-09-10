@@ -41,6 +41,13 @@ const {withLinuxPlatform} = require('../packages/react-native-linux/metro-config
 module.exports = withLinuxPlatform(mergeConfig(getDefaultConfig(__dirname), {
   projectRoot: __dirname,
   watchFolders: [rnDir, path.resolve(__dirname, '..', 'packages')],
+  watcher: {
+    // Metro checking its own watcher: it writes a probe file periodically and
+    // warns if the change never comes back. Worth having on for a project whose
+    // whole development loop is Fast Refresh -- a watcher that stops delivering
+    // is otherwise completely silent, and looks like "my edit did nothing".
+    healthCheck: {enabled: true},
+  },
   resolver: {
     nodeModulesPaths: [path.join(rnDir, 'node_modules')],
     // Without this, two copies of React can end up in the graph -- one
