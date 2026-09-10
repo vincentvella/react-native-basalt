@@ -12,7 +12,9 @@
   },
   "files": [
     "src",
-    "metro-config.js"
+    "cli",
+    "metro-config.js",
+    "react-native.config.js"
   ],
   "peerDependencies": {
     "react": "*",

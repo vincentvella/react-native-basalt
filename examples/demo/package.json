@@ -1,0 +1,17 @@
+{
+  "name": "rn-linux-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The smallest app that proves `react-native run-linux` works.",
+  "scripts": {
+    "linux": "node node_modules/react-native/cli.js run-linux"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "*"
+  },
+  "dependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-linux": "*"
+  }
+}

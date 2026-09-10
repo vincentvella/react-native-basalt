@@ -104,6 +104,19 @@ const MISSING_MODULES = [
   ],
 ];
 
+// Whether `parent` contains `child`, or is it.
+//
+// Not `child.startsWith(parent)`. A React Native checkout at
+// `/src/react-native` is a string prefix of this package at
+// `/src/react-native-linux/packages/react-native-linux`, so the naive test
+// reports that the package is already being watched when it is not, and Metro
+// then refuses to read the very files this plugin hands it. Which is exactly
+// the layout this repository is developed in.
+function contains(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 // Matched on the tail of a path rather than an absolute one: the React Native
 // checkout can be a node_modules copy, a sibling clone or a workspace symlink.
 function matchTail(filePath, table) {
@@ -151,7 +164,7 @@ function withLinuxPlatform(config = {}) {
   // "Failed to get the SHA-1 for" the override rather than anything that names
   // the cause. Found by bundling a real app from another tree.
   const watchFolders = config.watchFolders ?? [];
-  const withOverrides = watchFolders.some(folder => __dirname.startsWith(folder))
+  const withOverrides = watchFolders.some(folder => contains(folder, __dirname))
     ? watchFolders
     : [...watchFolders, __dirname];
 

@@ -21,3 +21,9 @@ react-native-src/
 # Metro's Babel register cache. The demo app installs nothing of its own; see
 # js/metro.config.js for how react and react-native are resolved instead.
 js/node_modules/
+
+# The example app links these in; examples/demo/setup.sh recreates them.
+examples/*/node_modules/
+
+# `run-linux` writes the detached packager log here.
+.rn-linux/

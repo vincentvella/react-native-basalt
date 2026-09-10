@@ -306,7 +306,16 @@ events rather than injected ones. See `docs/TESTING.md`.
 
 ## Running it
 
-Build a bundle once, then run:
+From an app, once a host binary exists:
+
+    react-native run-linux
+
+That starts a packager if one is not running, launches the app, and stays
+attached. It does not build the host yet, and says how to build one when it
+cannot find it. `examples/demo` is a small app that exercises exactly this;
+`examples/demo/setup.sh` links it against a React Native checkout.
+
+Directly, without the CLI. Build a bundle once, then run:
 
     scripts/bundle.sh ../react-native      # production; see below
     ./build/rn_linux_host

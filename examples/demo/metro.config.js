@@ -1,0 +1,47 @@
+/**
+ * The Metro configuration a real app using this platform would write.
+ *
+ * The only line that is about `linux` is `withLinuxPlatform`. Everything else
+ * is here because this example is not installed from npm: it resolves React
+ * Native out of a checkout rather than out of its own node_modules, the same
+ * arrangement js/metro.config.js uses and for the same reason, so the app stays
+ * in step with the source tree the host is built from.
+ *
+ * @format
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const {createRequire} = require('module');
+
+const rnDir = path.resolve(
+  process.env.RN_DIR ?? path.resolve(__dirname, '..', '..', '..', 'react-native'),
+);
+
+if (!fs.existsSync(path.join(rnDir, 'node_modules', 'react-native'))) {
+  throw new Error(
+    `No React Native checkout with installed dependencies at ${rnDir}.\n` +
+      'Point RN_DIR at one, and run scripts/bootstrap.sh if its node_modules is empty.',
+  );
+}
+
+const rnRequire = createRequire(path.join(rnDir, 'package.json'));
+const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
+
+const {withLinuxPlatform} = require('../../packages/react-native-linux/metro-config');
+
+module.exports = withLinuxPlatform(
+  mergeConfig(getDefaultConfig(__dirname), {
+    projectRoot: __dirname,
+    watchFolders: [rnDir],
+    resolver: {
+      nodeModulesPaths: [path.join(rnDir, 'node_modules')],
+      extraNodeModules: {
+        react: path.join(rnDir, 'node_modules', 'react'),
+        'react-native': path.join(rnDir, 'node_modules', 'react-native'),
+      },
+    },
+  }),
+);
