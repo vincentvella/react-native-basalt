@@ -98,7 +98,11 @@ set(RN_CORE_SUBDIRS
         react/debug
         react/featureflags
         react/nativemodule/core
-        react/nativemodule/cputime
+        # Deliberately not react/nativemodule/cputime. React Native ships that
+        # module's C++ in the npm package but not its codegen spec, which lives
+        # under src/private/testing/fantom and is excluded, so it cannot be
+        # built from an installed React Native at all. Nothing links it -- it is
+        # a Fantom testing module -- so this platform simply does not build it.
         react/nativemodule/defaults
         react/nativemodule/devtoolsruntimesettings
         react/nativemodule/dom
@@ -252,7 +256,6 @@ set(RN_CORE_OBJECT_TARGETS
         react_debug
         react_featureflags
         react_nativemodule_core
-        react_nativemodule_cpu
         react_nativemodule_defaults
         react_nativemodule_devtoolsruntimesettings
         react_nativemodule_dom

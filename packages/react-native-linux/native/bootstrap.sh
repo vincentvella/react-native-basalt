@@ -62,10 +62,25 @@ if [ -z "$RN_DIR" ]; then
 fi
 [ -n "$RN_DIR" ] || die "pass the React Native checkout path, or set RN_DIR.
   git clone --depth 1 https://github.com/react/react-native"
-[ -d "$RN_DIR/packages/react-native/ReactCommon" ] || die "not a React Native checkout: $RN_DIR"
 RN_DIR="$(cd "$RN_DIR" && pwd)"
-RN_PKG="$RN_DIR/packages/react-native"
-log "React Native checkout: $RN_DIR"
+
+# Two shapes are accepted. A source checkout, where the package sits under
+# packages/react-native, and an installed one, where the directory given *is*
+# the package. The second is what an app has, and it very nearly works: React
+# Native ships its C++, the codegen script, the Hermes pin and the version table
+# in the npm package. The one thing missing is ReactCxxPlatform, which is absent
+# from the package's `files` list, and which is the layer this host is built on.
+# See plan/13-upstream-reactcxxplatform.md.
+if [ -d "$RN_DIR/packages/react-native/ReactCommon" ]; then
+  RN_PKG="$RN_DIR/packages/react-native"
+  RN_LAYOUT=checkout
+elif [ -d "$RN_DIR/ReactCommon" ]; then
+  RN_PKG="$RN_DIR"
+  RN_LAYOUT=installed
+else
+  die "not a React Native checkout or package: $RN_DIR"
+fi
+log "React Native ($RN_LAYOUT): $RN_PKG"
 
 # --- toolchain --------------------------------------------------------------
 for tool in cmake ninja clang++ pkg-config curl tar node; do
@@ -167,7 +182,7 @@ log "yarn $(yarn --version)"
 # with a populated third_party/codegen and an empty node_modules skips this
 # step and then cannot bundle. That is exactly what CI hit the first time its
 # third_party cache was warm.
-if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; then
+if [ "$RN_LAYOUT" = checkout ] && { [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; }; then
   log "installing React Native's monorepo dependencies"
   (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
 fi
@@ -179,7 +194,7 @@ fi
 # third_party/codegen/CMakeLists.txt stays put and CI's cache key still works;
 # a stamp is what makes reuse safe. Switching versions regenerates.
 RN_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-  "$RN_DIR/packages/react-native/package.json" | head -1)"
+  "$RN_PKG/package.json" | head -1)"
 CODEGEN_STAMP="$TP/codegen/.react-native-version"
 
 if [ ! -d "$TP/codegen/react" ] || [ "$(cat "$CODEGEN_STAMP" 2>/dev/null)" != "$RN_VERSION" ]; then
@@ -189,8 +204,8 @@ if [ ! -d "$TP/codegen/react" ] || [ "$(cat "$CODEGEN_STAMP" 2>/dev/null)" != "$
   fi
   log "generating codegen artifacts for React Native $RN_VERSION"
   CODEGEN_TMP="$(mktemp -d)"
-  (cd "$RN_DIR" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node packages/react-native/scripts/generate-codegen-artifacts.js \
-      -p packages/react-native -t android -o "$CODEGEN_TMP" -s library -f)
+  (cd "$RN_PKG" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node scripts/generate-codegen-artifacts.js \
+      -p . -t android -o "$CODEGEN_TMP" -s library -f)
 
   JNI="$CODEGEN_TMP/android/app/build/generated/source/codegen/jni"
   [ -d "$JNI/react" ] || die "codegen produced no react/ tree at $JNI"
