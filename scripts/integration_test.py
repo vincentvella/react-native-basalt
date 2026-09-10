@@ -291,15 +291,20 @@ METRO_PORT = 8099
 class Metro:
     """Metro on its own port, for the Fast Refresh scenario."""
 
-    def __init__(self) -> None:
+    def __init__(self, log: Path) -> None:
         self.process = None
+        self.log = log
 
     def __enter__(self) -> "Metro":
+        # Kept rather than discarded: when this scenario fails it is almost
+        # always Metro doing something, and a CI run that only says "no update
+        # arrived" costs another four minutes to learn anything from.
+        self.sink = self.log.open("w")
         self.process = subprocess.Popen(
             [str(REPO / "scripts" / "metro.sh"), "--port", str(METRO_PORT)],
             cwd=REPO,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self.sink,
+            stderr=subprocess.STDOUT,
         )
         # Readiness is the port accepting a connection, not any particular
         # endpoint: Metro's /status is not served on this version. Polling beats
@@ -343,6 +348,13 @@ class Metro:
                 self.process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+        self.sink.close()
+
+
+def tail(log: Path, lines: int = 25) -> str:
+    if not log.exists():
+        return "(no log)"
+    return "\n".join(log.read_text().splitlines()[-lines:])
 
 
 def wait_for_log(log: Path, needle: str, count: int, timeout: float) -> bool:
@@ -391,7 +403,17 @@ def test_fast_refresh(bundle: Path) -> None:
         env.pop("RN_LINUX_TEST_TAP", None)
         env.pop("RN_LINUX_TEST_TYPE", None)
 
-        with Metro() as metro, log.open("w") as sink:
+        metro_log = Path(directory) / "metro.log"
+
+        def diagnose(message: str) -> Failure:
+            """Fails with what the two processes were saying, not just a verdict."""
+            return Failure(
+                f"{message}\n"
+                f"--- last of metro ---\n{tail(metro_log)}\n"
+                f"--- last of the host ---\n{tail(log)}"
+            )
+
+        with Metro(metro_log) as metro, log.open("w") as sink:
             metro.prewarm()
             process = subprocess.Popen(
                 [str(HOST), str(bundle), MODULE],
@@ -399,14 +421,14 @@ def test_fast_refresh(bundle: Path) -> None:
             )
             try:
                 if not wait_for_log(log, running, 1, timeout=120):
-                    raise Failure("the app never started")
+                    raise diagnose("the app never started")
 
                 # A __DEV__ bundle asks for the LogBox TurboModule and a release
                 # one does not, so this is how to tell which bundle actually
                 # evaluated. Editing before knowing that produces a confusing
                 # failure much later.
                 if not wait_for_log(log, "TurboModule: LogBox", 1, timeout=10):
-                    raise Failure(
+                    raise diagnose(
                         "the app is running the on-disk release bundle, not Metro's"
                     )
 
@@ -420,7 +442,7 @@ def test_fast_refresh(bundle: Path) -> None:
                     wait_for_log(log, running, 2, timeout=90)
                     or wait_for_log(log, "Fast Refresh", 1, timeout=1)
                 ):
-                    raise Failure("Metro never pushed an update after the edit")
+                    raise diagnose("Metro never pushed an update after the edit")
 
                 # Rendering follows the reload; the tree is dumped on the way out.
                 time.sleep(3)
