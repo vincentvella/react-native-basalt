@@ -273,7 +273,7 @@ are documented in the project README.
 | 7 | Accessibility, and a test suite | **done** |
 | 8 | The `linux` Metro platform | **done** |
 | 9 | `<TextInput>` | **done** |
-| 10 | `run-linux` CLI, packaging | next |
+| 10 | Run a real app: compatibility first, then packaging | next |
 
 ## Testing
 

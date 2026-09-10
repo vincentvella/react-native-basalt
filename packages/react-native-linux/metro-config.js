@@ -144,8 +144,20 @@ function withLinuxPlatform(config = {}) {
   const platforms = resolver.platforms ?? [];
   const withLinux = platforms.includes('linux') ? platforms : ['linux', ...platforms];
 
+  // Metro will not read a file it is not watching, and this package hands it
+  // files -- the overrides below. Inside this repo that is already true, since
+  // `packages/` is on watchFolders; for anyone consuming the platform from a
+  // linked checkout or another monorepo it is not, and bundling fails with
+  // "Failed to get the SHA-1 for" the override rather than anything that names
+  // the cause. Found by bundling a real app from another tree.
+  const watchFolders = config.watchFolders ?? [];
+  const withOverrides = watchFolders.some(folder => __dirname.startsWith(folder))
+    ? watchFolders
+    : [...watchFolders, __dirname];
+
   return {
     ...config,
+    watchFolders: withOverrides,
     server: {
       ...server,
       // The dev server asks for the wrong platform, and cannot be told

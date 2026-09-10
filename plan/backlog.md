@@ -47,6 +47,30 @@ Not scheduled. Roughly by value.
      narrower watch would show it.
 - CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
+## Compatibility
+
+Found by bundling and running a real application; see `plan/10-first-real-app.md`.
+
+- **No released React Native version can reach a native module.** The host
+  installs `global.nativeModuleProxy` but not `global.__turboModuleProxy`, and
+  relies on `TurboModuleRegistry` falling back to `NativeModules`. On `main`
+  that fallback is unconditional; on 0.81 and earlier it is gated behind
+  `RN$Bridgeless !== true || RN$TurboInterop === true ||
+  RN$UnifiedNativeModuleProxy === true`, all of which are false here. So every
+  `getEnforcing` fails, starting with `PlatformConstants`, and the platform
+  effectively supports React Native `main` alone. Setting
+  `globalThis.RN$TurboInterop = true` before the bundle evaluates fixes it and
+  is verified; installing `__turboModuleProxy` is the better answer and belongs
+  upstream in ReactCxxPlatform. Nothing decides a supported version range yet
+  either.
+- **Expo does not run.** `expo-modules-core` expects `globalThis.expo`
+  installed from native code, and fails at import. Most modern React Native
+  applications import Expo unconditionally even when they use almost none of
+  it, so this is the difference between running React Native and running the
+  applications people write. Needs its own study before it is a plan.
+- No `@shopify/react-native-skia`, which is not this platform's to fix, but is
+  worth knowing as the thing that stops one real app dead.
+
 ## Correctness gaps in what exists
 
 - `borderStyles` — dashed and dotted borders. GTK's border node paints solid
@@ -99,7 +123,13 @@ Not scheduled. Roughly by value.
   maths would.
 - No keyboard focus model outside `<TextInput>`, which takes focus only because
   GtkText does. Nothing else is reachable by Tab, and no key events are
-  emitted.
+  emitted. A desktop application that cannot read a keypress is not really a
+  desktop application; note that React Native has no cross-platform key event
+  API to be compatible with, so this needs a decision as well as an
+  implementation.
+- `PanResponder` works, verified with real pointer motion through an X server
+  against a probe that drags a view. Worth stating because it was never
+  deliberately built, and a real app uses it for every drag it has.
 - Multi-touch is not modelled: one pointer, identifier 0.
 - Wayland input is unverified. Rendering is checked on Wayland and input on
   X11, but not both at once: a headless compositor has no seat, so there is no
