@@ -15,7 +15,11 @@ set(REACT_ANDROID_DIR ${RN_DIR}/ReactAndroid)
 # Several RN CMakeLists call react_native_android_selector() without including
 # the file that defines it, relying on a parent scope having done so.
 include(${REACT_COMMON_DIR}/cmake-utils/internal/react-native-platform-selector.cmake)
-set(REACT_CXX_PLATFORM_DIR ${RN_DIR}/ReactCxxPlatform)
+if(DEFINED RN_CXX_PLATFORM_OVERRIDE)
+  set(REACT_CXX_PLATFORM_DIR ${RN_CXX_PLATFORM_OVERRIDE})
+else()
+  set(REACT_CXX_PLATFORM_DIR ${RN_DIR}/ReactCxxPlatform)
+endif()
 
 # The version being built against, for the messages below and for anyone
 # wondering which React Native a given build came from. `main` calls itself

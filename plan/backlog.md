@@ -321,10 +321,13 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   the wrong colour; the GL renderer is correct. Worth reducing to a minimal case
   and reporting, or confirming it is already fixed in a later GTK.
 
-- **Ask React Native to ship `ReactCxxPlatform` in the npm package.** Evidence
-  gathered and the fix proven: see `plan/13-upstream-reactcxxplatform.md`. One
-  line, about 1% of the package, and a host builds from an installed React
-  Native rather than a checkout. Nothing submitted upstream yet.
+- **React Native's npm package omits `ReactCxxPlatform`.** Worked around by
+  fetching it at the app's exact version; see
+  `plan/13-upstream-reactcxxplatform.md`. The upstream fix is one line and about
+  1% of the package, and would remove the fetch entirely. Not raised: with no
+  users to point at, the ask would sit. Worth revisiting when there are.
+- The fetch needs a git tag matching the app's React Native. A nightly, a fork
+  or an unreleased version has none, and there is no fallback.
 - Also worth reporting, separately and smaller: the package ships
   `ReactCommon/react/nativemodule/cputime`'s C++ while its codegen spec lives
   under `src/private/testing/fantom` and does not ship, so that module cannot be

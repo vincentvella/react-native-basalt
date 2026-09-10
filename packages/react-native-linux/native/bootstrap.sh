@@ -82,6 +82,48 @@ else
 fi
 log "React Native ($RN_LAYOUT): $RN_PKG"
 
+# --- ReactCxxPlatform -------------------------------------------------------
+# The one thing React Native does not put in its npm package.
+#
+# `files` in packages/react-native/package.json lists ReactCommon, ReactAndroid
+# and ReactApple but not ReactCxxPlatform, so an installed React Native has
+# everything needed to build a C++ host except the host layer itself. A checkout
+# has it; an app does not.
+#
+# Fetched at the app's *exact* version rather than vendored into this package,
+# because vendoring cannot work: this layer tracks ReactCommon closely, and
+# `main`'s copy fails to compile against 0.87.1 on a missing ResizeObserver
+# header and a ReactInstance method that did not exist yet. One copy cannot
+# serve several React Natives, so the copy has to come from the version in use.
+#
+# A sparse, blobless clone of one directory at one tag: about 3MB and a few
+# seconds, which is the same bargain as the folly and Hermes downloads below.
+if [ "$RN_LAYOUT" = installed ] && [ ! -d "$RN_PKG/ReactCxxPlatform" ]; then
+  RN_PKG_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$RN_PKG/package.json" | head -1)"
+  CXX_PLATFORM="$TP/ReactCxxPlatform"
+
+  if [ ! -f "$CXX_PLATFORM/.version" ] || \
+     [ "$(cat "$CXX_PLATFORM/.version" 2>/dev/null)" != "$RN_PKG_VERSION" ]; then
+    log "fetching ReactCxxPlatform for React Native $RN_PKG_VERSION"
+    rm -rf "$CXX_PLATFORM" "$TP/.rn-sparse"
+    git clone -q --depth 1 --filter=blob:none --sparse \
+      --branch "v$RN_PKG_VERSION" https://github.com/facebook/react-native \
+      "$TP/.rn-sparse" 2>/dev/null || die "no React Native tag v$RN_PKG_VERSION on GitHub.
+  ReactCxxPlatform is not in the npm package, so it has to come from the tag
+  matching your react-native, and there is no such tag. See
+  plan/13-upstream-reactcxxplatform.md."
+    (cd "$TP/.rn-sparse" && git sparse-checkout set --no-cone \
+      packages/react-native/ReactCxxPlatform >/dev/null)
+    [ -d "$TP/.rn-sparse/packages/react-native/ReactCxxPlatform" ] \
+      || die "tag v$RN_PKG_VERSION has no ReactCxxPlatform"
+    mv "$TP/.rn-sparse/packages/react-native/ReactCxxPlatform" "$CXX_PLATFORM"
+    rm -rf "$TP/.rn-sparse"
+    echo "$RN_PKG_VERSION" > "$CXX_PLATFORM/.version"
+  fi
+  log "ReactCxxPlatform $RN_PKG_VERSION at $CXX_PLATFORM"
+fi
+
 # --- toolchain --------------------------------------------------------------
 for tool in cmake ninja clang++ pkg-config curl tar node; do
   command -v "$tool" >/dev/null || die "missing required tool: $tool"

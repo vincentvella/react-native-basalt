@@ -1,6 +1,10 @@
-# Getting `ReactCxxPlatform` into the npm package
+# `ReactCxxPlatform` is not in the npm package
 
-> **Evidence gathered, 2026-09-10. Nothing submitted yet.**
+> **Solved locally, 2026-09-10. Nothing submitted upstream.**
+
+An app can now build the host from an installed React Native. This document is
+why that took work, and what the upstream fix would be if it is ever worth
+asking for.
 
 `react-native run-linux --build` needs a React Native *source checkout*. Every
 app has an installed React Native and almost none has a checkout, so that is the
@@ -90,8 +94,31 @@ from being built against an installed React Native rather than a checkout.
 Nothing in the 22 existing issues and pull requests mentioning `ReactCxxPlatform`
 raises the packaging question.
 
-## Not submitted
+## What we do instead
 
-Nothing has been opened upstream. Submitting is a decision for the repository's
-owner, and it needs their identity and their agreement to Meta's contributor
-licence terms.
+Nothing was opened upstream. A one-line packaging change with one obscure
+consumer is easy to ignore, and this platform has no users yet to point at, so
+the ask would sit. It is written down here for when that changes.
+
+The workaround is to fetch the directory rather than to vendor it. When React
+Native is an installed package and has no `ReactCxxPlatform`, bootstrap does a
+sparse, blobless clone of that one directory at the tag matching the app's exact
+version: about 3MB and four seconds, which is a smaller bargain than the folly
+and Hermes downloads it already makes.
+
+**Fetching rather than vendoring is forced, not preferred.** Carrying a copy in
+this package was the obvious answer and it cannot work. That layer tracks
+`ReactCommon` closely: `main`'s copy fails against 0.87.1 on a ResizeObserver
+header that did not exist and a `ReactInstance::createJSCallInvoker` that had not
+been added. So one copy cannot serve several React Natives, and a vendored copy
+would pin this package to a single version the way react-native-windows pins to
+one exact nightly. Fetching at the app's own version keeps the C++ and the
+JavaScript in step by construction, which is the property the previous phase
+existed to establish.
+
+Verified from a stock `npm install react-native@0.87.1` with nothing copied by
+hand: bootstrap fetches, CMake builds, and the app renders.
+
+The cost is a network fetch on first build and a dependency on the tag existing.
+A React Native installed from a nightly or a fork has no matching tag, and
+bootstrap says so rather than guessing at a near-enough version.

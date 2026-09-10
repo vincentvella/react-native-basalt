@@ -79,6 +79,14 @@ if(DEFINED RN_DIR)
     set(HERMES_BUILD_DIR ${RN_LINUX_THIRD_PARTY}/hermes-build)
   endif()
 
+  # React Native's npm package omits ReactCxxPlatform, so with an installed
+  # React Native it is fetched into third_party at the matching version instead.
+  # bootstrap.sh does the fetching; this just says where to look.
+  if(NOT EXISTS ${RN_DIR}/ReactCxxPlatform AND EXISTS ${RN_LINUX_THIRD_PARTY}/ReactCxxPlatform)
+    set(RN_CXX_PLATFORM_OVERRIDE ${RN_LINUX_THIRD_PARTY}/ReactCxxPlatform)
+    message(STATUS "ReactCxxPlatform from ${RN_CXX_PLATFORM_OVERRIDE}")
+  endif()
+
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
