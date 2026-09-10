@@ -98,8 +98,11 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   but a real host reports. Needs the mounting manager to hold a
   `SchedulerTaskExecutor`, as `TesterAppDelegate` does.
 - `IDevUIDelegate` / LogBox: JS errors currently go to `g_warning` and nothing
-  else. `ReactHost` takes a `logBoxSurfaceDelegate`; a second surface in its own
-  GTK window is probably the cheapest real implementation.
+  else, so a mistake in an app is a log line and a window that keeps sitting
+  there. Cheaper than it sounds: ReactCxxPlatform already *has* a `LogBox`
+  module and only declines to hand it over because this host passes a null
+  `logBoxSurfaceDelegate`. The work is supplying that delegate and a surface to
+  render into, most likely a second GTK window, not writing an error overlay.
 - **Dev support is tied to the dev server, so an offline `__DEV__` bundle cannot
   run.** `ReactCxxTurboModuleProvider` serves `DevSettings` only when a
   `DevServerHelper` exists, and LogBox reads that module at import time, so a
@@ -109,9 +112,11 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   where it works; it would matter for a debuggable build shipped without a
   packager. Fixing it means providing the module ourselves rather than relying
   on ReactCxxPlatform's condition.
-- TurboModules React Native's JS asks for and does not get, none fatal today:
-  `BlobModule`, `DeviceEventManager`, `SoundManager`, `LinkingManager`,
-  `IntentAndroid`, `RedBox`, `ReactDevToolsSettingsManager`.
+- TurboModules the demo's own JavaScript asked for and did not get, none fatal
+  today: `BlobModule`, `DeviceEventManager`, `SoundManager`, `IntentAndroid`,
+  `RedBox`, `ReactDevToolsSettingsManager`. That is a record of one run rather
+  than a list of what to build; for the APIs this platform actually owes an
+  implementation, see "Core modules this platform does not provide" below.
 - `src/LinuxNetworking.cpp` supports only string request bodies. Blob, form-data
   and base64 need a Blob implementation first.
 - The `linux` platform redirects nine React Native shims to their `.android.js`
@@ -119,6 +124,63 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   could change under it; only `Platform` diverges today.
 - Nothing checks that the shim list in `metro-config.js` still matches
   React Native. A new shim upstream shows up as an undefined export at runtime.
+
+## Core modules this platform does not provide
+
+ReactCxxPlatform supplies fourteen TurboModules: `Animated`, `AppState`,
+`DeviceInfo`, `DevLoadingView`, `DevSettings`, `ImageLoader`, `LogBox`,
+`ExceptionsManager`, `IntersectionObserver`, `MutationObserver`, `Networking`,
+`PlatformConstants`, `SourceCode` and `WebSocket`. Everything below is a React
+Native API with no implementation anywhere in this stack, and each one is ours
+to write against GTK, GLib or the portals.
+
+How each fails matters, and splits in two. Most are looked up with
+`TurboModuleRegistry.get`, which returns null, so React Native's JavaScript
+falls back or silently does nothing -- the API appears to work and simply has no
+effect. `Clipboard` and `Vibration` use `getEnforcing`, which throws at import,
+so anything importing them dies at startup.
+
+- **`Appearance`** (soft). Dark mode. `useColorScheme()` returns null, so an app
+  that themes itself gets the light theme on a dark desktop. This is the one a
+  Linux user notices in the first five seconds. GTK reports it through
+  `GtkSettings:gtk-application-prefer-dark-theme` and the freedesktop appearance
+  portal.
+- **`Clipboard`** (throws on import). GTK has `GdkClipboard`; the work is the
+  module, not the mechanism.
+- **`Vibration`** (throws on import). Meaningless on a desktop, but it has to
+  answer rather than throw, so a no-op module is enough.
+- **`LinkingManager`** (soft). Opening a URL, and receiving one. `gio`'s
+  `g_app_info_launch_default_for_uri` covers the outbound half.
+- **`AlertManager`** / **`DialogManagerAndroid`** (soft). `Alert.alert()` does
+  nothing at all today, which is a quiet way to lose a confirmation dialog.
+- **`I18nManager`** (soft). Right-to-left layout. Yoga already supports it; this
+  is the switch that turns it on.
+- **`AccessibilityInfo`** (soft). Whether a screen reader is running, and
+  announcements. Pairs with the AT-SPI work below.
+- **`ShareModule`** (soft).
+- `BlobModule` and `FileReaderModule`, without which `fetch` cannot return a
+  blob and `src/LinuxNetworking.cpp` stays limited to string bodies.
+
+## Desktop capabilities
+
+React Native has no cross-platform API for any of this, because it was built for
+phones. That makes each one a design question before it is an implementation
+question: invent a `react-native-linux` API, follow what react-native-macos or
+react-native-windows already chose, or leave it to userland modules. Nothing
+here has been decided, and none of it is needed for the demo, which is why it
+has gone unrecorded until now.
+
+- **More than one window.** The host creates exactly one and mounts one surface
+  in it. Fabric supports multiple surfaces; nothing above it does.
+- **Window title, size, position, fullscreen and close behaviour**, none of
+  which an app can currently influence.
+- **Menus**, both a menu bar and context menus.
+- **Native file dialogs.** `GtkFileDialog` exists; nothing exposes it. Note that
+  kino's own macOS module ships a folder picker, so this is what a real app
+  reaches for early.
+- **Drag and drop**, in and out of the application.
+- **A system tray icon**, and desktop notifications.
+- **Cursor control** beyond what the `cursor` style property covers.
 
 ## Input
 
@@ -223,25 +285,35 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   and `accessibilityActions` are ignored.
 - No keyboard focus model, so nothing is reachable by Tab.
 
-## Platform surface
+## Components not implemented
 
-- `TextInput`. No longer blocked on the platform package; needs a
-  `TextInput.linux.js` naming a component this platform defines, plus keyboard
-  input and a focus model.
-- `Modal`, `Switch`, `ActivityIndicator` -- the remaining core components.
-- Input: `GtkGestureClick` / `GtkEventControllerMotion` → RN's touch/pointer
-  events; `setIsJSResponder` for the responder system.
-- `dispatchCommand` routing (scrollTo, focus, blur) once ScrollView/TextInput
-  exist.
-- AT-SPI, against the accessibility hooks `IMountingManager` already declares.
-- TurboModules: Linux implementations of core modules.
+`View`, `Text`, `Image`, `ScrollView` and `TextInput` are done, and touch input,
+`PanResponder` and command routing with them. What is left:
+
+- **`Modal`.** A second GTK window with its own Fabric surface, or an overlay
+  inside the existing one. The first is more correct on a desktop and depends on
+  multiple windows, above.
+- **`Switch`** and **`ActivityIndicator`**, both small.
+- **AT-SPI actions**, against the accessibility hooks `IMountingManager` already
+  declares. See the accessibility section.
+
+Notably *not* on this list, because a real application turned out to use none of
+them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`,
+`KeyboardAvoidingView`. See `plan/10-first-real-app.md`.
 
 ## Ecosystem
 
-- `react-native-linux` npm package + `run-linux` CLI + codegen config.
+- **Nobody else can use this.** No npm package, no `run-linux` command, no
+  install path. Everything runs from scripts in this repo against a host you
+  build yourself, which is the difference between a working platform and a
+  usable one.
+- **Porting a first third-party native module end to end**, to learn what the
+  porting story actually costs. This is the largest unknown in the project: the
+  TurboModule seam is proven, by `src/LinuxPlatformConstants.cpp`, but no
+  third-party module has been through it, and there is no codegen configuration
+  for one. Until a module has been ported, the cost of porting any module is a
+  guess.
 - Packaging: Arch PKGBUILD, Flatpak.
-- Porting a first third-party native module end to end, to learn what the
-  porting story actually costs.
 
 ## Upstream
 

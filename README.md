@@ -280,7 +280,18 @@ Not yet done:
   screen reader can read the interface and not drive it.
 - **No hover**, so `onMouseEnter`-style callbacks do nothing.
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
-- **No LogBox.**
+- **No LogBox**, so a JavaScript error is a log line and a window that keeps
+  sitting there.
+- **No dark mode.** `Appearance` is one of a set of core React Native modules
+  with no implementation anywhere in this stack, along with `Clipboard`,
+  `Linking`, `Alert`, `I18nManager` and `AccessibilityInfo`. Most of them fail
+  quietly, which is worse than failing loudly.
+- **Nothing desktop-shaped.** One window, no menus, no native file dialogs, no
+  drag and drop, no tray. React Native has no cross-platform API for any of it,
+  so each is a design decision before it is an implementation.
+- **No way for anyone else to use this.** No npm package, no `run-linux`
+  command, no packaging. And no third-party native module has been ported end to
+  end, so what porting one costs is still unknown.
 
 See `plan/backlog.md` for the per-component detail.
 

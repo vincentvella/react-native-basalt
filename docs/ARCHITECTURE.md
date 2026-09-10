@@ -275,7 +275,17 @@ are documented in the project README.
 | 9 | `<TextInput>` | **done** |
 | 10 | Point the host at a real app, and find out what breaks | **done** |
 | 11 | Run against a released React Native, not just `main` | **done** |
-| 12 | Expo, `run-linux` CLI, packaging | next |
+| 12 | `run-linux` CLI and an installable package | next |
+| 13 | Port one third-party native module end to end | |
+| 14 | Expo's native runtime | |
+| 15 | Core modules: appearance, clipboard, linking, alerts | |
+| 16 | Desktop capabilities: windows, menus, file dialogs | |
+| 17 | Packaging: Arch, Flatpak | |
+
+Phases 13 onwards are a proposal rather than a commitment. What is not a
+proposal is that they were previously one row reading "Expo, CLI, packaging",
+which hid that Expo alone is likely larger than the two phases before it. See
+`plan/backlog.md` for the detail behind each.
 
 ## Testing
 
