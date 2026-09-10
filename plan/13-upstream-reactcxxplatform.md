@@ -6,11 +6,13 @@ An app can now build the host from an installed React Native. This document is
 why that took work, and what the upstream fix would be if it is ever worth
 asking for.
 
-`react-native run-linux --build` needs a React Native *source checkout*. Every
-app has an installed React Native and almost none has a checkout, so that is the
-gap between a command that works here and a command that works for anyone.
+`react-native run-linux --build` used to need a React Native *source checkout*.
+Every app has an installed React Native and almost none has a checkout, so that
+was the gap between a command that worked here and a command that worked for
+anyone.
 
-The cause is one line, and this document is the evidence for changing it.
+The cause is one line in React Native's own packaging, and the evidence for
+changing it is below, followed by what we do while it stays unchanged.
 
 ## The claim
 
