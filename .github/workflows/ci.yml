@@ -41,10 +41,11 @@ jobs:
 
       - name: Read the React Native pin
         id: pin
-        # CI builds against a fixed commit so that a red tick means this repo
-        # regressed, not that React Native moved. The `drift` job below is what
-        # tracks main.
-        run: echo "sha=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+        # CI builds against a fixed release so that a red tick means this repo
+        # regressed for someone who could actually use it, not that React Native
+        # moved. The `drift` job below is what tracks main. See
+        # plan/11-released-versions.md.
+        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
 
       - name: Install system dependencies
         run: |
@@ -62,7 +63,7 @@ jobs:
           # and fails an engine check inside a preinstall hook.
           node-version: 24
 
-      - name: Fetch React Native at the pinned commit
+      - name: Fetch React Native at the pinned release
         # Inside the workspace, not beside it. actions/cache silently declines
         # to save a path that escapes the workspace with `..`, which cost a
         # run: third_party restored, bootstrap skipped yarn install because
@@ -72,8 +73,9 @@ jobs:
           mkdir -p react-native-src && cd react-native-src
           git init -q
           git remote add origin https://github.com/react/react-native
-          # One commit, no history: the checkout is ~120MB even so.
-          git fetch -q --depth 1 origin ${{ steps.pin.outputs.sha }}
+          # One ref, no history: the checkout is ~120MB even so. A tag needs
+          # naming in full, since a bare tag name is not a fetchable ref here.
+          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
           git checkout -q FETCH_HEAD
           git log --oneline -1
 
@@ -82,7 +84,7 @@ jobs:
         with:
           path: react-native-src/node_modules
           # Keyed on the commit alone: a fixed commit has a fixed yarn.lock.
-          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.sha }}
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
       - name: Cache third_party
         uses: actions/cache@v4
@@ -95,7 +97,7 @@ jobs:
           # Hermes rebuild. That is the safe direction to be wrong in, and
           # bootstrap.sh changes rarely now.
           path: third_party
-          key: third-party-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.sh') }}-${{ steps.pin.outputs.sha }}
+          key: third-party-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
 
       - name: Cache ccache
         uses: actions/cache@v4

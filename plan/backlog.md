@@ -51,18 +51,27 @@ Not scheduled. Roughly by value.
 
 Found by bundling and running a real application; see `plan/10-first-real-app.md`.
 
-- **No released React Native version can reach a native module.** The host
+- **React Native 0.82 and older cannot reach a native module.** The host
   installs `global.nativeModuleProxy` but not `global.__turboModuleProxy`, and
-  relies on `TurboModuleRegistry` falling back to `NativeModules`. On `main`
-  that fallback is unconditional; on 0.81 and earlier it is gated behind
+  relies on `TurboModuleRegistry` falling back to `NativeModules`. On `main` and
+  on releases from 0.83 that fallback is unconditional; on 0.82 and earlier,
+  which includes kino's 0.81.6, it is gated behind
   `RN$Bridgeless !== true || RN$TurboInterop === true ||
   RN$UnifiedNativeModuleProxy === true`, all of which are false here. So every
-  `getEnforcing` fails, starting with `PlatformConstants`, and the platform
-  effectively supports React Native `main` alone. Setting
+  `getEnforcing` fails on those versions, starting with `PlatformConstants`.
+  Setting
   `globalThis.RN$TurboInterop = true` before the bundle evaluates fixes it and
   is verified; installing `__turboModuleProxy` is the better answer and belongs
-  upstream in ReactCxxPlatform. Nothing decides a supported version range yet
-  either.
+  upstream in ReactCxxPlatform. 0.87.1 works without any of this, so the
+  supported range starts there; see `plan/11-released-versions.md`. Extending
+  it downwards means testing each version, not just setting the flag.
+- Nothing tests React Native 0.83 through 0.86. They share 0.87's unguarded
+  module lookup so they are expected to work, which is a prediction rather than
+  a result, and the README says so.
+- **CI checks one React Native per run.** It pins 0.87.1, and `main` moved to
+  the weekly drift job, which does not block. So a regression that only affects
+  `main` can wait up to a week. Building both on every run would be the fix and
+  would double CI cost on a private repo.
 - **Expo does not run.** `expo-modules-core` expects `globalThis.expo`
   installed from native code, and fails at import. Most modern React Native
   applications import Expo unconditionally even when they use almost none of
@@ -241,5 +250,9 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   and reporting, or confirming it is already fixed in a later GTK.
 
 - Report the `HttpUtils.h` missing-`<cstdint>` bug.
+- Report that `ReactCxxPlatform`'s `PlatformConstantsModule` hardcodes a React
+  Native version of 1000.0.0 in every version, releases included, so nothing
+  built on it can ever satisfy React Native's own development-mode version
+  check. Worked around in `src/LinuxPlatformConstants.cpp`.
 - Consider upstreaming a Linux entry in `getHostPlatform.js` if the host build
   ever becomes something Meta would take.

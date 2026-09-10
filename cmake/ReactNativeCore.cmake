@@ -17,7 +17,51 @@ set(REACT_ANDROID_DIR ${RN_DIR}/ReactAndroid)
 include(${REACT_COMMON_DIR}/cmake-utils/internal/react-native-platform-selector.cmake)
 set(REACT_CXX_PLATFORM_DIR ${RN_DIR}/ReactCxxPlatform)
 
+# The version being built against, for the messages below and for anyone
+# wondering which React Native a given build came from. `main` calls itself
+# 1000.0.0, which is React Native's placeholder for "not a release" and reads
+# as exactly that in the output. Parsed with a regex rather than string(JSON)
+# to keep the CMake floor where it is.
+file(READ ${RN_DIR}/package.json RN_PACKAGE_JSON)
+string(REGEX MATCH "\"version\"[ \t]*:[ \t]*\"([^\"]+)\"" _ ${RN_PACKAGE_JSON})
+set(RN_VERSION ${CMAKE_MATCH_1})
+message(STATUS "React Native ${RN_VERSION} (${RN_DIR})")
+
+# Reported to JavaScript by src/LinuxPlatformConstants.cpp, which exists
+# because ReactCxxPlatform hardcodes 1000.0.0 and so can never match a release.
+add_compile_definitions(RN_LINUX_REACT_NATIVE_VERSION="${RN_VERSION}")
+
+# Codegen output belongs to exactly one React Native version: the generated
+# spec headers name every feature flag that version has. Building against a
+# different one fails deep inside React Native's own sources, on flags that
+# look like they should exist, and says nothing about the real cause. Ask here
+# instead, where the answer is a single command.
+set(RN_CODEGEN_STAMP ${CMAKE_SOURCE_DIR}/third_party/codegen/.react-native-version)
+if(EXISTS ${RN_CODEGEN_STAMP})
+  file(READ ${RN_CODEGEN_STAMP} RN_CODEGEN_VERSION)
+  string(STRIP "${RN_CODEGEN_VERSION}" RN_CODEGEN_VERSION)
+  if(NOT RN_CODEGEN_VERSION STREQUAL RN_VERSION)
+    get_filename_component(RN_MONOREPO_DIR "${RN_DIR}/../.." ABSOLUTE)
+    message(FATAL_ERROR
+            "third_party/codegen was generated from React Native ${RN_CODEGEN_VERSION}, "
+            "but this build is against ${RN_VERSION}.\n"
+            "Regenerate it with:\n"
+            "  scripts/bootstrap.sh ${RN_MONOREPO_DIR}\n")
+  endif()
+endif()
+
+# Skips a directory this React Native does not have, rather than failing.
+#
+# The list below is written against `main`, and a release is `main` minus
+# whatever landed after it -- 0.87.1, for instance, has no ResizeObserver. A
+# hard failure there would mean one build file per supported version, so
+# absence is reported and carried on from instead. What is skipped is printed,
+# because silently building less than intended is the worse failure.
 function(add_react_common_subdir relative_path)
+  if(NOT EXISTS ${REACT_COMMON_DIR}/${relative_path}/CMakeLists.txt)
+    set(RN_SKIPPED_SUBDIRS ${RN_SKIPPED_SUBDIRS} ${relative_path} PARENT_SCOPE)
+    return()
+  endif()
   add_subdirectory(${REACT_COMMON_DIR}/${relative_path} ReactCommon/${relative_path})
 endfunction()
 
@@ -110,9 +154,13 @@ include_directories(
         ${REACT_COMMON_DIR}/react/utils/platform/cxx
         ${REACT_COMMON_DIR}/runtimeexecutor/platform/cxx)
 
+set(RN_SKIPPED_SUBDIRS)
 foreach(subdir ${RN_CORE_SUBDIRS})
   add_react_common_subdir(${subdir})
 endforeach()
+if(RN_SKIPPED_SUBDIRS)
+  message(STATUS "React Native ${RN_VERSION} has no: ${RN_SKIPPED_SUBDIRS}")
+endif()
 
 # yoga/CMakeLists.txt descends into yoga/yoga, which names the target
 # `yogacore`. RN's other CMakeLists link against `yoga`. Fantom bridges the
@@ -247,6 +295,23 @@ set(RN_CORE_OBJECT_TARGETS
 
 # Must come after the set() above, which would otherwise overwrite it.
 list(APPEND RN_CORE_OBJECT_TARGETS ${RN_CXX_PLATFORM_TARGETS})
+
+# Same reasoning as add_react_common_subdir: a target belonging to a directory
+# this version does not ship is not an error. Filtered here rather than at each
+# use, so everything downstream can assume the list is real.
+set(RN_PRESENT_TARGETS)
+set(RN_ABSENT_TARGETS)
+foreach(target ${RN_CORE_OBJECT_TARGETS})
+  if(TARGET ${target})
+    list(APPEND RN_PRESENT_TARGETS ${target})
+  else()
+    list(APPEND RN_ABSENT_TARGETS ${target})
+  endif()
+endforeach()
+if(RN_ABSENT_TARGETS)
+  message(STATUS "React Native ${RN_VERSION} defines no: ${RN_ABSENT_TARGETS}")
+endif()
+set(RN_CORE_OBJECT_TARGETS ${RN_PRESENT_TARGETS})
 
 # Upstream portability bug: ReactCommon/jsinspector-modern/network/HttpUtils.h
 # uses uint16_t without including <cstdint>. It compiles on Meta's toolchains

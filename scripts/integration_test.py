@@ -31,6 +31,7 @@ exited.
 
 Usage:  scripts/integration_test.py [--bundle build/main.jsbundle.js]
                                     [--input auto|real|injected]
+                                    [--build-dir build]
 
 Needs a display, like any GTK program. On a headless Linux box:
 
@@ -52,6 +53,8 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+# Rebound by --build-dir. Testing against a second React Native version means a
+# second build tree, and the suite has to run the host from it.
 HOST = REPO / "build" / "rn_linux_host"
 MODULE = "RNLinuxDemo"
 
@@ -575,11 +578,15 @@ SCENARIOS = [
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bundle", default="build/main.jsbundle.js")
+    parser.add_argument("--build-dir", default="build")
+    parser.add_argument("--bundle", default=None)
     parser.add_argument("--input", choices=["auto", "real", "injected"], default="auto")
     arguments = parser.parse_args()
 
-    global INPUT_MODE
+    global INPUT_MODE, HOST
+    HOST = REPO / arguments.build_dir / "rn_linux_host"
+    if arguments.bundle is None:
+        arguments.bundle = f"{arguments.build_dir}/main.jsbundle.js"
     if arguments.input == "auto":
         INPUT_MODE = "real" if real_input_available() else "injected"
     else:

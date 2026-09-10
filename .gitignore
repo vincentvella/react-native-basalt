@@ -1,4 +1,7 @@
 build/
+# Testing a second React Native means a second build tree; scripts/bundle.sh and
+# scripts/integration_test.py both take --build-dir for exactly that.
+build-*/
 
 # Fetched third-party sources, pinned to the versions React Native builds
 # against. See README.md for the curl/tar commands that populate these.

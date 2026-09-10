@@ -38,7 +38,7 @@ were confirmed by probing the live runtime rather than by reading code.
 
 React Native's `TurboModuleRegistry` tries the proxy first and falls back to
 `NativeModules`. On `main` that fallback is unconditional, so the host works. On
-0.81.6 — and every release before the guard was removed — it is gated:
+0.82 and earlier it is gated:
 
 ```js
 if (
@@ -49,18 +49,30 @@ if (
   const legacyModule = NativeModules[name];
 ```
 
-This host sets `RN$Bridgeless` and neither of the others, so the guard is false,
-the fallback never runs, and **no native module of any kind can be reached from
-a released React Native version.** Not `PlatformConstants`, not networking, not
-`DevSettings`. The first one touched is simply the one that reports it.
+This host sets `RN$Bridgeless` and neither of the others, so on those versions
+the guard is false, the fallback never runs, and **no native module of any kind
+can be reached.** Not `PlatformConstants`, not networking, not `DevSettings`.
+The first one touched is simply the one that reports it.
 
 Setting `globalThis.RN$TurboInterop = true` before the bundle evaluates fixes it
 outright, verified. Installing `__turboModuleProxy` would be the more honest fix
 and belongs upstream in ReactCxxPlatform.
 
-Until this is addressed, this platform runs against React Native `main` and
-nothing else, which no real application pins. It is a one-line unblock for the
-entire released ecosystem and should come before anything else on this list.
+**Correction, same day.** The first version of this document said no released
+React Native could reach a native module, and that the platform ran against
+`main` alone. That was an overstatement, written before checking when the guard
+was removed. Checked since, against the tags:
+
+| Release | Fallback |
+|---|---|
+| 0.83.0 and newer, through 0.87.1 | unguarded, works with this host as-is |
+| 0.82.0 and older, including kino's 0.81.6 | guarded, needs the flag |
+
+So the guard was removed in 0.83, and the newest releases may need nothing at
+all. That makes the flag a question about how far back to support rather than
+the blocker for every release, and it moves the real question to whether this
+host compiles and runs against a release at all. The lesson is the one this
+project keeps relearning: check the range before describing it.
 
 ## What the app needed that we already have
 
@@ -89,7 +101,8 @@ this platform has.
 
 In the order they would bite:
 
-1. **Released React Native versions**, per above.
+1. **Released React Native versions**, per above, and kino's own 0.81.6 is on
+   the side of the line that needs the flag.
 2. **Expo's native runtime.** `expo-modules-core` expects `globalThis.expo`
    installed from native code. kino uses Expo for very little — `registerRootComponent`
    and `requireNativeModule` — but the import is unconditional, and so is that

@@ -39,6 +39,11 @@
 
 #include <cstdlib>
 #include <exception>
+#include "LinuxPlatformConstants.h"
+
+#include <react/featureflags/ReactNativeFeatureFlags.h>
+#include <react/featureflags/ReactNativeFeatureFlagsDefaults.h>
+
 #include <glib-unix.h>
 
 #include <csignal>
@@ -305,6 +310,33 @@ void onRootMapped(GtkWidget *widget, gpointer data) {
 // Startup
 // ---------------------------------------------------------------------------
 
+// Feature flags this platform states explicitly. Anything not listed here keeps
+// React Native's own default, which is what the base class provides.
+class LinuxFeatureFlags : public facebook::react::ReactNativeFeatureFlagsDefaults {
+ public:
+  bool enableBridgelessArchitecture() override {
+    return true;
+  }
+};
+
+// TurboModules this platform supplies itself. ReactCxxTurboModuleProvider
+// consults these before its own, so naming a module it also provides replaces
+// it. Today that is only PlatformConstants; this is also the seam an Expo port
+// would use.
+facebook::react::TurboModuleProviders makeTurboModuleProviders() {
+  facebook::react::TurboModuleProviders providers;
+  providers.emplace_back(
+      [](const std::string &name,
+         const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
+          -> std::shared_ptr<facebook::react::TurboModule> {
+        if (name == facebook::react::PlatformConstantsModule::kModuleName) {
+          return std::make_shared<rnlinux::LinuxPlatformConstantsModule>(jsInvoker);
+        }
+        return nullptr;
+      });
+  return providers;
+}
+
 std::shared_ptr<const ContextContainer> makeContextContainer() {
   auto contextContainer = std::make_shared<ContextContainer>();
 
@@ -352,6 +384,22 @@ void onActivate(GtkApplication *app, gpointer data) {
   host->touchDispatcher =
       std::make_unique<rnlinux::GtkTouchDispatcher>(host->mountingManager.get(), host->root);
 
+  // Say what this host needs rather than inheriting a default that moves.
+  //
+  // HermesInstance gives the runtime a microtask queue only when
+  // enableBridgelessArchitecture() is true, and React's scheduler enqueues a
+  // microtask on its first render. That flag defaults to true on React Native
+  // `main` and false on 0.87.1, so the same code that works against main throws
+  // "Could not enqueue microtask because they are disabled in this runtime" on
+  // a release, before anything appears on screen. This host is bridgeless --
+  // there is no bridge here to be the alternative -- so it should have been
+  // asserting that all along.
+  //
+  // iOS and Android override feature flags at startup too; relying on the
+  // default was the anomaly.
+  facebook::react::ReactNativeFeatureFlags::override(
+      std::make_unique<LinuxFeatureFlags>());
+
   ReactInstanceConfig config;
   config.appId = "react-native-linux";
   config.deviceName = "linux";
@@ -384,7 +432,7 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                   facebook::react::getDefaultOnJsErrorFunc(),
                                                   logToGlib,
                                                   nullptr,
-                                                  facebook::react::TurboModuleProviders{},
+                                                  makeTurboModuleProviders(),
                                                   nullptr,
                                                   nullptr,
                                                   nullptr,

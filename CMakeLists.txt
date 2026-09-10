@@ -72,6 +72,7 @@ if(DEFINED RN_DIR)
     src/GtkImageLoader.cpp
     src/GtkScrollView.cpp
     src/GtkTextInput.cpp
+    src/LinuxPlatformConstants.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     src/PangoTextLayoutManager.cpp)
@@ -148,6 +149,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     tests/test_accessibility.cpp
     tests/test_viewprops.cpp
     tests/test_textinput.cpp
+    tests/test_version.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
     src/GtkTouchDispatcher.cpp)

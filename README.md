@@ -201,6 +201,21 @@ glog header fails with *"was not included correctly"*. The define is set in
 RN headers also carry Xcode's `#pragma mark`, so GCC needs
 `-Wno-unknown-pragmas`.
 
+## Supported React Native versions
+
+| Version | State |
+|---|---|
+| `main` | works; development happens here |
+| 0.87.1 | works, fully verified, and what CI builds |
+| 0.83 to 0.86 | untested, expected to work |
+| 0.82 and older | not yet; see `plan/backlog.md` |
+
+Both suites pass against 0.87.1 and against `main` from the same source tree.
+The build reports which version it is configured for and refuses to proceed with
+codegen belonging to another. `plan/11-released-versions.md` covers what it took,
+including the two places React Native's own defaults differ between a release
+and `main` in ways that stop React rendering entirely.
+
 ## Status
 
 Verified, on screen:

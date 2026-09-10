@@ -1,13 +1,17 @@
-# The React Native commit CI builds against.
+# The React Native CI builds against.
 #
-# This project tracks React Native `main` -- ReactCxxPlatform carries no API
-# stability guarantee, and half the work here is keeping up with it. That is
-# fine for development and useless for CI: a build that follows main turns every
-# upstream change into a red tick on an unrelated pull request, and the signal
-# stops meaning anything.
+# A release tag, not a commit on main. That is deliberate: this platform exists
+# to run applications, applications pin releases, and a red tick should mean
+# "broken for someone who could use this" rather than "broken against a moving
+# target". React Native `main` calls itself 1000.0.0 and is not something anyone
+# ships.
 #
-# So CI pins, and a separate scheduled job tracks main to notice drift on its
-# own schedule. Bump this after checking the tree still builds against a newer
-# commit -- that bump is the interesting change, and it should be reviewable on
-# its own.
-b830082cf5cde212e640ae2c1279918076648e90
+# `main` is still what development happens against, and the scheduled `drift`
+# job is what tracks it. That job does not block, so a regression that only
+# affects main can wait up to a week to be noticed; run the drift job by hand
+# after anything that touches the build if that matters.
+#
+# Bump this after checking the tree still builds and both suites pass against
+# the newer release. That bump is the interesting change and should be
+# reviewable on its own. See plan/11-released-versions.md.
+v0.87.1

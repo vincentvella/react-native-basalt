@@ -159,8 +159,22 @@ if [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/de
   (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
 fi
 
-if [ ! -d "$TP/codegen/react" ]; then
-  log "generating codegen artifacts"
+# Codegen output belongs to one React Native version and to no other: the
+# generated spec headers name every feature flag that version has, so building
+# 0.87.1 against artifacts generated from `main` fails on the flags `main` added
+# since. The directory is shared rather than per-version, so that
+# third_party/codegen/CMakeLists.txt stays put and CI's cache key still works;
+# a stamp is what makes reuse safe. Switching versions regenerates.
+RN_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$RN_DIR/packages/react-native/package.json" | head -1)"
+CODEGEN_STAMP="$TP/codegen/.react-native-version"
+
+if [ ! -d "$TP/codegen/react" ] || [ "$(cat "$CODEGEN_STAMP" 2>/dev/null)" != "$RN_VERSION" ]; then
+  if [ -d "$TP/codegen/react" ]; then
+    log "codegen was generated from $(cat "$CODEGEN_STAMP" 2>/dev/null || echo 'an unknown version'), rebuilding for $RN_VERSION"
+    rm -rf "$TP/codegen/react" "$TP"/codegen/*.h "$TP"/codegen/*.cpp
+  fi
+  log "generating codegen artifacts for React Native $RN_VERSION"
   CODEGEN_TMP="$(mktemp -d)"
   (cd "$RN_DIR" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node packages/react-native/scripts/generate-codegen-artifacts.js \
       -p packages/react-native -t android -o "$CODEGEN_TMP" -s library -f)
@@ -171,6 +185,7 @@ if [ ! -d "$TP/codegen/react" ]; then
   cp -R "$JNI/react" "$TP/codegen/"
   cp "$JNI"/*.h "$JNI"/*.cpp "$TP/codegen/" 2>/dev/null || true
   rm -rf "$CODEGEN_TMP"
+  echo "$RN_VERSION" > "$CODEGEN_STAMP"
   # NB: third_party/codegen/CMakeLists.txt is checked in and must NOT be
   # overwritten by the generated one, which links Android-only targets.
 fi
