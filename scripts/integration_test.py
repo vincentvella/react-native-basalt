@@ -421,10 +421,23 @@ def test_fast_refresh(bundle: Path) -> None:
 
         metro_log = Path(directory) / "metro.log"
 
+        def file_state() -> str:
+            """What is actually on disk, since everything else is inference."""
+            try:
+                stat = source.stat()
+                text = source.read_text()
+                return (
+                    f"{source}: {stat.st_size} bytes, mtime {stat.st_mtime}, "
+                    f"contains the edit: {AFTER in text}"
+                )
+            except Exception as error:
+                return f"could not stat the demo ({error})"
+
         def diagnose(message: str) -> Failure:
             """Fails with what the two processes were saying, not just a verdict."""
             return Failure(
                 f"{message}\n"
+                f"--- the file on disk ---\n{file_state()}\n"
                 f"--- all of metro ---\n{tail(metro_log, 400)}\n"
                 f"--- last of the host ---\n{tail(log)}"
             )
