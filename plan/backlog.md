@@ -65,9 +65,13 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   upstream in ReactCxxPlatform. 0.87.1 works without any of this, so the
   supported range starts there; see `plan/11-released-versions.md`. Extending
   it downwards means testing each version, not just setting the flag.
-- Nothing tests React Native 0.83 through 0.86. They share 0.87's unguarded
-  module lookup so they are expected to work, which is a prediction rather than
-  a result, and the README says so.
+- React Native 0.83 through 0.86 are refused rather than untested-but-allowed.
+  Each would need building against and both suites run; see
+  `plan/14-pinned-versions.md` and `supported-versions.json`.
+- Supporting React Native 0.81, which is what kino pins, needs three separate
+  things: `RN$TurboInterop` so any native module resolves, a Hermes whose CMake
+  names its target `hermes` rather than `hermesvm`, and then Expo's native
+  runtime before kino itself would start. It is a decision, not a bug.
 - **CI checks one React Native per run.** It pins 0.87.1, and `main` moved to
   the weekly drift job, which does not block. So a regression that only affects
   `main` can wait up to a week. Building both on every run would be the fix and

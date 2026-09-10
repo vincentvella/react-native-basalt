@@ -276,6 +276,7 @@ are documented in the project README.
 | 10 | Point the host at a real app, and find out what breaks | **done** |
 | 11 | Run against a released React Native, not just `main` | **done** |
 | 12 | `run-linux` CLI and an installable package | in progress |
+| 12a | Build from an installed React Native, on a pinned triple | **done** |
 | 13 | Port one third-party native module end to end | |
 | 14 | Expo's native runtime | |
 | 15 | Core modules: appearance, clipboard, linking, alerts | |

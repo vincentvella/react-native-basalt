@@ -29,13 +29,15 @@ TP="$(cd "$TP" && pwd)"
 # will simply fail and the path has to be given.
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-# Versions are React Native's own pins. folly/fast_float/nlohmann come from
-# packages/react-native/gradle/libs.versions.toml; Hermes from
-# ReactAndroid/hermes-engine/build.gradle.kts. Check them after an RN bump.
+# Versions are React Native's own pins, from
+# packages/react-native/gradle/libs.versions.toml. Check them after an RN bump.
+#
+# Hermes is not here. It is pinned per supported React Native in
+# ../supported-versions.json, because it is coupled to ReactCommon and one
+# version cannot serve several React Natives.
 FOLLY_VERSION="2024.11.18.00"
 FAST_FLOAT_VERSION="8.0.0"
 NLOHMANN_VERSION="3.11.3"
-HERMES_VERSION="250829098.0.0-stable"
 
 # React Native requires ^22.13.0 || ^24.3.0 || >= 26.0.0. Node 25.x is
 # excluded and yarn install fails an engine check in a preinstall hook.
@@ -80,7 +82,35 @@ elif [ -d "$RN_DIR/ReactCommon" ]; then
 else
   die "not a React Native checkout or package: $RN_DIR"
 fi
-log "React Native ($RN_LAYOUT): $RN_PKG"
+RN_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$RN_PKG/package.json" | head -1)"
+log "React Native $RN_VERSION ($RN_LAYOUT): $RN_PKG"
+
+# --- is this version supported ----------------------------------------------
+# Asked here, before anything is downloaded or compiled, because the answer for
+# an unsupported version used to arrive as a compile error inside Hermes.
+HERMES_VERSION="$(node -e '
+  const table = require(process.argv[1]);
+  const version = process.argv[2];
+  if (version === table.development.reactNative) {
+    process.stdout.write(table.development.hermes);
+  } else {
+    const minor = version.split(".").slice(0, 2).join(".");
+    const entry = table.supported.find(s => s.reactNative === minor);
+    if (!entry) {
+      const ok = [...table.supported.map(s => s.reactNative + ".x"), table.development.reactNative];
+      console.error(`react-native-linux does not support React Native ${version}.`);
+      console.error(`Supported: ${ok.join(", ")}.`);
+      console.error("");
+      console.error("packages/react-native-linux/supported-versions.json says what is");
+      console.error("tested and why the rest is not simply allowed. Adding a version");
+      console.error("means building against it and running both suites, not editing");
+      console.error("a range.");
+      process.exit(1);
+    }
+    process.stdout.write(entry.hermes);
+  }
+' "$HERE/../supported-versions.json" "$RN_VERSION")" || exit 1
 
 # --- ReactCxxPlatform -------------------------------------------------------
 # The one thing React Native does not put in its npm package.
@@ -99,29 +129,27 @@ log "React Native ($RN_LAYOUT): $RN_PKG"
 # A sparse, blobless clone of one directory at one tag: about 3MB and a few
 # seconds, which is the same bargain as the folly and Hermes downloads below.
 if [ "$RN_LAYOUT" = installed ] && [ ! -d "$RN_PKG/ReactCxxPlatform" ]; then
-  RN_PKG_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$RN_PKG/package.json" | head -1)"
   CXX_PLATFORM="$TP/ReactCxxPlatform"
 
   if [ ! -f "$CXX_PLATFORM/.version" ] || \
-     [ "$(cat "$CXX_PLATFORM/.version" 2>/dev/null)" != "$RN_PKG_VERSION" ]; then
-    log "fetching ReactCxxPlatform for React Native $RN_PKG_VERSION"
+     [ "$(cat "$CXX_PLATFORM/.version" 2>/dev/null)" != "$RN_VERSION" ]; then
+    log "fetching ReactCxxPlatform for React Native $RN_VERSION"
     rm -rf "$CXX_PLATFORM" "$TP/.rn-sparse"
     git clone -q --depth 1 --filter=blob:none --sparse \
-      --branch "v$RN_PKG_VERSION" https://github.com/facebook/react-native \
-      "$TP/.rn-sparse" 2>/dev/null || die "no React Native tag v$RN_PKG_VERSION on GitHub.
+      --branch "v$RN_VERSION" https://github.com/facebook/react-native \
+      "$TP/.rn-sparse" 2>/dev/null || die "no React Native tag v$RN_VERSION on GitHub.
   ReactCxxPlatform is not in the npm package, so it has to come from the tag
   matching your react-native, and there is no such tag. See
   plan/13-upstream-reactcxxplatform.md."
     (cd "$TP/.rn-sparse" && git sparse-checkout set --no-cone \
       packages/react-native/ReactCxxPlatform >/dev/null)
     [ -d "$TP/.rn-sparse/packages/react-native/ReactCxxPlatform" ] \
-      || die "tag v$RN_PKG_VERSION has no ReactCxxPlatform"
+      || die "tag v$RN_VERSION has no ReactCxxPlatform"
     mv "$TP/.rn-sparse/packages/react-native/ReactCxxPlatform" "$CXX_PLATFORM"
     rm -rf "$TP/.rn-sparse"
-    echo "$RN_PKG_VERSION" > "$CXX_PLATFORM/.version"
+    echo "$RN_VERSION" > "$CXX_PLATFORM/.version"
   fi
-  log "ReactCxxPlatform $RN_PKG_VERSION at $CXX_PLATFORM"
+  log "ReactCxxPlatform $RN_VERSION at $CXX_PLATFORM"
 fi
 
 # --- toolchain --------------------------------------------------------------
@@ -174,11 +202,39 @@ if [ ! -f "$TP/nlohmann_json/include/nlohmann/json.hpp" ]; then
 fi
 
 # --- Hermes -----------------------------------------------------------------
+# Which Hermes, according to the supported-versions table rather than according
+# to the app.
+#
+# Following the app was tried and abandoned. Hermes is coupled to ReactCommon as
+# tightly as ReactCxxPlatform is, so an old React Native brings an old Hermes,
+# and 0.81's wants a jsi header newer React Native does not ship and names its
+# build target differently. Chasing that leads three compile errors deep into a
+# version nobody claimed to support. The table says what was actually tested,
+# and this refuses anything else rather than half-working.
+log "Hermes $HERMES_VERSION for React Native $RN_VERSION"
+
+# Keyed by version: switching React Native means a different Hermes, and a
+# stale build of the wrong one fails deep in a compile rather than here.
+HERMES_STAMP="$TP/hermes/.version"
+if [ -d "$TP/hermes" ] && [ ! -f "$HERMES_STAMP" ]; then
+  # An unstamped tree predates this file. There was exactly one pinned Hermes
+  # before it, so an existing tree is that one, and stamping it saves every
+  # checkout a 200MB download and a rebuild it does not need. A wrong guess
+  # here surfaces immediately as a compile error, not as a silent mismatch.
+  log "assuming the existing Hermes is $HERMES_VERSION"
+  echo "$HERMES_VERSION" > "$HERMES_STAMP"
+fi
+if [ -d "$TP/hermes" ] && [ "$(cat "$HERMES_STAMP" 2>/dev/null)" != "$HERMES_VERSION" ]; then
+  log "Hermes was $(cat "$HERMES_STAMP"), rebuilding for $HERMES_VERSION"
+  rm -rf "$TP/hermes" "$TP/hermes-build"
+fi
+
 if [ ! -d "$TP/hermes" ]; then
   log "fetching Hermes $HERMES_VERSION (~200MB)"
   mkdir -p "$TP/hermes"
   curl -fsSL "https://github.com/facebook/hermes/tarball/${HERMES_VERSION}" \
     | tar xz -C "$TP/hermes" --strip-components=1
+  echo "$HERMES_VERSION" > "$HERMES_STAMP"
 fi
 
 if ! ls "$TP"/hermes-build/lib/libhermesvm.* >/dev/null 2>&1; then
@@ -235,8 +291,6 @@ fi
 # since. The directory is shared rather than per-version, so that
 # third_party/codegen/CMakeLists.txt stays put and CI's cache key still works;
 # a stamp is what makes reuse safe. Switching versions regenerates.
-RN_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-  "$RN_PKG/package.json" | head -1)"
 CODEGEN_STAMP="$TP/codegen/.react-native-version"
 
 if [ ! -d "$TP/codegen/react" ] || [ "$(cat "$CODEGEN_STAMP" 2>/dev/null)" != "$RN_VERSION" ]; then

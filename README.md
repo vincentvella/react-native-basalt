@@ -216,16 +216,21 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 | Version | State |
 |---|---|
-| `main` | works; development happens here |
-| 0.87.1 | works, fully verified, and what CI builds |
-| 0.83 to 0.86 | untested, expected to work |
-| 0.82 and older | not yet; see `plan/backlog.md` |
+| 0.87.x | supported, verified against 0.87.1, and what CI builds |
+| `main` | supported, and where development happens |
+| everything else | refused, with a message saying so |
 
-Both suites pass against 0.87.1 and against `main` from the same source tree.
-The build reports which version it is configured for and refuses to proceed with
-codegen belonging to another. `plan/11-released-versions.md` covers what it took,
-including the two places React Native's own defaults differ between a release
-and `main` in ways that stop React rendering entirely.
+`packages/react-native-linux/supported-versions.json` is the source of truth,
+and it pins a triple: this platform, a React Native, and the Hermes to build for
+it, chosen and tested together. Bootstrap reads it and stops in seconds on an
+unsupported version rather than failing three compile errors deep.
+
+That pinning is not caution, it is the shape of the problem. Hermes and React
+Native's C++ host layer both track `ReactCommon` closely enough that one version
+cannot serve several React Natives, and this is the only platform that builds
+Hermes from source rather than consuming a prebuilt one. `plan/14-pinned-versions.md`
+has the evidence; `plan/11-released-versions.md` covers what supporting a release
+took in the first place.
 
 ## Status
 
