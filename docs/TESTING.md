@@ -97,6 +97,9 @@ Current scenarios:
    chasing it further was costing more than it was worth. `RN_LINUX_SKIP_FAST_REFRESH`
    turns it off and CI sets it; the scenario reports itself as skipped rather
    than quietly passing. It does run, and pass, on macOS and on Linux in a VM.
+   `plan/backlog.md` lists what to try next, starting with installing watchman
+   on the runner, since both sides currently fall back to the same node watcher
+   and that is the part under suspicion.
 
    It rewrites the edit every ten seconds until the refresh arrives. That is
    not paranoia: a file watcher that has not finished attaching does not queue

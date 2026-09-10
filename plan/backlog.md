@@ -20,8 +20,31 @@ Not scheduled. Roughly by value.
   and 1280 instances; both sides run Node 24.20.0; neither has watchman, so
   both use the same node watcher; and CI's layout, with React Native inside the
   checkout, reproduces green in a local VM. The scenario passes on macOS and on
-  Linux in a VM, so this is about the runner rather than the code. Worth another
-  look with `DEBUG=metro:*` or a watchman install.
+  Linux in a VM, so this is about the runner rather than the code.
+
+  Next thing to try, in order of effort:
+
+  1. **Install watchman in CI** and see whether the scenario passes. Both sides
+     currently fall back to metro-file-map's own node watcher, and that is the
+     component under suspicion, so putting watchman in front of it on the
+     runner both tests the theory and would be the fix if it works. Add it to
+     the dependencies step, then drop `RN_LINUX_SKIP_FAST_REFRESH` from the
+     end-to-end step and read the result.
+
+     Two things to know before starting. Ubuntu noble packages watchman, but
+     at 4.9.0, which is from 2017; whether metro-file-map's client is happy
+     with something that old is the first thing to find out, and a failure
+     there would say nothing about the theory. Homebrew's is current, so a Mac
+     and an apt-installed Linux box would not be running the same watchman
+     either. And it would leave CI and development machines on different
+     watchers, with development on the untested one -- so if watchman does fix
+     CI, installing it locally too is the honest follow-up rather than
+     declaring the problem solved.
+  2. `DEBUG=metro:*` on the CI Metro, to see what the watcher thinks it is
+     doing rather than inferring it from what the bundle contains.
+  3. Shrink `watchFolders`. The React Native checkout is the bulk of the eight
+     thousand directories; if the node watcher is falling over on volume, a
+     narrower watch would show it.
 - CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
 ## Correctness gaps in what exists
