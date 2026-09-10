@@ -320,6 +320,29 @@ class Metro:
                 time.sleep(1)
         raise Failure("metro did not start listening")
 
+    def serves_edit(self) -> str:
+        """Whether a fresh bundle from Metro contains the edit.
+
+        This is what separates the two ways this scenario can fail. If Metro
+        serves the new text, its file watching is fine and the Fast Refresh
+        client never subscribed. If it serves the old text, Metro never saw the
+        file change.
+        """
+        try:
+            return "yes" if AFTER in self.fetch_bundle() else "no"
+        except Exception as error:  # diagnostics must not raise
+            return f"could not tell ({error})"
+
+    def fetch_bundle(self) -> str:
+        url = (
+            f"http://localhost:{METRO_PORT}/index.bundle"
+            "?platform=linux&dev=true&minify=false"
+        )
+        with urllib.request.urlopen(url, timeout=300) as response:
+            if response.status != 200:
+                raise Failure(f"metro answered {response.status} for the bundle")
+            return response.read().decode("utf-8", "replace")
+
     def prewarm(self) -> None:
         """Builds the bundle before the host asks for it.
 
@@ -329,15 +352,8 @@ class Metro:
         bundle and no edit will ever reach it -- which is what CI saw, reported
         as "Metro never pushed an update".
         """
-        url = (
-            f"http://localhost:{METRO_PORT}/index.bundle"
-            "?platform=linux&dev=true&minify=false"
-        )
         try:
-            with urllib.request.urlopen(url, timeout=300) as response:
-                if response.status != 200:
-                    raise Failure(f"metro answered {response.status} for the bundle")
-                response.read()
+            self.fetch_bundle()
         except urllib.error.URLError as error:
             raise Failure(f"metro could not build the bundle: {error}") from error
 
@@ -442,7 +458,10 @@ def test_fast_refresh(bundle: Path) -> None:
                     wait_for_log(log, running, 2, timeout=90)
                     or wait_for_log(log, "Fast Refresh", 1, timeout=1)
                 ):
-                    raise diagnose("Metro never pushed an update after the edit")
+                    raise diagnose(
+                        "Metro never pushed an update after the edit "
+                        f"(does a fresh bundle contain it? {metro.serves_edit()})"
+                    )
 
                 # Rendering follows the reload; the tree is dumped on the way out.
                 time.sleep(3)
