@@ -79,6 +79,10 @@ class Failure(Exception):
     pass
 
 
+class Skipped(Exception):
+    """A scenario that cannot run here, and says why rather than passing."""
+
+
 INPUT_MODE = "injected"
 
 
@@ -399,6 +403,11 @@ def test_fast_refresh(bundle: Path) -> None:
     takes longer than a developer's warm one -- which is the same class of
     flake as any other "should be long enough".
     """
+    if os.environ.get("RN_LINUX_SKIP_FAST_REFRESH"):
+        raise Skipped(
+            "Metro does not notice file edits on this machine; see docs/TESTING.md"
+        )
+
     source = REPO / "js" / "index.js"
     original = source.read_text()
     if original.count(BEFORE) != 1:
@@ -599,10 +608,15 @@ def main() -> int:
     print(f"running {len(SCENARIOS)} scenarios against {bundle.name}")
     print(f"input: {INPUT_MODE} -- {note}")
     failed = 0
+    skipped = 0
     for name, scenario in SCENARIOS:
         try:
             scenario(bundle)
             print(f"  ok    {name}")
+        except Skipped as reason:
+            skipped += 1
+            print(f"  skip  {name}")
+            print(f"        {reason}")
         except Failure as failure:
             failed += 1
             print(f"  FAIL  {name}\n        {failure}")
@@ -610,7 +624,11 @@ def main() -> int:
             failed += 1
             print(f"  FAIL  {name}\n        the host did not exit")
 
-    print(f"\n{len(SCENARIOS) - failed}/{len(SCENARIOS)} passed")
+    total = len(SCENARIOS) - skipped
+    tally = f"\n{total - failed}/{total} passed"
+    if skipped:
+        tally += f", {skipped} skipped"
+    print(tally)
     return 0 if failed == 0 else 1
 
 

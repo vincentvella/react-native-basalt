@@ -151,6 +151,19 @@ jobs:
         # and CI puts it inside the workspace instead.
         env:
           RN_DIR: react-native-src
+          # The Fast Refresh scenario does not run here, and the reason is not
+          # this repo. Metro on a GitHub runner never notices an edit: the file
+          # changes on disk with a new mtime, and a freshly requested bundle
+          # still carries the old text, with nothing in Metro's log. What was
+          # ruled out first, so the next person does not repeat it: fs.watch
+          # sees the same edit on the same runner, the inotify limits are
+          # already 655360 and 1280, both sides run Node 24.20.0, neither has
+          # watchman so both use the same node watcher, and CI's layout with
+          # React Native inside the checkout reproduces green in a local VM.
+          #
+          # It runs on developer machines, on macOS and on Linux, where it
+          # passes. See plan/backlog.md.
+          RN_LINUX_SKIP_FAST_REFRESH: "1"
         run: scripts/integration_test.py
 
       - name: Save the widget tree on failure

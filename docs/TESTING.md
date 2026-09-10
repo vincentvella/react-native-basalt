@@ -88,6 +88,16 @@ Current scenarios:
    dumped. That failure looks exactly like Fast Refresh being broken. A `kill
    -9` of the test would leave the demo edited; nothing softer will.
 
+   **It does not run in CI.** Metro on a GitHub runner never notices an edit:
+   the file changes on disk with a fresh mtime, a newly requested bundle still
+   carries the old text, and Metro's log is empty of complaint. `fs.watch` sees
+   the same edit on the same runner, the inotify limits are generous, both
+   sides run the same Node, neither has watchman, and CI's directory layout
+   reproduces green in a local VM — so it is the runner, not this repo, and
+   chasing it further was costing more than it was worth. `RN_LINUX_SKIP_FAST_REFRESH`
+   turns it off and CI sets it; the scenario reports itself as skipped rather
+   than quietly passing. It does run, and pass, on macOS and on Linux in a VM.
+
    It rewrites the edit every ten seconds until the refresh arrives. That is
    not paranoia: a file watcher that has not finished attaching does not queue
    anything, the event is simply never delivered, and nothing re-crawls. Metro

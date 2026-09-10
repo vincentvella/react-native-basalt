@@ -12,6 +12,16 @@ Not scheduled. Roughly by value.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
 - CI is Linux only. macOS is covered by whoever is developing, not by a machine.
+- **The Fast Refresh scenario is skipped in CI**, so nothing on a machine
+  protects development mode. Metro on a GitHub runner never notices an edit:
+  the file changes on disk with a fresh mtime, a newly requested bundle still
+  carries the old text, and Metro logs nothing. Ruled out already: `fs.watch`
+  sees the same edit on the same runner; the inotify limits are 655360 watches
+  and 1280 instances; both sides run Node 24.20.0; neither has watchman, so
+  both use the same node watcher; and CI's layout, with React Native inside the
+  checkout, reproduces green in a local VM. The scenario passes on macOS and on
+  Linux in a VM, so this is about the runner rather than the code. Worth another
+  look with `DEBUG=metro:*` or a watchman install.
 - CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
 ## Correctness gaps in what exists
