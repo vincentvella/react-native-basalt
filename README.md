@@ -309,10 +309,12 @@ Environment:
     RN_LINUX_DEV=1            load from Metro; enables Fast Refresh and DevSettings
     RN_LINUX_DEV_HOST/_PORT   where Metro is (default localhost:8081)
     RN_LINUX_DEV_ENTRY        Metro entry name without extension (default "index")
-    RN_LINUX_QUIT_AFTER_MS    quit on a timer; the only way to exercise shutdown
-                              in automation, since the window cannot be closed
-                              from a script and killing the process skips
-                              GApplication::shutdown
+    RN_LINUX_QUIT_AFTER_MS    quit on a timer, for automation that knows in
+                              advance how long it needs. SIGINT and SIGTERM
+                              also shut down cleanly, so Ctrl-C and `kill` run
+                              GApplication::shutdown -- stopAllSurfaces, the
+                              teardown ordering, and the tree dump -- rather
+                              than dropping the process where it stands.
     RN_LINUX_TEST_TAP         "x,y;x,y" -- synthesise taps a second apart, in
                               surface-root coordinates. Enters where GTK's
                               gesture callback would, so it exercises hit

@@ -47,6 +47,8 @@ import sys
 import socket
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -313,6 +315,27 @@ class Metro:
                 time.sleep(1)
         raise Failure("metro did not start listening")
 
+    def prewarm(self) -> None:
+        """Builds the bundle before the host asks for it.
+
+        The host tries Metro and falls back to the on-disk bundle, which is a
+        production one. A cold Metro takes longer to answer than that fallback
+        is willing to wait, so without this the app quietly runs the *release*
+        bundle and no edit will ever reach it -- which is what CI saw, reported
+        as "Metro never pushed an update".
+        """
+        url = (
+            f"http://localhost:{METRO_PORT}/index.bundle"
+            "?platform=linux&dev=true&minify=false"
+        )
+        try:
+            with urllib.request.urlopen(url, timeout=300) as response:
+                if response.status != 200:
+                    raise Failure(f"metro answered {response.status} for the bundle")
+                response.read()
+        except urllib.error.URLError as error:
+            raise Failure(f"metro could not build the bundle: {error}") from error
+
     def __exit__(self, *_) -> None:
         if self.process is not None:
             self.process.terminate()
@@ -320,6 +343,16 @@ class Metro:
                 self.process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+
+
+def wait_for_log(log: Path, needle: str, count: int, timeout: float) -> bool:
+    """Waits until `needle` has appeared in `log` at least `count` times."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if log.exists() and log.read_text().count(needle) >= count:
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def test_fast_refresh(bundle: Path) -> None:
@@ -332,61 +365,88 @@ def test_fast_refresh(bundle: Path) -> None:
     A __DEV__ bundle needs the DevSettings TurboModule, which
     ReactCxxTurboModuleProvider serves only when a DevServerHelper exists. So
     this also pins the one configuration where that is true.
+
+    It waits on the host's own log rather than on sleeps. A fixed budget was
+    the first version and it failed in CI, where Metro is cold and a rebuild
+    takes longer than a developer's warm one -- which is the same class of
+    flake as any other "should be long enough".
     """
     source = REPO / "js" / "index.js"
     original = source.read_text()
-    if BEFORE not in original:
-        raise Failure(f"the demo no longer contains {BEFORE!r} to edit")
+    if original.count(BEFORE) != 1:
+        raise Failure(f"the demo does not contain exactly one {BEFORE!r} to edit")
+
+    running = f'Running "{MODULE}"'
 
     with tempfile.TemporaryDirectory() as directory:
         dump = Path(directory) / "tree.txt"
+        log = Path(directory) / "host.log"
         env = dict(os.environ)
         env["RN_LINUX_DUMP_TREE"] = str(dump)
-        env["RN_LINUX_QUIT_AFTER_MS"] = "30000"
+        # A backstop, not the schedule: the host is asked to quit by signal as
+        # soon as the refresh shows up.
+        env["RN_LINUX_QUIT_AFTER_MS"] = "180000"
         env["RN_LINUX_DEV"] = "1"
         env["RN_LINUX_DEV_PORT"] = str(METRO_PORT)
         env.pop("RN_LINUX_TEST_TAP", None)
         env.pop("RN_LINUX_TEST_TYPE", None)
 
-        with Metro():
+        with Metro() as metro, log.open("w") as sink:
+            metro.prewarm()
             process = subprocess.Popen(
                 [str(HOST), str(bundle), MODULE],
-                cwd=REPO, env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True,
+                cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=sink, text=True,
             )
-            stderr = ""
             try:
-                # Long enough for the first bundle, which Metro builds on demand
-                # from a cold cache the first time this runs.
-                time.sleep(15)
+                if not wait_for_log(log, running, 1, timeout=120):
+                    raise Failure("the app never started")
+
+                # A __DEV__ bundle asks for the LogBox TurboModule and a release
+                # one does not, so this is how to tell which bundle actually
+                # evaluated. Editing before knowing that produces a confusing
+                # failure much later.
+                if not wait_for_log(log, "TurboModule: LogBox", 1, timeout=10):
+                    raise Failure(
+                        "the app is running the on-disk release bundle, not Metro's"
+                    )
+
                 source.write_text(original.replace(BEFORE, AFTER))
-                # Wait for the host to quit on its own timer rather than
-                # restoring the file underneath it: putting the original back
-                # while it still has a Metro connection triggers a *second*
-                # refresh, which undoes the edit before the tree is dumped. That
-                # looked exactly like Fast Refresh not working.
-                _, stderr = process.communicate(timeout=90)
+
+                # The demo has no refresh boundary, so React Native reloads the
+                # whole surface and the app runs a second time. Waiting on
+                # either the reload or that second run keeps this from depending
+                # on which of the two the demo happens to provoke.
+                if not (
+                    wait_for_log(log, running, 2, timeout=90)
+                    or wait_for_log(log, "Fast Refresh", 1, timeout=1)
+                ):
+                    raise Failure("Metro never pushed an update after the edit")
+
+                # Rendering follows the reload; the tree is dumped on the way out.
+                time.sleep(3)
+                process.terminate()
+                process.wait(timeout=60)
             finally:
                 source.write_text(original)
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=15)
 
+        stderr = log.read_text()
         check_output(stderr, process.returncode)
+
+        # The exact line, not "DevSettings" anywhere: the module logs its own
+        # name at INFO when it works, and plenty of other TurboModules fail to
+        # load harmlessly, so a conjunction of the two substrings reports
+        # success as failure. It did.
+        if "Failed to load TurboModule: DevSettings" in stderr:
+            raise Failure("DevSettings was not served, so no __DEV__ bundle can run")
         if not dump.exists():
             raise Failure("host wrote no widget tree")
-        tree = dump.read_text()
-
-    # The exact line, not "DevSettings" anywhere: the module logs its own name
-    # at INFO when it works, and plenty of other TurboModules fail to load
-    # harmlessly, so a conjunction of the two substrings reports success as
-    # failure. It did.
-    if "Failed to load TurboModule: DevSettings" in stderr:
-        raise Failure("DevSettings was not served, so no __DEV__ bundle can run")
-    if AFTER not in tree:
-        raise Failure(
-            "the edit never reached the running app; Fast Refresh did not apply it"
-        )
+        if AFTER not in dump.read_text():
+            raise Failure(
+                "the edit never reached the running app; Fast Refresh did not apply it"
+            )
 
 
 def editable_value(tree: str) -> str:

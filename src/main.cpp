@@ -39,6 +39,9 @@
 
 #include <cstdlib>
 #include <exception>
+#include <glib-unix.h>
+
+#include <csignal>
 #include <memory>
 #include <string>
 
@@ -179,6 +182,21 @@ void callRenderFunction(Host *host, int step) {
 gboolean quitAfterTimeout(gpointer data) {
   auto *app = static_cast<GApplication *>(data);
   g_message("RN_LINUX_QUIT_AFTER_MS elapsed; quitting");
+  g_application_quit(app);
+  return G_SOURCE_REMOVE;
+}
+
+// Same clean exit, on SIGINT or SIGTERM, so Ctrl-C and `kill` shut the runtime
+// down instead of dropping it. The default disposition would kill the process
+// where it stands, skipping GApplication::shutdown and everything under it --
+// stopAllSurfaces, the teardown ordering, and the widget tree dump.
+//
+// g_unix_signal_add is the safe form: it does not run in the signal handler,
+// it wakes the main loop and dispatches from there, so ordinary GLib calls are
+// allowed here.
+gboolean quitOnSignal(gpointer data) {
+  auto *app = static_cast<GApplication *>(data);
+  g_message("signal received; quitting");
   g_application_quit(app);
   return G_SOURCE_REMOVE;
 }
@@ -418,6 +436,9 @@ void onActivate(GtkApplication *app, gpointer data) {
   if (const char *text = g_getenv("RN_LINUX_TEST_TYPE")) {
     g_timeout_add(scriptedDelayMs, fireTestType, new PendingType{host, text});
   }
+  g_unix_signal_add(SIGINT, quitOnSignal, app);
+  g_unix_signal_add(SIGTERM, quitOnSignal, app);
+
   if (const char *quitAfter = g_getenv("RN_LINUX_QUIT_AFTER_MS")) {
     const gint64 ms = g_ascii_strtoll(quitAfter, nullptr, 10);
     if (ms > 0) {

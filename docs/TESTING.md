@@ -88,6 +88,18 @@ Current scenarios:
    dumped. That failure looks exactly like Fast Refresh being broken. A `kill
    -9` of the test would leave the demo edited; nothing softer will.
 
+   It waits on the host's log rather than on sleeps, and asks the host to quit
+   with `SIGTERM` once the refresh has landed. The first version used a fixed
+   budget and failed in CI, where Metro is cold and a rebuild takes longer than
+   a developer's warm one. Two things it needs to know before it edits
+   anything, both learned the hard way: that the app is up, and that the bundle
+   it is running came from Metro. The host falls back to the on-disk bundle
+   when Metro is slow to answer, and that bundle is a production one, so an
+   edit would never reach it — reported, unhelpfully, as Metro never pushing an
+   update. So the scenario builds the bundle over HTTP before starting the
+   host, and then confirms a `__DEV__` bundle is what evaluated by watching for
+   the LogBox TurboModule request that only a dev bundle makes.
+
 The scenarios read coordinates from the demo's layout in `js/index.js`. Change
 the demo's spacing and the coordinates need changing too — the alternative,
 searching the dumped tree for a button by its label and tapping its centre,
