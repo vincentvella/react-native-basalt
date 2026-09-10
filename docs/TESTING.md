@@ -88,6 +88,15 @@ Current scenarios:
    dumped. That failure looks exactly like Fast Refresh being broken. A `kill
    -9` of the test would leave the demo edited; nothing softer will.
 
+   It rewrites the edit every ten seconds until the refresh arrives. That is
+   not paranoia: a file watcher that has not finished attaching does not queue
+   anything, the event is simply never delivered, and nothing re-crawls. Metro
+   watches the React Native checkout, some eight thousand directories, and that
+   takes markedly longer on a cold CI machine than on a warm laptop. Everything
+   cheaper was ruled out first — `fs.watch` sees edits on the runner, its
+   inotify limits are generous, and neither CI nor a development machine has
+   watchman, so both run the same node watcher.
+
    It waits on the host's log rather than on sleeps, and asks the host to quit
    with `SIGTERM` once the refresh has landed. The first version used a fixed
    budget and failed in CI, where Metro is cold and a rebuild takes longer than

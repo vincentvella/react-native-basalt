@@ -448,16 +448,31 @@ def test_fast_refresh(bundle: Path) -> None:
                         "the app is running the on-disk release bundle, not Metro's"
                     )
 
-                source.write_text(original.replace(BEFORE, AFTER))
+                edited = original.replace(BEFORE, AFTER)
+                source.write_text(edited)
 
                 # The demo has no refresh boundary, so React Native reloads the
                 # whole surface and the app runs a second time. Waiting on
                 # either the reload or that second run keeps this from depending
                 # on which of the two the demo happens to provoke.
-                if not (
-                    wait_for_log(log, running, 2, timeout=90)
-                    or wait_for_log(log, "Fast Refresh", 1, timeout=1)
-                ):
+                #
+                # Rewritten on each attempt rather than written once, because a
+                # watcher that is not up yet does not queue anything: the event
+                # is simply never delivered and nothing re-crawls. Metro watches
+                # the React Native checkout, some eight thousand directories,
+                # and attaching all of that takes markedly longer on a cold CI
+                # machine than on a warm laptop. Everything else was ruled out
+                # first -- inotify works there, the limits are generous, and
+                # neither side has watchman, so both run the same node watcher.
+                deadline = time.time() + 150
+                applied = False
+                while time.time() < deadline and not applied:
+                    applied = wait_for_log(log, running, 2, timeout=10)
+                    if not applied:
+                        # A rewrite is enough: the file map keys on size and
+                        # mtime, and mtime moves.
+                        source.write_text(edited)
+                if not applied:
                     raise diagnose(
                         "Metro never pushed an update after the edit "
                         f"(does a fresh bundle contain it? {metro.serves_edit()})"

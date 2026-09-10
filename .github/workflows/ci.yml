@@ -124,36 +124,6 @@ jobs:
           cmake --build build -j "$(nproc)"
           ccache --show-stats
 
-      - name: Check the runner can watch files
-        # The Fast Refresh scenario depends on Metro noticing an edit, and in CI
-        # it does not. This narrows where to look: if a bare fs.watch sees the
-        # change, inotify is fine and the problem is Metro's; if it does not,
-        # nothing built on watching will work here. The limits are already well
-        # above what Metro needs -- 655360 watches, 1280 instances -- so they
-        # are not the answer.
-        run: |
-          sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances
-          node -e '
-            const fs = require("fs");
-            const file = "js/index.js";
-            let seen = false;
-            const watcher = fs.watch("js", (event, name) => {
-              if (name === "index.js") { seen = true; }
-            });
-            setTimeout(() => fs.appendFileSync(file, "\n// probe\n"), 500);
-            setTimeout(() => {
-              watcher.close();
-              console.log("fs.watch saw the edit:", seen);
-              process.exit(seen ? 0 : 1);
-            }, 4000);
-          '
-          git checkout -- js/index.js
-          # Which backend metro-file-map will pick. It uses watchman when the
-          # binary is on PATH and its own node watcher otherwise, and this
-          # machine and the development machines may not agree.
-          echo "watchman: $(command -v watchman || echo 'not installed')"
-          watchman --version 2>/dev/null || true
-
       - name: Start a display
         # Both suites need one. No window manager is involved: the tests map
         # their own windows, and gtk_widget_pick only needs mapped, not managed.
