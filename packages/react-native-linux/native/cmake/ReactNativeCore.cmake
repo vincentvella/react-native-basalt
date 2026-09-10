@@ -36,6 +36,18 @@ add_compile_definitions(RN_LINUX_REACT_NATIVE_VERSION="${RN_VERSION}")
 # different one fails deep inside React Native's own sources, on flags that
 # look like they should exist, and says nothing about the real cause. Ask here
 # instead, where the answer is a single command.
+# Nothing here without bootstrap. Checked before the version stamp because an
+# absent directory and a stale one need the same command, and because CMake's
+# own complaint further down names a missing CMakeLists.txt, which sends you
+# looking for a file this project does not ask you to write.
+if(NOT EXISTS ${RN_LINUX_THIRD_PARTY}/codegen/CMakeLists.txt)
+  get_filename_component(RN_MONOREPO_DIR "${RN_DIR}/../.." ABSOLUTE)
+  message(FATAL_ERROR
+          "no codegen output at ${RN_LINUX_THIRD_PARTY}/codegen.\n"
+          "Generate it with:\n"
+          "  scripts/bootstrap.sh ${RN_MONOREPO_DIR}\n")
+endif()
+
 set(RN_CODEGEN_STAMP ${RN_LINUX_THIRD_PARTY}/codegen/.react-native-version)
 if(EXISTS ${RN_CODEGEN_STAMP})
   file(READ ${RN_CODEGEN_STAMP} RN_CODEGEN_VERSION)
