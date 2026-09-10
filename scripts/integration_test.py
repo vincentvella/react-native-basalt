@@ -425,7 +425,7 @@ def test_fast_refresh(bundle: Path) -> None:
             """Fails with what the two processes were saying, not just a verdict."""
             return Failure(
                 f"{message}\n"
-                f"--- last of metro ---\n{tail(metro_log)}\n"
+                f"--- all of metro ---\n{tail(metro_log, 400)}\n"
                 f"--- last of the host ---\n{tail(log)}"
             )
 
