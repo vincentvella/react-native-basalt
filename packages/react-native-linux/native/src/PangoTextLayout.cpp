@@ -64,15 +64,23 @@ PangoStyle toPangoStyle(FontStyle style) {
   return PANGO_STYLE_NORMAL;
 }
 
+// Start and End are the writing-direction-relative alignments, and they only
+// exist from React Native 0.83. On 0.81 the enum has Natural, Left, Center,
+// Right and Justified, and naming the others is a compile error rather than a
+// dead branch.
 PangoAlignment toPangoAlignment(TextAlignment alignment) {
   switch (alignment) {
     case TextAlignment::Center:
       return PANGO_ALIGN_CENTER;
     case TextAlignment::Right:
+#if RN_LINUX_RN_MINOR >= 83
     case TextAlignment::End:
+#endif
       return PANGO_ALIGN_RIGHT;
     case TextAlignment::Left:
+#if RN_LINUX_RN_MINOR >= 83
     case TextAlignment::Start:
+#endif
     case TextAlignment::Natural:
     case TextAlignment::Justified:
       break;

@@ -93,7 +93,7 @@ HERMES_VERSION="$(node -e '
   const table = require(process.argv[1]);
   const version = process.argv[2];
   if (version === table.development.reactNative) {
-    process.stdout.write(table.development.hermes);
+    process.stdout.write(table.development.hermes + " " + table.development.hermesTarget);
   } else {
     const minor = version.split(".").slice(0, 2).join(".");
     const entry = table.supported.find(s => s.reactNative === minor);
@@ -108,9 +108,11 @@ HERMES_VERSION="$(node -e '
       console.error("a range.");
       process.exit(1);
     }
-    process.stdout.write(entry.hermes);
+    process.stdout.write(entry.hermes + " " + entry.hermesTarget);
   }
 ' "$HERE/../supported-versions.json" "$RN_VERSION")" || exit 1
+HERMES_TARGET="${HERMES_VERSION##* }"
+HERMES_VERSION="${HERMES_VERSION%% *}"
 
 # --- ReactCxxPlatform -------------------------------------------------------
 # The one thing React Native does not put in its npm package.
@@ -211,7 +213,7 @@ fi
 # build target differently. Chasing that leads three compile errors deep into a
 # version nobody claimed to support. The table says what was actually tested,
 # and this refuses anything else rather than half-working.
-log "Hermes $HERMES_VERSION for React Native $RN_VERSION"
+log "Hermes $HERMES_VERSION (target $HERMES_TARGET) for React Native $RN_VERSION"
 
 # Keyed by version: switching React Native means a different Hermes, and a
 # stale build of the wrong one fails deep in a compile rather than here.
@@ -237,7 +239,8 @@ if [ ! -d "$TP/hermes" ]; then
   echo "$HERMES_VERSION" > "$HERMES_STAMP"
 fi
 
-if ! ls "$TP"/hermes-build/lib/libhermesvm.* >/dev/null 2>&1; then
+if ! ls "$TP"/hermes-build/lib/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1 && \
+   ! ls "$TP"/hermes-build/API/hermes/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1; then
   log "building Hermes (slow; RN's own host flags)"
   cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -247,7 +250,7 @@ if ! ls "$TP"/hermes-build/lib/libhermesvm.* >/dev/null 2>&1; then
     -DHERMESVM_HEAP_HV_MODE=HEAP_HV_PREFER32
   # -j is capped deliberately: a full-width build makes laptops unusable and
   # pins the fans for minutes afterwards.
-  nice -n 10 cmake --build "$TP/hermes-build" --target hermesvm -j "${BUILD_JOBS:-12}"
+  nice -n 10 cmake --build "$TP/hermes-build" --target "$HERMES_TARGET" -j "${BUILD_JOBS:-12}"
 fi
 
 # --- yarn -------------------------------------------------------------------
@@ -300,11 +303,28 @@ if [ ! -d "$TP/codegen/react" ] || [ "$(cat "$CODEGEN_STAMP" 2>/dev/null)" != "$
   fi
   log "generating codegen artifacts for React Native $RN_VERSION"
   CODEGEN_TMP="$(mktemp -d)"
+  # Failure is judged by what it produced, not by its exit status. React Native
+  # 0.81's codegen writes every artifact, prints "Done", and then exits non-zero
+  # after failing to stat an output directory it never used, because -f does not
+  # exist there and core artifacts went to its own fixed folder instead. The
+  # check below is the real one.
   (cd "$RN_PKG" && ${NODE_RUN[@]+"${NODE_RUN[@]}"} node scripts/generate-codegen-artifacts.js \
-      -p . -t android -o "$CODEGEN_TMP" -s library -f)
+      -p . -t android -o "$CODEGEN_TMP" -s library -f) || true
 
+  # Where the output lands depends on the version. 0.87 and main honour -f and
+  # write core artifacts to the path given. 0.81 has no such flag: its core
+  # libraries have a fixed output folder inside React Native itself, so the
+  # artifacts appear under the package's own ReactAndroid/build. That writes
+  # generated files into node_modules, which is what React Native does on
+  # Android too, and they are regenerable.
+  #
+  # Detected by looking rather than by version, so a future layout change fails
+  # with the message below instead of being mistaken for one of these two.
   JNI="$CODEGEN_TMP/android/app/build/generated/source/codegen/jni"
-  [ -d "$JNI/react" ] || die "codegen produced no react/ tree at $JNI"
+  if [ ! -d "$JNI/react" ]; then
+    JNI="$RN_PKG/ReactAndroid/build/generated/source/codegen/jni"
+  fi
+  [ -d "$JNI/react" ] || die "codegen produced no react/ tree, in $CODEGEN_TMP or $RN_PKG/ReactAndroid/build"
   mkdir -p "$TP/codegen"
   cp -R "$JNI/react" "$TP/codegen/"
   cp "$JNI"/*.h "$JNI"/*.cpp "$TP/codegen/" 2>/dev/null || true

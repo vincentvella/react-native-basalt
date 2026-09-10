@@ -112,12 +112,22 @@ find_package(CURL REQUIRED)
 # --- Hermes ----------------------------------------------------------------
 # Built separately from RN's pinned tarball; see README. Fantom locates the
 # same library out of its Android hermes-engine build dir.
-find_library(HERMES_VM_LIBRARY hermesvm
+# Two names, because Hermes renamed the library. React Native 0.81's Hermes
+# builds `libhermes`; the one 0.87 and main use builds `libhermesvm`. Which one
+# is present follows from the version in supported-versions.json, so this looks
+# for either rather than being told.
+find_library(HERMES_VM_LIBRARY NAMES hermesvm hermes
   HINTS ${HERMES_BUILD_DIR}/API/hermes ${HERMES_BUILD_DIR}/lib
   REQUIRED)
-add_library(hermes-engine::hermesvm INTERFACE IMPORTED)
-set_target_properties(hermes-engine::hermesvm PROPERTIES
-  INTERFACE_LINK_LIBRARIES ${HERMES_VM_LIBRARY})
+# Both names, for the same reason the find_library above takes both: React
+# Native 0.81's own CMakeLists link hermes-engine::libhermes, and 0.87 and main
+# link hermes-engine::hermesvm. Only one of them is ever referenced by a given
+# React Native, and defining the other costs nothing.
+foreach(hermes_alias hermesvm libhermes)
+  add_library(hermes-engine::${hermes_alias} INTERFACE IMPORTED)
+  set_target_properties(hermes-engine::${hermes_alias} PROPERTIES
+    INTERFACE_LINK_LIBRARIES ${HERMES_VM_LIBRARY})
+endforeach()
 
 # Hermes' public headers must be globally visible: RN's own hermes/executor and
 # hermes/inspector-modern targets include <hermes/hermes.h> without declaring a

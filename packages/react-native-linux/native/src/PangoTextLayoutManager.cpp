@@ -26,12 +26,22 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
                                            const LayoutConstraints &layoutConstraints) const {
   const auto &attributedString = attributedStringBox.getValue();
 
+  // pointScaleFactor joined the cache key in React Native 0.83. On 0.81 the key
+  // has three fields and naming a fourth is a compile error. Its absence only
+  // makes the cache coarser there, and since nothing below uses the factor --
+  // see the note further down -- coarser is harmless.
   const TextMeasureCacheKey key{
       .attributedString = attributedString,
       .paragraphAttributes = paragraphAttributes,
       .layoutConstraints = layoutConstraints,
+#if RN_LINUX_RN_MINOR >= 83
       .pointScaleFactor = layoutContext.pointScaleFactor,
+#endif
   };
+
+#if RN_LINUX_RN_MINOR < 83
+  (void)layoutContext;
+#endif
 
   return textMeasureCache_.get(key, [&]() {
     // An infinite maximum width means "do not wrap"; Pango wants -1 for that.

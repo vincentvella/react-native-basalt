@@ -65,7 +65,41 @@ the point. 0.83 through 0.86 were previously described as "expected to work",
 which was a prediction wearing the clothes of support; they are now listed as
 untested and refused.
 
-kino stays unrunnable. It pins 0.81.6, which needs `RN$TurboInterop` for any
-native module to resolve *and* a Hermes whose build this bootstrap cannot drive,
-and it then stops at Expo's native runtime regardless. Supporting it is a
-decision to support 0.81, not a bug to fix.
+kino stays unrunnable. It pins 0.81.6, and supporting that was attempted and
+stopped; see below.
+
+## What supporting 0.81 turned out to cost
+
+Attempted deliberately after the table was in place, and abandoned with the
+evidence rather than the guess. Six differences, in the order they appeared:
+
+1. Its Hermes builds `libhermes`, not `hermesvm`, and React Native links
+   `hermes-engine::libhermes`. **Fixed**, and generically: the build now accepts
+   either name.
+2. Its codegen has no `-f` flag, so core artifacts go to a fixed folder inside
+   React Native itself, and it exits non-zero after printing "Done" because it
+   then fails to stat an output directory it never used. **Fixed**, by judging
+   the run on what it produced.
+3. `TextAlignment` has no `Start` or `End`, and `TextMeasureCacheKey` has no
+   `pointScaleFactor`. **Fixed**, with a version macro and two guards.
+4. `BaseTouch` has no `timeStamp`. Another guard, not written.
+5. There is no `react/renderer/animationbackend`, only `react/renderer/animations`,
+   so `GtkAnimationChoreographer` would have to be compiled out entirely.
+6. `ReactHost` takes eleven parameters rather than twelve, takes
+   `TurboModuleManagerDelegates` rather than `TurboModuleProviders`, and has no
+   choreographer parameter at all. That is a second host construction path, not
+   a guard.
+
+And underneath all of it: **0.81 has no websocket client**. It ships
+`IWebSocketClient` with nothing behind it; the boost implementation arrived
+later. So no packager connection, no Fast Refresh, and no websockets for the
+app. Writing one is larger than everything above put together.
+
+The first three were worth doing regardless and are kept: they make the build
+tolerant rather than 0.81-specific, and the fifth of them uncovered a real
+latent bug, a `SYSTEM` include hardcoded to a path that does not exist when
+React Native is installed rather than checked out.
+
+The rest is a permanent second code path through the host, for the version that
+would also be the most degraded. That is a decision about one app, not a gap to
+close on principle, and kino would still stop at Expo afterwards.

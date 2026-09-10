@@ -23,13 +23,15 @@
       "reactNative": "0.87",
       "hermes": "250829098.0.0-stable",
       "verified": "0.87.1",
-      "notes": "60/60 unit and 5/5 end-to-end, macOS and CI. What CI pins."
+      "notes": "60/60 unit and 5/5 end-to-end, macOS and CI. What CI pins.",
+      "hermesTarget": "hermesvm"
     }
   ],
   "development": {
     "reactNative": "1000.0.0",
     "hermes": "250829098.0.0-stable",
-    "notes": "React Native main, which calls itself 1000.0.0. Where development happens; the weekly drift job tracks it."
+    "notes": "React Native main, which calls itself 1000.0.0. Where development happens; the weekly drift job tracks it.",
+    "hermesTarget": "hermesvm"
   },
   "known-unsupported": [
     {
@@ -38,7 +40,17 @@
     },
     {
       "reactNative": "0.82 and older",
-      "why": "TurboModuleRegistry gates its fallback behind RN$Bridgeless, so no native module resolves without RN$TurboInterop. 0.81 additionally pins a Hermes whose CMake target this bootstrap cannot drive. See plan/10-first-real-app.md."
+      "why": "Attempted for 0.81.6 and stopped deliberately. Six differences, of which the last three are structural.",
+      "what-it-would-take": [
+        "RN$TurboInterop set before the bundle evaluates, or no native module resolves at all.",
+        "Its Hermes builds `libhermes` rather than `hermesvm`, and React Native links `hermes-engine::libhermes`. Both handled already.",
+        "Its codegen has no -f flag, writes core artifacts inside the package, and exits non-zero after printing Done. Handled already.",
+        "Our own sources need version guards: TextAlignment has no Start or End, TextMeasureCacheKey has no pointScaleFactor, BaseTouch has no timeStamp. The first two are done.",
+        "GtkAnimationChoreographer has to be compiled out: there is no react/renderer/animationbackend, only react/renderer/animations.",
+        "ReactHost takes eleven parameters rather than twelve, takes TurboModuleManagerDelegates rather than TurboModuleProviders, and has no choreographer parameter. A second host construction path.",
+        "There is no websocket client. 0.81 ships IWebSocketClient with no implementation behind it, so no packager connection, no Fast Refresh, and no websockets for the app. Writing one is the largest piece."
+      ],
+      "verdict": "A permanent second code path through the host, for the version that would also be the most degraded. Worth doing only for a specific app that needs it, and kino would still stop at Expo afterwards."
     }
   ]
 }

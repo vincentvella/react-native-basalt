@@ -110,7 +110,10 @@ if(DEFINED RN_DIR)
   target_include_directories(rn_mounting SYSTEM PUBLIC
     ${RN_DIR}/ReactCommon
     ${RN_DIR}/ReactCommon/jsi
-    ${RN_DIR}/ReactCxxPlatform
+    # Not ${RN_DIR}/ReactCxxPlatform: when React Native is an installed package
+    # that directory does not exist and this one is the fetched copy. Latent
+    # until a version whose headers are not -Wextra clean, which 0.81 is.
+    ${REACT_CXX_PLATFORM_DIR}
     ${FOLLY_DIR}
     # Out-of-tree platforms pick a variant for each seam that has one. The cxx
     # variants are the generic implementations; textlayoutmanager/cxx is a stub

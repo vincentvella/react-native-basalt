@@ -35,6 +35,14 @@ message(STATUS "React Native ${RN_VERSION} (${RN_DIR})")
 # because ReactCxxPlatform hardcodes 1000.0.0 and so can never match a release.
 add_compile_definitions(RN_LINUX_REACT_NATIVE_VERSION="${RN_VERSION}")
 
+# The minor, as a number, for the handful of places this platform's own sources
+# have to differ between supported React Natives. `main` calls itself 1000.0.0,
+# which sorts above every release, which is what you want.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)" _ ${RN_VERSION})
+math(EXPR RN_MINOR "${CMAKE_MATCH_1} * 1000 + ${CMAKE_MATCH_2}")
+add_compile_definitions(RN_LINUX_RN_MINOR=${RN_MINOR})
+message(STATUS "React Native minor code ${RN_MINOR}")
+
 # Codegen output belongs to exactly one React Native version: the generated
 # spec headers name every feature flag that version has. Building against a
 # different one fails deep inside React Native's own sources, on flags that
@@ -441,13 +449,23 @@ target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_jsidynamic>)
 # CMakeLists for react/http globs only its own directory, so nothing compiles
 # it. It defines getWebSocketClientFactory(), the seam every host has to fill,
 # and the packager connection is what needs it.
-add_library(rn_websocket OBJECT
-        ${REACT_CXX_PLATFORM_DIR}/react/http/platform/cxx/WebSocketClient.cpp)
-target_include_directories(rn_websocket PUBLIC
-        ${REACT_CXX_PLATFORM_DIR} ${REACT_COMMON_DIR} ${FOLLY_DIR})
-target_link_libraries(rn_websocket folly_runtime glog boost fmt double-conversion)
-target_compile_options(rn_websocket PRIVATE -Wno-unknown-pragmas)
-target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_websocket>)
+# It only exists from 0.83 or so. React Native 0.81 ships the IWebSocketClient
+# interface with no implementation behind it, so a host on that version has no
+# websocket client and therefore no packager connection: no Fast Refresh, and no
+# websockets for the app either. Not a gap this build can paper over, so it is
+# reported and the target skipped.
+set(RN_WEBSOCKET_SRC ${REACT_CXX_PLATFORM_DIR}/react/http/platform/cxx/WebSocketClient.cpp)
+if(EXISTS ${RN_WEBSOCKET_SRC})
+  add_library(rn_websocket OBJECT ${RN_WEBSOCKET_SRC})
+  target_include_directories(rn_websocket PUBLIC
+          ${REACT_CXX_PLATFORM_DIR} ${REACT_COMMON_DIR} ${FOLLY_DIR})
+  target_link_libraries(rn_websocket folly_runtime glog boost fmt double-conversion)
+  target_compile_options(rn_websocket PRIVATE -Wno-unknown-pragmas)
+  target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_websocket>)
+else()
+  message(STATUS "React Native ${RN_VERSION} bundles no websocket client; "
+                 "the packager connection and Fast Refresh will not work")
+endif()
 target_link_libraries(rn_core INTERFACE yogacore folly_runtime glog boost fmt
         double-conversion fast_float)
 
