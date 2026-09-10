@@ -139,6 +139,24 @@ void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y)
 // Returns a newly allocated string; free with g_free.
 char *rn_view_describe_tree(RnView *self);
 
+// Turns this view into a text field, or back.
+//
+// The editable is a real GtkText -- the widget behind GtkEntry -- parented
+// inside this one and sized to its whole frame. Using GTK's own editable rather
+// than drawing a cursor on a PangoLayout is what brings input methods,
+// selection, the clipboard and every keybinding a Linux user expects, none of
+// which is worth reimplementing.
+//
+// Returns the editable, or NULL after clearing.
+GtkText *rn_view_set_editable(RnView *self, gboolean editable);
+
+// The border and padding to hold the native peer inside. Yoga has already
+// resolved these into React Native's content inset; without them a <TextInput>
+// renders its text flush against its own border, ignoring paddingHorizontal.
+void rn_view_set_peer_insets(RnView *self, const GtkBorder *insets);
+void rn_view_get_peer_insets(RnView *self, GtkBorder *out);
+GtkText *rn_view_get_editable(RnView *self);
+
 // Accessibility, as a screen reader sees it.
 //
 // `label` is the accessible name and `description` the hint; either may be NULL

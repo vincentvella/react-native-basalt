@@ -99,6 +99,7 @@ GdkRGBA toRgba(const ColorComponents &components) {
 
 GtkMountingManager::GtkMountingManager()
     : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }),
       mainThreadId_(std::this_thread::get_id()) {}
 
 GtkMountingManager::~GtkMountingManager() noexcept {
@@ -125,6 +126,20 @@ gboolean applyPendingMount(gpointer data) {
   auto *pending = static_cast<PendingMount *>(data);
   pending->manager->applyTransaction(pending->surfaceId, std::move(pending->transaction));
   delete pending;
+  return G_SOURCE_REMOVE;
+}
+
+// The same trip for an imperative command. See dispatchCommand below.
+struct PendingCommand {
+  GtkMountingManager *manager;
+  Tag tag;
+  std::string name;
+  folly::dynamic args;
+};
+
+gboolean applyPendingCommand(gpointer data) {
+  std::unique_ptr<PendingCommand> pending{static_cast<PendingCommand *>(data)};
+  pending->manager->applyCommand(pending->tag, pending->name, pending->args);
   return G_SOURCE_REMOVE;
 }
 
@@ -192,6 +207,7 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
           eventEmitters_.erase(tag);
           imageUris_.erase(tag);
           scrollViews_.remove(tag);
+          textInputs_.remove(tag);
         } else {
           g_warning("Delete for unknown tag %d", static_cast<int>(tag));
         }
@@ -256,13 +272,34 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
 void GtkMountingManager::dispatchCommand(const ShadowView &shadowView,
                                          const std::string &commandName,
                                          const folly::dynamic &args) {
-  if (scrollViews_.dispatchCommand(shadowView.tag, commandName, args)) {
+  // This arrives on the JS thread, inside the event loop's rendering update,
+  // exactly like executeMount -- so it may not touch a widget either. That was
+  // survivable while the only commands were ScrollView's, which only move an
+  // adjustment; TextInput's `focus` reaches the platform input method, and on
+  // macOS AppKit asserts it is on the main thread and traps the process.
+  //
+  // Queued at the same priority as a mount, so it stays behind the transaction
+  // that created the view it names: g_idle sources at equal priority run in
+  // the order they were added.
+  auto *pending = new PendingCommand{this, shadowView.tag, commandName, args};
+  g_idle_add_full(G_PRIORITY_DEFAULT, applyPendingCommand, pending, nullptr);
+}
+
+void GtkMountingManager::applyCommand(Tag tag,
+                                      const std::string &commandName,
+                                      const folly::dynamic &args) {
+  assert(std::this_thread::get_id() == mainThreadId_ &&
+         "applyCommand must run on the GTK main thread");
+
+  if (scrollViews_.dispatchCommand(tag, commandName, args)) {
     return;
   }
-  // TODO(commands): focus/blur once TextInput exists.
+  if (textInputs_.dispatchCommand(tag, commandName, args)) {
+    return;
+  }
   g_debug("dispatchCommand '%s' on tag %d is not implemented",
           commandName.c_str(),
-          static_cast<int>(shadowView.tag));
+          static_cast<int>(tag));
 }
 
 ComponentRegistryFactory GtkMountingManager::getComponentRegistryFactory() {
@@ -425,6 +462,13 @@ void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shad
   rn_view_set_accessible_hidden(view, hidden ? TRUE : FALSE);
 }
 
+void GtkMountingManager::applyTextInput(RnView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "TextInput") {
+    return;
+  }
+  textInputs_.update(view, shadowView);
+}
+
 void GtkMountingManager::applyScrollView(RnView *view, const ShadowView &shadowView) {
   if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "ScrollView") {
     return;
@@ -439,7 +483,7 @@ bool GtkMountingManager::hasComponent(const std::string &name) {
   // ScrollView's content child arrives as "ScrollContentView", which the
   // registry rewrites to "View" before it reaches here, so it needs no entry.
   return name == "View" || name == "RootView" || name == "Paragraph" || name == "Image" ||
-      name == "ScrollView";
+      name == "ScrollView" || name == "TextInput";
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +540,7 @@ void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowV
   applyText(view, shadowView);
   applyImage(view, shadowView);
   applyAccessibility(view, shadowView);
+  applyTextInput(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before

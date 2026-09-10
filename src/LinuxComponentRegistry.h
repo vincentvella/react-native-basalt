@@ -11,6 +11,7 @@
 #include <react/renderer/componentregistry/ComponentDescriptorFactory.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -43,6 +44,10 @@ inline ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // UnimplementedNativeView, which has no ScrollViewState, and the symptom
       // is a ScrollView that renders but never scrolls.
       registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+      // React Native's *iOS* TextInput, whose C++ is portable: it measures
+      // through a TextLayoutManager, which here is the Pango one. Android's
+      // needs fbjni. Its component name is "TextInput".
+      registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

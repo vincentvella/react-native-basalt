@@ -51,10 +51,14 @@ MODULE = "RNLinuxDemo"
 # button row sits at the bottom of a 900x700 window, inside 24pt of padding.
 WINDOW = (900, 700)
 BUTTON_Y = 650
-SCROLL_TO_TOP = (233, BUTTON_Y)
+# Three buttons share the 852pt content row with 12pt gaps, so each is 272 wide.
+SCROLL_TO_TOP = (160, BUTTON_Y)
 # Deliberately on the label's glyphs rather than the button's background, so
 # this also proves a touch on a child bubbles to the Pressable that handles it.
-SCROLL_TO_END_LABEL = (657, BUTTON_Y)
+SCROLL_TO_END_LABEL = (444, BUTTON_Y)
+FOCUS_THE_FIELD = (728, BUTTON_Y)
+# The middle of the text field itself, for a tap that focuses it directly.
+TEXT_FIELD = (184, 207)
 
 
 class Failure(Exception):
@@ -104,7 +108,13 @@ def click_with_xdotool(points: list[tuple[int, int]]) -> None:
         time.sleep(1.0)
 
 
-def run_host(bundle: Path, taps: str = "", run_ms: int = 4000) -> str:
+def type_with_xdotool(text: str) -> None:
+    """Types through the X server, so GDK and the input method see the keys."""
+    subprocess.run(["xdotool", "type", "--delay", "80", text], check=True)
+    time.sleep(1.5)
+
+
+def run_host(bundle: Path, taps: str = "", run_ms: int = 4000, typing: str = "") -> str:
     """Runs the host once and returns the widget tree it dumped."""
     points = [
         (int(part.split(",")[0]), int(part.split(",")[1]))
@@ -118,14 +128,17 @@ def run_host(bundle: Path, taps: str = "", run_ms: int = 4000) -> str:
         env["RN_LINUX_DUMP_TREE"] = str(dump)
         env["RN_LINUX_QUIT_AFTER_MS"] = str(run_ms)
         env.pop("RN_LINUX_TEST_TAP", None)
+        env.pop("RN_LINUX_TEST_TYPE", None)
 
         if points and INPUT_MODE == "injected":
             env["RN_LINUX_TEST_TAP"] = taps
+        if typing and INPUT_MODE == "injected":
+            env["RN_LINUX_TEST_TYPE"] = typing
 
         command = [str(HOST), str(bundle), MODULE]
         timeout = run_ms / 1000 + 60
 
-        if points and INPUT_MODE == "real":
+        if (points or typing) and INPUT_MODE == "real":
             process = subprocess.Popen(
                 command, cwd=REPO, env=env, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True,
@@ -134,6 +147,8 @@ def run_host(bundle: Path, taps: str = "", run_ms: int = 4000) -> str:
             time.sleep(4)
             try:
                 click_with_xdotool(points)
+                if typing:
+                    type_with_xdotool(typing)
             finally:
                 _, stderr = process.communicate(timeout=timeout)
             check_output(stderr, process.returncode)
@@ -250,10 +265,48 @@ def test_scroll_round_trip(bundle: Path) -> None:
         raise Failure("the offset label did not follow the scroll back to zero")
 
 
+def editable_value(tree: str) -> str:
+    """The text inside the only <TextInput> in the tree."""
+    match = re.search(r'editable="([^"]*)"', tree)
+    if match is None:
+        raise Failure("no text field in the widget tree; is the TextInput mounted?")
+    return match.group(1)
+
+
+def test_text_input(bundle: Path) -> None:
+    # The field is focused through the third button rather than by tapping it,
+    # so this covers the focus command as well as the typing. The value is
+    # controlled by React, so what ends up in the widget is only there because
+    # onChange reached JavaScript and the new value came back down.
+    tree = run_host(
+        bundle,
+        taps=f"{FOCUS_THE_FIELD[0]},{FOCUS_THE_FIELD[1]}",
+        typing="Ada",
+        run_ms=9000,
+    )
+
+    if "focused" not in tree:
+        raise Failure("the focus command did not move focus to the field")
+
+    value = editable_value(tree)
+    if value != "Ada":
+        raise Failure(f"the field holds {value!r}, not the text that was typed")
+
+    # The echo label is rendered from React state, so it only says this if
+    # onChangeText fired. Without it the widget could hold the right text
+    # purely because GtkText kept it, with JavaScript none the wiser.
+    expect_contains(
+        tree,
+        'text="hello, Ada"',
+        "onChangeText never reached React; the field is not controlled",
+    )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
     ("scroll away and back", test_scroll_round_trip),
+    ("focus a TextInput, type, and see it round-trip through React", test_text_input),
 ]
 
 

@@ -124,6 +124,13 @@ unconditional even when already on the main thread, because GLib idle sources
 at equal priority run in insertion order, and that ordering is what keeps the
 mutation stream correct.
 
+Imperative commands take the same trip, for the same reason.
+`schedulerDidDispatchCommand` arrives on the JS thread inside that same
+rendering update, so `dispatchCommand` queues onto an idle source and
+`applyCommand` does the widget work. Queuing at the same priority as a mount is
+not incidental: it keeps a command behind the transaction that created the view
+it names, which is what `focus()` on a freshly mounted field depends on.
+
 `RunLoopObserverManager`, despite the name, is **not** what drives mounting. It
 creates the `EventBeat` that flushes the event queue in step with the run loop.
 
@@ -200,6 +207,30 @@ Only `Paragraph` of the three text descriptors mounts: `<Text>` becomes a Text
 node and its string a RawText node, both of which live only in the shadow tree,
 folded into the outermost `<Text>`'s `AttributedString`.
 
+## Text input
+
+`<TextInput>` is React Native's *iOS* C++ component, compiled unchanged. Its
+props, shadow node, state and event emitter include nothing but ReactCommon
+headers and measure through whatever `TextLayoutManager` is installed, which
+here is the Pango one. Android's variant includes `fbjni` and calls into a Java
+`FabricUIManager`, so it is unusable outside an Android build.
+
+The editing is a real `GtkText` -- the widget inside `GtkEntry` -- held as a
+non-`RnView` child of the view Fabric mounted, and allocated inside that view's
+content inset so padding and borders apply. It brings input methods, selection,
+the clipboard and every Linux keybinding with it.
+
+The interesting problem is that `<TextInput>` is a controlled component while
+`GtkText` holds state of its own, so `src/GtkTextInput.cpp` exists mostly to
+reconcile the two: an `applying` flag so pushing a prop is not reported back as
+typing, a saved cursor position so the caret does not go home mid-word, and
+React Native's `eventCount` so a command older than what the user has since
+typed is dropped. See `plan/09-textinput.md`.
+
+The JavaScript side is this project's own file rather than React Native's, which
+branches on `Platform.OS` being exactly `'android'` or `'ios'` and renders
+undefined on anything else. It is the only fork in the tree.
+
 ## Text layout
 
 The single largest remaining piece. `textlayoutmanager/platform/cxx` is a stub:
@@ -241,8 +272,8 @@ are documented in the project README.
 | 6 | `<Image>`, `<ScrollView>` | **done** |
 | 7 | Accessibility, and a test suite | **done** |
 | 8 | The `linux` Metro platform | **done** |
-| 9 | `<TextInput>`, keyboard and focus | next |
-| 10 | `run-linux` CLI, packaging | |
+| 9 | `<TextInput>` | **done** |
+| 10 | `run-linux` CLI, packaging | next |
 
 ## Testing
 

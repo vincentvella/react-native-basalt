@@ -152,6 +152,21 @@ also confirmed the wheel path converts notches to pixels exactly as intended.
 Wayland *input* is still unverified -- a headless compositor has no seat, so
 there is no pointer to move. That needs a desktop session or real hardware.
 
+## A threading bug worth remembering, 2026-09-09
+
+`GtkMountingManager::dispatchCommand` was calling into GTK from the JavaScript
+thread. It had always been wrong and had never mattered, because the only
+commands were `ScrollView`'s and moving an adjustment touches nothing
+reentrant. `<TextInput>`'s `focus` reaches the platform input method, and on
+macOS AppKit asserts it is on the main thread and traps the whole process.
+
+Two things are worth taking from it. The bug was found on *macOS*, which
+inverts the pattern every other portability bug in this project has followed --
+so "it only breaks on Linux" is not a rule. And it was latent for two phases:
+GTK is not thread-safe either, so the Linux builds were relying on luck rather
+than on being correct. Anything reached from a scheduler delegate callback
+should be assumed to be on the JavaScript thread until proven otherwise.
+
 ## The honest caveat about the platform
 
 This is a *Linux* platform. Developing it on macOS means testing against a GTK

@@ -55,7 +55,9 @@ Not scheduled. Roughly by value.
 - `Touch::offsetPoint` carries page coordinates rather than coordinates relative
   to the target view. Pressability does not read it; anything doing its own hit
   maths would.
-- No keyboard, no focus, no key events.
+- No keyboard focus model outside `<TextInput>`, which takes focus only because
+  GtkText does. Nothing else is reachable by Tab, and no key events are
+  emitted.
 - Multi-touch is not modelled: one pointer, identifier 0.
 - Wayland input is unverified. Rendering is checked on Wayland and input on
   X11, but not both at once: a headless compositor has no seat, so there is no
@@ -104,6 +106,28 @@ Not scheduled. Roughly by value.
   layout-only updates that did not change the text.
 - All measurement serialises on one mutex; see `plan/decisions.md`.
 - Text is not selectable and reports nothing to AT-SPI.
+
+## TextInput
+
+- No `multiline`. `RCTMultilineTextInputView` is not registered, and the C++
+  side would need a `GtkTextView` peer rather than a `GtkText`.
+- `onKeyPress` and `onSelectionChange` are never emitted. Both are cheap -- a
+  `GtkEventControllerKey` and GtkText's `notify::cursor-position` -- and both
+  were left out to keep the first version small.
+- No `selection` prop, so a controlled selection is impossible.
+- No shared focus registry: `TextInput.State.currentlyFocusedInput()` does not
+  exist, and nothing else can ask what has focus. React Native's own
+  `TextInputState` module talks to a TurboModule this platform does not have.
+- `blur` grabs focus for the window rather than dropping it, because GTK models
+  focus as moving, not as absent. The `onBlur` event is still correct.
+- `placeholderTextColor`, `selectionColor` and `cursorColor` are parsed and
+  ignored. GtkText takes those from CSS, not from a `PangoAttrList`, and this
+  platform has no per-widget CSS provider.
+- `TextInput.linux.js` is a fork of React Native's component, and the only fork
+  in the tree. Every prop upstream adds is a prop it will not have.
+- `autoCapitalize`, `autoCorrect`, `spellCheck`, `keyboardType`,
+  `returnKeyType`, `clearButtonMode`, `selectTextOnFocus` and
+  `clearTextOnFocus` are ignored.
 
 ## Accessibility
 

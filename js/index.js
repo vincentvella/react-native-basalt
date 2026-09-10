@@ -16,6 +16,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -77,7 +78,10 @@ function PropsStrip() {
 
 function App() {
   const [offsetY, setOffsetY] = useState(0);
+  const [name, setName] = useState('');
+  const [focused, setFocused] = useState(false);
   const scroller = useRef(null);
+  const field = useRef(null);
 
   return (
     <View style={styles.root}>
@@ -91,6 +95,23 @@ function App() {
       <View style={styles.statusRow}>
         <Text style={styles.status}>contentOffset.y</Text>
         <Text style={styles.statusValue}>{String(Math.round(offsetY))}</Text>
+      </View>
+
+      <View style={styles.fieldRow}>
+        <TextInput
+          ref={field}
+          style={[styles.field, focused && styles.fieldFocused]}
+          value={name}
+          onChangeText={setName}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onSubmitEditing={() => setName(name.toUpperCase())}
+          placeholder="type a name, then press Enter"
+          accessibilityLabel="Name field"
+        />
+        <Text style={styles.echo} numberOfLines={1}>
+          {name.length > 0 ? `hello, ${name}` : 'waiting for onChangeText'}
+        </Text>
       </View>
 
       <ScrollView
@@ -121,6 +142,11 @@ function App() {
           label="scroll to end"
           color={PALETTE[3]}
           onPress={() => scroller.current?.scrollToEnd({animated: false})}
+        />
+        <Button
+          label="focus the field"
+          color={PALETTE[1]}
+          onPress={() => field.current?.focus()}
         />
       </View>
     </View>
@@ -168,6 +194,22 @@ const styles = StyleSheet.create({
   marker: {width: 16, height: 16, backgroundColor: '#f7f8fa'},
   stack: {width: 120, height: 64},
   stacked: {position: 'absolute', width: 72, height: 44, borderRadius: 8},
+
+  fieldRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 12},
+  field: {
+    width: 320,
+    height: 44,
+    marginRight: 16,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#2b3140',
+    backgroundColor: '#1a1e28',
+    fontSize: 17,
+    color: '#f7f8fa',
+  },
+  fieldFocused: {borderColor: PALETTE[0]},
+  echo: {fontSize: 17, color: '#56c98a'},
 
   statusRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 12},
   status: {fontSize: 15, color: '#7f8794', marginRight: 10},

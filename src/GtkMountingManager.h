@@ -8,6 +8,7 @@
 
 #include "GtkImageLoader.h"
 #include "GtkScrollView.h"
+#include "GtkTextInput.h"
 #include "RnView.h"
 
 #include <react/renderer/core/EventEmitter.h>
@@ -62,6 +63,13 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   // Applies a transaction to the widget tree. Invoked on the GTK main thread by
   // executeMount's marshalling -- not part of IMountingManager, and never to be
   // called directly.
+  // The main-thread half of dispatchCommand, public for the same reason
+  // applyTransaction is: the idle callback that carries it across has to call
+  // it, and the tests call it directly rather than spinning a main loop.
+  void applyCommand(facebook::react::Tag tag,
+                    const std::string &commandName,
+                    const folly::dynamic &args);
+
   void applyTransaction(facebook::react::SurfaceId surfaceId,
                         facebook::react::MountingTransaction &&transaction);
 
@@ -75,6 +83,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void applyImage(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyScrollView(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyAccessibility(RnView *view, const facebook::react::ShadowView &shadowView);
+  void applyTextInput(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
   // Views are held with a strong reference from Create until Delete. Between a
@@ -87,6 +96,7 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
 
   GtkImageLoader imageLoader_;
   GtkScrollViewManager scrollViews_;
+  GtkTextInputManager textInputs_;
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load.

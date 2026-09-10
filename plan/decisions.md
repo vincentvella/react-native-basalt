@@ -387,3 +387,46 @@ bundle URL from `constexpr DEFAULT_PLATFORM = "android"`, with no hook. Left
 alone, an app would be `Platform.OS === 'android'` under Fast Refresh and
 `'linux'` in a release build -- a worse trap than either value on its own. Metro's
 `server.rewriteRequestUrl` corrects the request on arrival instead.
+
+## `<TextInput>` reuses iOS's C++ and forks its JavaScript — 2026-09-09
+
+Both halves of that were forced, in opposite directions.
+
+The C++ was free. React Native's Android text input includes `fbjni` and calls
+a Java `FabricUIManager`; its iOS one includes nothing but ReactCommon and
+measures through whatever `TextLayoutManager` is installed, which here is the
+Pango one. So `TextInputComponentDescriptor`, `TextInputProps`,
+`TextInputShadowNode`, `TextInputState` and `TextInputEventEmitter` are compiled
+unchanged, under the name they declare, `TextInput`. React Native's own
+`componentNameByReactViewName` already maps `RCTSinglelineTextInputView` to it.
+
+The JavaScript could not be. `TextInput.js` is
+`if (Platform.OS === 'android') { ... } else if (Platform.OS === 'ios') { ... }`
+with no third branch, so on `linux` every component and command binding stays
+undefined and React reports an invalid element type. The alternatives were a
+third branch upstream, a patch, or a smaller file of our own. The first is not
+ours to make; the second drifts silently; the third is honest about being a
+subset. It is the only fork in the tree and should stay that way -- it is a
+debt, not a pattern.
+
+The editing itself is a real `GtkText` rather than a caret drawn on a
+`PangoLayout`. Input methods, selection, the clipboard and every Linux
+keybinding come with it, and each is easy to get subtly wrong. The cost is that
+the widget holds state React Native believes it owns, which is what the
+`applying` flag, the preserved cursor position and the `eventCount` check exist
+to reconcile.
+
+## Imperative commands run on the main thread — 2026-09-09
+
+`schedulerDidDispatchCommand` arrives on the JavaScript thread, inside the event
+loop's rendering update, exactly as `executeMount` does. `dispatchCommand` was
+calling straight into GTK from there, which was survivable only because the only
+commands were `ScrollView`'s: moving an adjustment touches nothing reentrant.
+`gtk_text_grab_focus` reaches the platform input method, and on macOS AppKit
+asserts it is on the main thread and traps the process.
+
+Commands now queue through `g_idle_add_full` at the same priority as a mount.
+That is not just for safety: equal-priority idle sources run in the order they
+were added, so a command still lands behind the transaction that created the
+view it names, which is the ordering React Native's `focus()`-on-mount depends
+on.

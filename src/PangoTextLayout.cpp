@@ -255,6 +255,16 @@ PangoLayout *buildTextLayout(const AttributedString &attributedString,
   return layout;
 }
 
+PangoAttrList *buildTextAttributes(const TextAttributes &textAttributes) {
+  const std::lock_guard<std::mutex> lock(pangoMutex());
+
+  PangoAttrList *attributes = pango_attr_list_new();
+  // G_MAXUINT is Pango's "to the end", so the list stays correct as the user
+  // types and the string it covers grows.
+  applyFragmentAttributes(attributes, textAttributes, 0, G_MAXUINT);
+  return attributes;
+}
+
 void textLayoutSize(PangoLayout *layout, float *outWidth, float *outHeight) {
   const std::lock_guard<std::mutex> lock(pangoMutex());
 

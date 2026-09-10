@@ -292,6 +292,43 @@ foreach(target ${RN_CORE_OBJECT_TARGETS})
 endforeach()
 
 # ---------------------------------------------------------------------------
+# <TextInput>, from React Native's *iOS* variant.
+#
+# React Native's own rrc_textinput target globs the base sources plus
+# platform/android, whose descriptor includes <fbjni/fbjni.h> and reaches into a
+# Java FabricUIManager for theme padding -- unusable off Android.
+#
+# The iOS variant is pure C++: TextInputShadowNode measures through a
+# TextLayoutManager, which on this platform is the Pango one, and nothing in it
+# touches Objective-C or an Apple SDK. Its component name is "TextInput", which
+# is the name packages/react-native-linux' TextInput.linux.js asks for.
+#
+# So this target takes the base sources and the iOS ones, and skips Android's.
+# ---------------------------------------------------------------------------
+set(RN_TEXTINPUT_DIR ${REACT_COMMON_DIR}/react/renderer/components/textinput)
+file(GLOB rn_textinput_SRC CONFIGURE_DEPENDS
+        ${RN_TEXTINPUT_DIR}/*.cpp
+        ${RN_TEXTINPUT_DIR}/platform/ios/react/renderer/components/iostextinput/*.cpp)
+add_library(rn_textinput OBJECT ${rn_textinput_SRC})
+# SYSTEM, for the same reason rn_mounting's React Native includes are: this
+# project builds with -Wall -Wextra and inherits -Werror from React Native's
+# own targets, and iostextinput/conversions.h has unused parameters. Plain -I
+# would make every file that includes it fail to compile.
+target_include_directories(rn_textinput SYSTEM PUBLIC
+        ${RN_TEXTINPUT_DIR}
+        ${RN_TEXTINPUT_DIR}/platform/ios
+        ${REACT_COMMON_DIR})
+target_link_libraries(rn_textinput
+        glog folly_runtime jsi react_debug
+        react_renderer_attributedstring react_renderer_componentregistry
+        react_renderer_core react_renderer_graphics react_renderer_imagemanager
+        react_renderer_mounting react_renderer_textlayoutmanager
+        react_renderer_uimanager react_utils rrc_image rrc_text rrc_view yoga)
+target_compile_options(rn_textinput PRIVATE -Wno-unknown-pragmas ${RN_EXTRA_FLAGS})
+target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_textinput>)
+target_link_libraries(rn_core INTERFACE rn_textinput)
+
+# ---------------------------------------------------------------------------
 # Text measurement: drop React Native's stub so ours is the only definition.
 #
 # react/renderer/textlayoutmanager globs platform/cxx/*.cpp, which is a

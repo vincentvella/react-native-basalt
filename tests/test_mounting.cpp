@@ -253,9 +253,10 @@ TEST(has_component_matches_the_registered_descriptors) {
   EXPECT(manager.hasComponent("Paragraph"));
   EXPECT(manager.hasComponent("Image"));
   EXPECT(manager.hasComponent("ScrollView"));
+  EXPECT(manager.hasComponent("TextInput"));
 
   // Claiming a component without a GTK peer is worse than admitting the gap:
   // the registry would build shadow nodes nothing can mount.
-  EXPECT(!manager.hasComponent("TextInput"));
   EXPECT(!manager.hasComponent("Switch"));
+  EXPECT(!manager.hasComponent("Slider"));
 }

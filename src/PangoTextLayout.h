@@ -17,6 +17,7 @@
 
 #include <react/renderer/attributedstring/AttributedString.h>
 #include <react/renderer/attributedstring/ParagraphAttributes.h>
+#include <react/renderer/attributedstring/TextAttributes.h>
 
 namespace rnlinux {
 
@@ -34,6 +35,17 @@ namespace rnlinux {
 PangoLayout *buildTextLayout(const facebook::react::AttributedString &attributedString,
                              const facebook::react::ParagraphAttributes &paragraphAttributes,
                              float maxWidth);
+
+// Builds a PangoAttrList applying `textAttributes` to a whole string, for the
+// widgets that hold their own text rather than a layout we built: GtkText takes
+// a PangoAttrList through gtk_text_set_attributes, which is the only way a
+// <TextInput> can honour `color`, `fontSize` and `fontFamily` from its style.
+// Without it the field renders in GTK's theme colour, which on a dark
+// background is dark text on dark.
+//
+// Returns a new reference; the caller owns it and must pango_attr_list_unref
+// it. Thread-safe on the same terms as buildTextLayout.
+PangoAttrList *buildTextAttributes(const facebook::react::TextAttributes &textAttributes);
 
 // The size of a laid-out paragraph, in points. Pango reports 1/1024ths of a
 // pixel, and forgetting to divide by PANGO_SCALE is the classic bug here.

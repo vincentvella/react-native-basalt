@@ -82,6 +82,14 @@ const PLATFORM_OVERRIDES = [
     path.join('Libraries', 'Utilities', 'Platform.js'),
     path.join(OVERRIDE_DIR, 'Platform.linux.js'),
   ],
+  [
+    // Not a shim: React Native's TextInput.js branches on `Platform.OS` being
+    // exactly 'android' or 'ios' and renders undefined on anything else. See
+    // the header of the replacement for why it is a rewrite rather than a
+    // third branch.
+    path.join('Libraries', 'Components', 'TextInput', 'TextInput.js'),
+    path.join(OVERRIDE_DIR, 'TextInput.linux.js'),
+  ],
 ];
 
 /**

@@ -1,5 +1,7 @@
 #include "RnView.h"
 
+#include <cstring>
+
 // ---------------------------------------------------------------------------
 // RnLayout
 // ---------------------------------------------------------------------------
@@ -49,7 +51,26 @@ static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
 
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child != nullptr;
        child = gtk_widget_get_next_sibling(child)) {
-    if (!gtk_widget_should_layout(child) || !RN_IS_VIEW(child)) {
+    if (!gtk_widget_should_layout(child)) {
+      continue;
+    }
+
+    // A native peer -- the GtkText inside a <TextInput> -- is not an RnView and
+    // has no frame of its own. It fills the view that owns it.
+    if (!RN_IS_VIEW(child)) {
+      GtkBorder insets = {0, 0, 0, 0};
+      if (RN_IS_VIEW(widget)) {
+        rn_view_get_peer_insets(RN_VIEW(widget), &insets);
+      }
+      // Clamped: a field narrower than its own padding would otherwise be
+      // allocated a negative size, which GTK treats as an error.
+      const int inner_width = MAX(width - insets.left - insets.right, 0);
+      const int inner_height = MAX(height - insets.top - insets.bottom, 0);
+      graphene_point_t offset;
+      offset.x = static_cast<float>(insets.left);
+      offset.y = static_cast<float>(insets.top);
+      GskTransform *peer_transform = gsk_transform_translate(nullptr, &offset);
+      gtk_widget_allocate(child, inner_width, inner_height, -1, peer_transform);
       continue;
     }
 
@@ -137,6 +158,15 @@ struct _RnView {
   gboolean has_transform;
 
   int z_index;
+
+  // Border plus padding, for the native peer below. React Native calls this a
+  // content inset and Yoga has already resolved it; a GtkText knows nothing
+  // about either and would otherwise sit flush against the border.
+  GtkBorder peer_insets;
+
+  // A GtkText when this view is a <TextInput>, otherwise NULL. Borrowed: the
+  // widget owns it once parented.
+  GtkText *editable;
 
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
@@ -336,6 +366,10 @@ static void rn_view_dispose(GObject *object) {
     child = next;
   }
 
+  // The generic loop above already unparented it, so this only drops the
+  // borrowed pointer.
+  self->editable = nullptr;
+
   g_clear_object(&self->text_layout);
   g_clear_object(&self->texture);
 
@@ -375,6 +409,7 @@ static void rn_view_init(RnView *self) {
   graphene_matrix_init_identity(&self->transform);
   self->has_transform = FALSE;
   self->z_index = 0;
+  self->editable = nullptr;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -391,6 +426,32 @@ RnView *rn_view_new_with_role(int tag, GtkAccessibleRole role) {
   RnView *self = RN_VIEW(g_object_new(RN_TYPE_VIEW, "accessible-role", role, nullptr));
   self->tag = tag;
   return self;
+}
+
+GtkText *rn_view_set_editable(RnView *self, gboolean editable) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+
+  if (!editable) {
+    if (self->editable != nullptr) {
+      gtk_widget_unparent(GTK_WIDGET(self->editable));
+      self->editable = nullptr;
+    }
+    return nullptr;
+  }
+
+  if (self->editable == nullptr) {
+    self->editable = GTK_TEXT(gtk_text_new());
+    // No frame of its own: the RnView draws the background and border from
+    // React Native's props, and a second one underneath would double them.
+    gtk_widget_add_css_class(GTK_WIDGET(self->editable), "rn-text-input");
+    gtk_widget_set_parent(GTK_WIDGET(self->editable), GTK_WIDGET(self));
+  }
+  return self->editable;
+}
+
+GtkText *rn_view_get_editable(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+  return self->editable;
 }
 
 void rn_view_set_accessible_text(RnView *self, const char *label, const char *description) {
@@ -451,6 +512,20 @@ void rn_view_set_accessible_hidden(RnView *self, gboolean hidden) {
 
 int rn_view_get_tag(RnView *self) {
   return self->tag;
+}
+
+void rn_view_set_peer_insets(RnView *self, const GtkBorder *insets) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (memcmp(&self->peer_insets, insets, sizeof(GtkBorder)) == 0) {
+    return;
+  }
+  self->peer_insets = *insets;
+  gtk_widget_queue_allocate(GTK_WIDGET(self));
+}
+
+void rn_view_get_peer_insets(RnView *self, GtkBorder *out) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  *out = self->peer_insets;
 }
 
 void rn_view_set_frame(RnView *self, float x, float y, float width, float height) {
@@ -651,6 +726,18 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
       char *escaped = g_strescape(text, nullptr);
       g_string_append_printf(out, " text=\"%s\"", escaped);
       g_free(escaped);
+    }
+  }
+
+  // A text field's content lives in its GtkText peer, not in a PangoLayout, so
+  // it would otherwise be invisible to every test that reads this tree.
+  if (self->editable != nullptr) {
+    const char *value = gtk_editable_get_text(GTK_EDITABLE(self->editable));
+    char *escaped = g_strescape(value != nullptr ? value : "", nullptr);
+    g_string_append_printf(out, " editable=\"%s\"", escaped);
+    g_free(escaped);
+    if (gtk_widget_has_focus(GTK_WIDGET(self->editable))) {
+      g_string_append(out, " focused");
     }
   }
 

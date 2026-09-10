@@ -36,6 +36,7 @@ interface has exactly two pure-virtual methods — `executeMount` and
     src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
     src/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
     src/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
+    src/GtkTextInput.*          <TextInput>, over a real GtkText.
     src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
                                 an emitter produces ever reaches JavaScript.
     src/main.cpp                The host: ReactHost, Hermes, one live surface.
@@ -211,6 +212,12 @@ Verified, on screen:
   honest.
 - **`<Image>` loads and paints.** Files, http(s) and base64 data URIs, decoded
   off the main thread, with `resizeMode` cover, contain, stretch and center.
+- **`<TextInput>` accepts typing, and it is genuinely controlled.** A real
+  `GtkText` does the editing, so input methods, selection, the clipboard and
+  every Linux keybinding come with it. Typing reaches React through `onChange`,
+  the value comes back down as a prop, and `focus`, `blur` and
+  `setTextAndSelection` all work. Verified by typing into it through an X
+  server, not by reasoning about it.
 - **Input works.** A press on a `<Pressable>` runs GTK hit test, touch event,
   event beat, React Native's responder system, `onPress`, `setState`,
   re-render, mutations, widgets.
@@ -218,9 +225,9 @@ Verified, on screen:
   it does on iOS and Android, and narrowing the window re-wraps them.
 - **React runs, from Metro, with Fast Refresh.**
 - **It works on Linux, not only on the Mac it is developed on.** Verified on
-  Ubuntu 24.04 arm64: 40/40 unit tests under a real Wayland compositor, the demo
-  rendering correctly, and the end-to-end suite passing with *real* pointer
-  events through the X server rather than injected ones.
+  Ubuntu 24.04 arm64: 56/56 unit tests, the demo rendering correctly, and the
+  end-to-end suite passing with *real* pointer and keyboard events through the X
+  server rather than injected ones.
 - **`<View>`'s prop surface is largely complete.** Border radii (elliptical, per
   corner), per-edge border widths and colours, `transform`, `zIndex`,
   `overflow` and `display: 'none'` all work. A transform is composed during
@@ -235,22 +242,23 @@ Verified, on screen:
   enforced by the build rather than asserted.
 
 None of that is checked by eye any more. `build/rn_tests` covers the mutation
-walk, the widget layer, text measurement, hit testing, the image loader and
-accessibility without a JavaScript runtime; `scripts/integration_test.py` runs
+walk, the widget layer, text measurement, hit testing, the image loader, text
+input and accessibility without a JavaScript runtime; `scripts/integration_test.py` runs
 the real host against the real bundle and asserts on the widget tree it dumps.
 On Linux it drives the host with real pointer events, so GDK's own delivery is
 covered too. See `docs/TESTING.md` for what is still not.
 
 Not yet done:
 
-- **No `<TextInput>`**, and the reason is still not rendering. React Native's
-  Android text input needs fbjni and calls into a Java `FabricUIManager`; its
-  iOS one is portable but only reachable from an iOS bundle. With the `linux`
-  platform in place the way is now clear -- a `TextInput.linux.js` naming a
-  component this platform defines -- but it also needs keyboard input and a
-  focus model, neither of which exists.
-- **No keyboard focus**, so nothing is reachable by Tab, and a screen reader can
-  read the interface but not drive it.
+- **`<TextInput>` is a subset.** No `multiline`, no `selection` prop, no
+  `onKeyPress`, no `onSelectionChange`, and no shared focus registry, so
+  `TextInput.State.currentlyFocusedInput()` is not there. The JavaScript side is
+  this project's own file rather than React Native's, which branches on
+  `Platform.OS` being exactly `'android'` or `'ios'`; see
+  `plan/09-textinput.md`.
+- **No keyboard focus for anything else.** A `<TextInput>` takes focus because
+  GtkText does, but `<Pressable>` and friends are not reachable by Tab, so a
+  screen reader can read the interface and not drive it.
 - **No hover**, so `onMouseEnter`-style callbacks do nothing.
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
 - **No LogBox.**

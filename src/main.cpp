@@ -201,7 +201,8 @@ gboolean fireTestTap(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
-void scheduleTestTaps(Host *host, const char *spec) {
+// Returns the delay after the last tap, so typing can be scheduled behind it.
+guint scheduleTestTaps(Host *host, const char *spec) {
   char **points = g_strsplit(spec, ";", -1);
   guint delayMs = 1500;
   for (char **point = points; *point != nullptr; ++point) {
@@ -215,6 +216,41 @@ void scheduleTestTaps(Host *host, const char *spec) {
     g_strfreev(parts);
   }
   g_strfreev(points);
+  return delayMs;
+}
+
+// RN_LINUX_TEST_TYPE: text to insert into whatever field has focus, for the
+// same reason RN_LINUX_TEST_TAP exists -- macOS cannot synthesise a real key
+// event without accessibility permission an automated run does not have.
+//
+// It inserts through GtkEditable rather than through GDK, so it skips the key
+// controller and the input method and exercises everything above them: the
+// changed signal, the event emitter, React's re-render, and the controlled
+// value coming back down. On Linux the end-to-end suite types with xdotool
+// instead, which does go through GDK.
+struct PendingType {
+  Host *host;
+  std::string text;
+};
+
+gboolean fireTestType(gpointer data) {
+  std::unique_ptr<PendingType> pending{static_cast<PendingType *>(data)};
+  g_message("RN_LINUX_TEST_TYPE: typing \"%s\"", pending->text.c_str());
+
+  GtkWidget *focus = pending->host->window != nullptr
+      ? gtk_window_get_focus(pending->host->window)
+      : nullptr;
+  if (focus == nullptr || !GTK_IS_TEXT(focus)) {
+    g_warning("RN_LINUX_TEST_TYPE: no text field has focus");
+    return G_SOURCE_REMOVE;
+  }
+
+  int position = -1;
+  gtk_editable_insert_text(GTK_EDITABLE(focus),
+                           pending->text.c_str(),
+                           static_cast<int>(pending->text.size()),
+                           &position);
+  return G_SOURCE_REMOVE;
 }
 
 gboolean commitSecondTree(gpointer data) {
@@ -375,8 +411,12 @@ void onActivate(GtkApplication *app, gpointer data) {
     g_timeout_add(2000, commitSecondTree, host);
   }
 
+  guint scriptedDelayMs = 1500;
   if (const char *taps = g_getenv("RN_LINUX_TEST_TAP")) {
-    scheduleTestTaps(host, taps);
+    scriptedDelayMs = scheduleTestTaps(host, taps);
+  }
+  if (const char *text = g_getenv("RN_LINUX_TEST_TYPE")) {
+    g_timeout_add(scriptedDelayMs, fireTestType, new PendingType{host, text});
   }
   if (const char *quitAfter = g_getenv("RN_LINUX_QUIT_AFTER_MS")) {
     const gint64 ms = g_ascii_strtoll(quitAfter, nullptr, 10);

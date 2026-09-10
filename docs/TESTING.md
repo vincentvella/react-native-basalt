@@ -31,6 +31,7 @@ Hermes: mutations are hand-built, the way `mount_harness` builds them.
 | `tests/test_text.cpp` | Pango measurement. Wrapping, `numberOfLines`, that a bigger font measures bigger, and two regression tests: that font sizes are absolute rather than points, and that the default ellipsize mode does not collapse a wrapping paragraph to one line. |
 | `tests/test_hittest.cpp` | Hit testing. Depth, sibling order, misses, and that it follows a scroll offset. |
 | `tests/test_image.cpp` | The image loader. Decoding, the cache answering synchronously, and the three ways a load can fail. |
+| `tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. |
 
 The harness is `tests/TestHarness.h`, about sixty lines, no dependencies. Its
 assertions are `EXPECT`, `EXPECT_EQ` and `EXPECT_NEAR` rather than `CHECK*`
@@ -66,6 +67,12 @@ Current scenarios:
    `Pressable` that handles it.
 3. **Scroll away and back.** `scrollTo({y: 0})` returns to the top and the label
    follows.
+4. **Type into a `<TextInput>`.** The field is focused through a button rather
+   than by tapping it, so this covers the `focus` command too. Passing means the
+   characters reached React: the value is controlled, so what ends up in the
+   widget is only there because `onChange` went up and the new value came back
+   down. The demo echoes it into a sibling `<Text>`, which is what the scenario
+   actually asserts on.
 
 The scenarios read coordinates from the demo's layout in `js/index.js`. Change
 the demo's spacing and the coordinates need changing too — the alternative,
@@ -88,6 +95,12 @@ notably includes macOS: doing it there needs accessibility permission an
 automated run does not have.
 
 Force either with `--input real` or `--input injected`.
+
+Typing splits the same way. In `real` mode `xdotool type` sends key events
+through the X server, so GDK and the input method see them. In `injected` mode
+`RN_LINUX_TEST_TYPE` inserts through `GtkEditable` on whatever field has focus,
+which skips the key controller and the input method and exercises everything
+above them.
 
 ## Running on Linux
 
