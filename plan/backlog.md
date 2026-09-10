@@ -34,6 +34,15 @@ Not scheduled. Roughly by value.
 - `IDevUIDelegate` / LogBox: JS errors currently go to `g_warning` and nothing
   else. `ReactHost` takes a `logBoxSurfaceDelegate`; a second surface in its own
   GTK window is probably the cheapest real implementation.
+- **A development bundle does not start.** `LogBoxData` calls
+  `TurboModuleRegistry.getEnforcing('DevSettings')` at module scope, and
+  `AppContainer` pulls LogBox in whenever `__DEV__`, so the throw takes
+  `renderApplication` with it and `AppRegistry` then reads `default` of
+  undefined. Only `--prod` bundles run, which means Fast Refresh is currently
+  unusable and every verification here has been against a release bundle. Found
+  during phase 9 and confirmed to predate it. `DevSettings` is a real
+  TurboModule with real methods (`reload`, `setHotLoadingEnabled`), so the fix
+  is to implement it rather than to stub it.
 - TurboModules React Native's JS asks for and does not get, none fatal today:
   `BlobModule`, `DeviceEventManager`, `SoundManager`, `LinkingManager`,
   `IntentAndroid`, `RedBox`, `ReactDevToolsSettingsManager`.

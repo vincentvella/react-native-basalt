@@ -223,7 +223,10 @@ Verified, on screen:
   re-render, mutations, widgets.
 - **Text renders and measures** through Pango, so Yoga sizes paragraphs the way
   it does on iOS and Android, and narrowing the window re-wraps them.
-- **React runs, from Metro, with Fast Refresh.**
+- **React runs, from Metro.** Fast Refresh worked when it was built and does not
+  today: a development bundle throws at startup because the `DevSettings`
+  TurboModule is missing and LogBox demands it. Everything above was verified
+  against a `--prod` bundle. See `plan/backlog.md`.
 - **It works on Linux, not only on the Mac it is developed on.** Verified on
   Ubuntu 24.04 arm64: 56/56 unit tests, the demo rendering correctly, and the
   end-to-end suite passing with *real* pointer and keyboard events through the X
