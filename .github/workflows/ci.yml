@@ -148,6 +148,11 @@ jobs:
             }, 4000);
           '
           git checkout -- js/index.js
+          # Which backend metro-file-map will pick. It uses watchman when the
+          # binary is on PATH and its own node watcher otherwise, and this
+          # machine and the development machines may not agree.
+          echo "watchman: $(command -v watchman || echo 'not installed')"
+          watchman --version 2>/dev/null || true
 
       - name: Start a display
         # Both suites need one. No window manager is involved: the tests map
