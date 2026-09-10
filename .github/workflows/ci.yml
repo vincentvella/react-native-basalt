@@ -145,6 +145,12 @@ jobs:
         # xdotool is installed, so this runs in `real` input mode: the pointer
         # events go through the X server and GDK rather than being injected past
         # them. That is the mode macOS cannot manage.
+        #
+        # RN_DIR is for the Fast Refresh scenario, which starts its own Metro:
+        # scripts/metro.sh looks for a React Native checkout beside the repo,
+        # and CI puts it inside the workspace instead.
+        env:
+          RN_DIR: react-native-src
         run: scripts/integration_test.py
 
       - name: Save the widget tree on failure
@@ -206,4 +212,4 @@ jobs:
           for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
           ./build/rn_tests
           scripts/bundle.sh react-native-src --prod
-          scripts/integration_test.py
+          RN_DIR=react-native-src scripts/integration_test.py

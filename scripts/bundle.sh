@@ -3,6 +3,19 @@
 #
 # Usage:  scripts/bundle.sh [/path/to/react-native] [--dev|--prod] [--platform P]
 #
+# Produces a production bundle by default, because a development one cannot be
+# loaded from disk. A __DEV__ bundle pulls in LogBox, which reads the
+# DevSettings TurboModule at module scope, and ReactCxxTurboModuleProvider only
+# serves that module when a DevServerHelper exists -- which is to say, in dev
+# mode, where the bundle is fetched from Metro and this file is ignored anyway.
+# So --dev writes something nothing can run. It is kept because seeing the
+# unminified output is occasionally what you want.
+#
+# Development is Metro plus RN_LINUX_DEV=1, not a --dev bundle:
+#
+#   scripts/metro.sh ../react-native
+#   RN_LINUX_DEV=1 ./build/rn_linux_host build/main.jsbundle.js RNLinuxDemo
+#
 # Built for the `linux` platform: packages/react-native-linux supplies the
 # Platform module and the Metro configuration that makes Metro resolve it, so
 # an app sees Platform.OS === 'linux' and can use .linux.js files.
@@ -14,7 +27,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEV=true
+DEV=false
 PLATFORM=linux
 
 args=()
@@ -45,6 +58,10 @@ OUT="$REPO_ROOT/build/main.jsbundle"
 mkdir -p "$REPO_ROOT/build"
 
 echo "==> bundling js/index.js (platform=$PLATFORM, dev=$DEV) against $RN_DIR"
+if [ "$DEV" = true ]; then
+  echo "    note: the host cannot load a --dev bundle from disk; it needs" >&2
+  echo "          DevSettings, which only exists in dev mode. See the header." >&2
+fi
 # metro appends .js to --out.
 # The entry is resolved against projectRoot (js/), so it is named relative to
 # that, not to this script's working directory.

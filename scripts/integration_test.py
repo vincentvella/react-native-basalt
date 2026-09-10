@@ -23,6 +23,12 @@ Taps arrive one of two ways:
 
 The default picks real input when a display and xdotool are both present.
 
+One scenario is different: the Fast Refresh one starts its own Metro, runs the
+host in dev mode against it, and edits the demo while it is on screen. It needs
+a React Native checkout -- scripts/metro.sh looks for one beside the repo, and
+RN_DIR overrides that -- and it restores the file it edits once the host has
+exited.
+
 Usage:  scripts/integration_test.py [--bundle build/main.jsbundle.js]
                                     [--input auto|real|injected]
 
@@ -38,6 +44,7 @@ import re
 import shutil
 import subprocess
 import sys
+import socket
 import tempfile
 import time
 from pathlib import Path
@@ -59,6 +66,11 @@ SCROLL_TO_END_LABEL = (444, BUTTON_Y)
 FOCUS_THE_FIELD = (728, BUTTON_Y)
 # The middle of the text field itself, for a tap that focuses it directly.
 TEXT_FIELD = (184, 207)
+
+# The string the Fast Refresh scenario swaps in the demo's heading, and puts
+# back. Chosen to be unmistakable in a widget tree and unique in the file.
+BEFORE = "React Native on GTK4"
+AFTER = "Fast Refresh reached the window"
 
 
 class Failure(Exception):
@@ -265,6 +277,118 @@ def test_scroll_round_trip(bundle: Path) -> None:
         raise Failure("the offset label did not follow the scroll back to zero")
 
 
+# --------------------------------------------------------------------------
+# Fast Refresh
+# --------------------------------------------------------------------------
+
+# Not 8081: a developer running Metro for real should not have to stop it, and
+# a test that silently talks to someone else's dev server proves nothing.
+METRO_PORT = 8099
+
+
+class Metro:
+    """Metro on its own port, for the Fast Refresh scenario."""
+
+    def __init__(self) -> None:
+        self.process = None
+
+    def __enter__(self) -> "Metro":
+        self.process = subprocess.Popen(
+            [str(REPO / "scripts" / "metro.sh"), "--port", str(METRO_PORT)],
+            cwd=REPO,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Readiness is the port accepting a connection, not any particular
+        # endpoint: Metro's /status is not served on this version. Polling beats
+        # a fixed sleep -- a cold Metro on a slow machine takes a while.
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            if self.process.poll() is not None:
+                raise Failure("metro exited before it started serving")
+            try:
+                with socket.create_connection(("localhost", METRO_PORT), timeout=2):
+                    return self
+            except OSError:
+                time.sleep(1)
+        raise Failure("metro did not start listening")
+
+    def __exit__(self, *_) -> None:
+        if self.process is not None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+
+def test_fast_refresh(bundle: Path) -> None:
+    """Edits the demo while it runs and checks the change lands in the window.
+
+    This is the scenario that would have caught a wrong claim in the README:
+    nothing else here runs the host in dev mode at all, so "development still
+    works" was being taken on trust.
+
+    A __DEV__ bundle needs the DevSettings TurboModule, which
+    ReactCxxTurboModuleProvider serves only when a DevServerHelper exists. So
+    this also pins the one configuration where that is true.
+    """
+    source = REPO / "js" / "index.js"
+    original = source.read_text()
+    if BEFORE not in original:
+        raise Failure(f"the demo no longer contains {BEFORE!r} to edit")
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env = dict(os.environ)
+        env["RN_LINUX_DUMP_TREE"] = str(dump)
+        env["RN_LINUX_QUIT_AFTER_MS"] = "30000"
+        env["RN_LINUX_DEV"] = "1"
+        env["RN_LINUX_DEV_PORT"] = str(METRO_PORT)
+        env.pop("RN_LINUX_TEST_TAP", None)
+        env.pop("RN_LINUX_TEST_TYPE", None)
+
+        with Metro():
+            process = subprocess.Popen(
+                [str(HOST), str(bundle), MODULE],
+                cwd=REPO, env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True,
+            )
+            stderr = ""
+            try:
+                # Long enough for the first bundle, which Metro builds on demand
+                # from a cold cache the first time this runs.
+                time.sleep(15)
+                source.write_text(original.replace(BEFORE, AFTER))
+                # Wait for the host to quit on its own timer rather than
+                # restoring the file underneath it: putting the original back
+                # while it still has a Metro connection triggers a *second*
+                # refresh, which undoes the edit before the tree is dumped. That
+                # looked exactly like Fast Refresh not working.
+                _, stderr = process.communicate(timeout=90)
+            finally:
+                source.write_text(original)
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=15)
+
+        check_output(stderr, process.returncode)
+        if not dump.exists():
+            raise Failure("host wrote no widget tree")
+        tree = dump.read_text()
+
+    # The exact line, not "DevSettings" anywhere: the module logs its own name
+    # at INFO when it works, and plenty of other TurboModules fail to load
+    # harmlessly, so a conjunction of the two substrings reports success as
+    # failure. It did.
+    if "Failed to load TurboModule: DevSettings" in stderr:
+        raise Failure("DevSettings was not served, so no __DEV__ bundle can run")
+    if AFTER not in tree:
+        raise Failure(
+            "the edit never reached the running app; Fast Refresh did not apply it"
+        )
+
+
 def editable_value(tree: str) -> str:
     """The text inside the only <TextInput> in the tree."""
     match = re.search(r'editable="([^"]*)"', tree)
@@ -307,6 +431,7 @@ SCENARIOS = [
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
     ("scroll away and back", test_scroll_round_trip),
     ("focus a TextInput, type, and see it round-trip through React", test_text_input),
+    ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 
 

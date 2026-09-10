@@ -223,10 +223,11 @@ Verified, on screen:
   re-render, mutations, widgets.
 - **Text renders and measures** through Pango, so Yoga sizes paragraphs the way
   it does on iOS and Android, and narrowing the window re-wraps them.
-- **React runs, from Metro.** Fast Refresh worked when it was built and does not
-  today: a development bundle throws at startup because the `DevSettings`
-  TurboModule is missing and LogBox demands it. Everything above was verified
-  against a `--prod` bundle. See `plan/backlog.md`.
+- **React runs, from Metro, with Fast Refresh.** Editing `js/index.js` while the
+  app is running updates it in place, verified by watching the change land in
+  the dumped widget tree. Development is `scripts/metro.sh` plus
+  `RN_LINUX_DEV=1`; a `--dev` bundle on disk is not a development mode and will
+  not load, which is why `scripts/bundle.sh` produces a production bundle.
 - **It works on Linux, not only on the Mac it is developed on.** Verified on
   Ubuntu 24.04 arm64: 56/56 unit tests, the demo rendering correctly, and the
   end-to-end suite passing with *real* pointer and keyboard events through the X
@@ -281,13 +282,20 @@ events rather than injected ones. See `docs/TESTING.md`.
 
 Build a bundle once, then run:
 
-    scripts/bundle.sh ../react-native
+    scripts/bundle.sh ../react-native      # production; see below
     ./build/rn_linux_host
 
-Or against Metro, with Fast Refresh:
+Or against Metro, which is how to develop, and the only way to get Fast Refresh:
 
     scripts/metro.sh ../react-native          # one terminal
     RN_LINUX_DEV=1 ./build/rn_linux_host      # another
+
+`scripts/bundle.sh` writes a production bundle. A `--dev` one cannot be loaded
+from disk at all: it pulls in LogBox, which reads the `DevSettings` TurboModule
+at import time, and `ReactCxxTurboModuleProvider` serves that module only when a
+dev server exists -- in which case the bundle comes from Metro and the file on
+disk is ignored. So there is no configuration in which a `--dev` bundle is the
+thing being run.
 
 Arguments are `rn_linux_host [bundle] [moduleName]`, defaulting to
 `build/main.jsbundle.js` and `RNLinuxDemo`. An **empty** module name starts a
@@ -309,6 +317,10 @@ Environment:
                               surface-root coordinates. Enters where GTK's
                               gesture callback would, so it exercises hit
                               testing and event delivery but not GDK itself.
+    RN_LINUX_TEST_TYPE        text to insert into whatever field has focus,
+                              after the taps above. Enters through GtkEditable,
+                              so it skips the key controller and the input
+                              method and exercises everything above them.
     RN_LINUX_DUMP_TREE        write the widget tree to a file on the way out.
                               Useful on its own for seeing what React actually
                               produced, and what the end-to-end tests assert on.

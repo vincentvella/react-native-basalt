@@ -73,6 +73,20 @@ Current scenarios:
    widget is only there because `onChange` went up and the new value came back
    down. The demo echoes it into a sibling `<Text>`, which is what the scenario
    actually asserts on.
+5. **Fast Refresh.** Starts its own Metro on port 8099, runs the host in dev
+   mode against it, edits `js/index.js` while the app is on screen, and checks
+   the new text is in the tree the host dumps. This is the only scenario that
+   runs in dev mode at all, which is why it exists: "development still works"
+   was being taken on trust, and a wrong claim about it reached the README.
+
+   It needs a React Native checkout. `scripts/metro.sh` looks for one beside
+   the repo; set `RN_DIR` if it is somewhere else, as CI does.
+
+   It edits a tracked file, and restores it after the host has exited — not
+   before, because putting the original back while the app still has a Metro
+   connection triggers a second refresh that undoes the edit before the tree is
+   dumped. That failure looks exactly like Fast Refresh being broken. A `kill
+   -9` of the test would leave the demo edited; nothing softer will.
 
 The scenarios read coordinates from the demo's layout in `js/index.js`. Change
 the demo's spacing and the coordinates need changing too — the alternative,
