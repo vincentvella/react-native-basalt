@@ -95,9 +95,11 @@ jobs:
           #
           # Hashing the whole script over-invalidates: editing a comment costs a
           # Hermes rebuild. That is the safe direction to be wrong in, and
-          # bootstrap.sh changes rarely now.
+          # bootstrap.sh changes rarely now. It is the one inside the package
+          # that matters; scripts/bootstrap.sh is a forwarder and hashing it
+          # would stop invalidating when the real script changed.
           path: third_party
-          key: third-party-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-linux/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
 
       - name: Cache ccache
         uses: actions/cache@v4

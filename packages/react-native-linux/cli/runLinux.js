@@ -18,6 +18,7 @@ const {spawn} = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const {buildHost} = require('./build');
 const {MissingHost, resolveHost} = require('./host');
 const {isPortTaken, startMetro} = require('./metro');
 
@@ -111,7 +112,15 @@ async function runLinux(_argv, context, options) {
   const port = Number(options.port) || DEFAULT_PORT;
   const dev = options.mode !== 'release';
 
-  const hostBinary = resolveHost(projectRoot, options);
+  // --build is explicit rather than automatic. A first build compiles Hermes
+  // and React Native's C++ core, which is not something a command should start
+  // on its own because a binary happened to be missing.
+  let hostBinary;
+  if (options.build) {
+    hostBinary = buildHost(context, options);
+  } else {
+    hostBinary = resolveHost(projectRoot, options);
+  }
   const moduleName = resolveModuleName(projectRoot, options);
 
   // Named relative to the project so that the message is readable, but passed
@@ -190,6 +199,14 @@ module.exports = {
     {
       name: '--no-packager',
       description: 'do not start Metro, and do not check for one',
+    },
+    {
+      name: '--build',
+      description: 'build the host before running it, into .rn-linux/build',
+    },
+    {
+      name: '--jobs <number>',
+      description: 'parallelism for --build',
     },
     {
       name: '--host-binary <path>',

@@ -1,6 +1,7 @@
 # Phase 12 — `react-native run-linux`
 
-> **Started, 2026-09-10.** The command runs an app. It does not build the host.
+> **Started, 2026-09-10.** The command runs an app, and builds the host when
+> asked, from a React Native checkout.
 
 `react-native run-linux` now starts a packager if one is not running, launches
 the host, and stays attached so Ctrl-C reaches the app. Verified against
@@ -12,9 +13,11 @@ project would.
 Everything `run-android` does except the build:
 
 - Finds the host binary. Explicit `--host-binary`, then `RN_LINUX_HOST`, then
-  `<project>/linux/build`, `<project>/build`, and finally the build tree of a
-  development checkout. When none of those has one, it prints the three commands
-  that produce one rather than a path that does not exist.
+  `<project>/.rn-linux/build` where `--build` puts one, then `<project>/linux/build`
+  and `<project>/build`, and finally the build tree of a development checkout.
+  When none of those has one, it says how to make one rather than printing a
+  path that does not exist.
+- Builds it, with `--build`.
 - Reuses a packager already on the port, or starts one, or stays out of the way
   with `--no-packager`.
 - Reads the `AppRegistry` name from `app.json`, which `--module` overrides,
@@ -24,14 +27,6 @@ Everything `run-android` does except the build:
   missing one turns a packager problem into a mystery.
 
 ## What it does not do
-
-**It does not build the host**, which is the difference between this and a real
-platform command. `run-android` hands the build to Gradle and `run-ios` to
-Xcode; here the host is a CMake project in this repository, built against one
-specific React Native, and the npm package does not contain it. Making the
-command build it means moving the C++ sources, the CMake files and the bootstrap
-into the package, which is what react-native-windows does with `vnext/`. That is
-the next real step and it is a large one.
 
 **There is no autolinking.** `dependencyConfig` returns null. Nothing on this
 platform has native code to link yet, and claiming otherwise would generate
@@ -76,9 +71,65 @@ process meant to outlive the command. This repository's own CI workflow carries
 a warning about the identical shape. Metro's output now goes to
 `.rn-linux/metro.log`, whose path is printed.
 
+## The native code moved into the package
+
+Everything that was at the root of this repository -- `CMakeLists.txt`,
+`cmake/`, `src/`, `tests/` and `bootstrap.sh` -- now lives in
+`packages/react-native-linux/native/`, because npm can only ship what is inside
+the package directory. That is the same shape react-native-windows uses, where
+the package *is* `vnext/`.
+
+`CMakeLists.txt` at the root is now a wrapper. It contributes the two things a
+checkout knows and an app must not assume: that `third_party` belongs at the
+root of the repository, and that the binary should appear at
+`build/rn_linux_host`, which every script and document here names. So the way
+this repository has always been built is unchanged.
+
+Three things had to stop being assumed:
+
+- **Where `third_party` lives.** `RN_LINUX_THIRD_PARTY` now says, and bootstrap
+  takes the same path. An app gets `.rn-linux/third_party` under itself, never a
+  directory inside `node_modules`, which npm rewrites on install and which is no
+  place to leave a Hermes build.
+- **That the codegen `CMakeLists.txt` is checked in.** It is ours rather than
+  generated -- codegen writes one that links Android-only targets -- so it moved
+  into the package and bootstrap installs it.
+- **That `reactNativePath` is a real directory.** Resolving the monorepo above
+  it walked up from a symlink and landed in the app. Workspaces, pnpm and
+  `npm link` all produce that, so it resolves the link first now.
+
+`run-linux --build` then vendors the dependencies, configures, builds, and runs.
+Verified from `examples/demo`: 282MB of vendored dependencies and a 37MB host,
+built and launched from the app rather than from this repository.
+
+It is opt-in rather than automatic, because a first build compiles Hermes and
+React Native's C++ core, and that is not something a command should begin on its
+own because a binary happened to be missing.
+
+## Still missing
+
+**It needs a React Native source checkout**, and says so clearly when it does
+not have one. Every app has an installed React Native and almost none has a
+checkout, so this is the gap between "an app can build the host" and "an app
+someone else wrote can build the host".
+
+The reason is narrower than it first looks, and worth stating exactly, because
+the obvious guess is wrong. An installed `react-native` *does* ship C++: its
+`ReactCommon`, the codegen script, the Hermes pin and the version table are all
+there, which is how Android builds React Native out of `node_modules`. What it
+does not ship is **`ReactCxxPlatform`**, which is excluded from the package's
+`files` list -- and that is the layer this entire host is built on: `ReactHost`,
+the scheduler delegate, the TurboModule provider, http, dev support.
+
+So closing it means one of three things: persuading React Native to ship
+`ReactCxxPlatform` in the package, which is the smallest change and the one that
+helps every out-of-tree C++ platform; vendoring that directory into this package
+the way expo-desktop vendors expo-modules-core; or shipping prebuilt hosts per
+React Native version.
+
 ## Next
 
-1. Build the host from the package, so `run-linux` works from an npm install.
+1. Make it work from an installed React Native, per above.
 2. Publish, which needs the above and a decision about prebuilt binaries versus
    building from source on first run.
 3. Autolinking, which is blocked on porting one native module end to end.

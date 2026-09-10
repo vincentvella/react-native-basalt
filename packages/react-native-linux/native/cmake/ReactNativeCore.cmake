@@ -36,7 +36,7 @@ add_compile_definitions(RN_LINUX_REACT_NATIVE_VERSION="${RN_VERSION}")
 # different one fails deep inside React Native's own sources, on flags that
 # look like they should exist, and says nothing about the real cause. Ask here
 # instead, where the answer is a single command.
-set(RN_CODEGEN_STAMP ${CMAKE_SOURCE_DIR}/third_party/codegen/.react-native-version)
+set(RN_CODEGEN_STAMP ${RN_LINUX_THIRD_PARTY}/codegen/.react-native-version)
 if(EXISTS ${RN_CODEGEN_STAMP})
   file(READ ${RN_CODEGEN_STAMP} RN_CODEGEN_VERSION)
   string(STRIP "${RN_CODEGEN_VERSION}" RN_CODEGEN_VERSION)

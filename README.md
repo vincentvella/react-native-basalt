@@ -25,28 +25,39 @@ interface has exactly two pure-virtual methods — `executeMount` and
 
 ## Layout
 
-    src/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
-    src/GtkMountingManager.*    IMountingManager implementation.
-    src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
-    src/LinuxComponentRegistry.h     Which components this platform supports.
-    src/LinuxNetworking.cpp     The IHttpClient seam, backed by libcurl.
-    src/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
+Everything native lives inside the npm package, so that installing the package
+brings the host's sources and `react-native run-linux --build` can compile one.
+`native/` below is `packages/react-native-linux/native/`. Plan documents written
+before 2026-09-10 name these files without that prefix.
+
+    native/src/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
+    native/src/GtkMountingManager.*    IMountingManager implementation.
+    native/src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
+    native/src/LinuxComponentRegistry.h     Which components this platform supports.
+    native/src/LinuxNetworking.cpp     The IHttpClient seam, backed by libcurl.
+    native/src/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
                                 measurement and painting, so they agree.
-    src/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
-    src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
-    src/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
-    src/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
-    src/GtkTextInput.*          <TextInput>, over a real GtkText.
-    src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
+    native/src/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
+    native/src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
+    native/src/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
+    native/src/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
+    native/src/GtkTextInput.*          <TextInput>, over a real GtkText.
+    native/src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
                                 an emitter produces ever reaches JavaScript.
-    src/main.cpp                The host: ReactHost, Hermes, one live surface.
+    native/src/main.cpp                The host: ReactHost, Hermes, one live surface.
     js/index.js                 The demo app. Ordinary React Native.
     js/metro.config.js          Resolves react/react-native out of the checkout.
-    packages/react-native-linux/  The `linux` platform's JavaScript half.
+    native/CMakeLists.txt       The host build. CMakeLists.txt at the repo root
+                                is a wrapper that points third_party and the
+                                binary output where a checkout expects them.
+    native/bootstrap.sh         Vendors folly, Hermes and RN's codegen output.
+    packages/react-native-linux/  The platform package: this JavaScript, the
+                                `run-linux` command, and native/ above.
+    examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
-    src/mount_harness.cpp       Hand-built mutations; no JS runtime.
-    src/demo_layout.cpp         Renders hand-written frames; no RN needed.
+    native/src/mount_harness.cpp       Hand-built mutations; no JS runtime.
+    native/src/demo_layout.cpp         Renders hand-written frames; no RN needed.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time
@@ -395,7 +406,7 @@ arrival.
 ## Building React Native's core
 
 The closure of `react_renderer_mounting` is 29 RN targets, computed from RN's
-own `target_link_libraries`. `cmake/ReactNativeCore.cmake` adds them;
+own `target_link_libraries`. `native/cmake/ReactNativeCore.cmake` adds them;
 `cmake/ThirdParty.cmake` supplies the third-party target *names* RN links
 against, since a host build has no gradle step to download them.
 
@@ -420,7 +431,7 @@ Six things a host has to get right, none of them documented:
 5. **`getDefaultComponentRegistryFactory()` is not implemented anywhere in
    ReactCommon.** It is declared, and no `.cpp` in the tree defines it: each
    host writes its own, and in doing so declares which components its platform
-   supports. See `src/LinuxComponentRegistry.h`. Fantom has its own version.
+   supports. See `native/src/LinuxComponentRegistry.h`. Fantom has its own version.
 6. **`JSIDynamic.cpp` is compiled by no CMakeLists in the tree**, yet
    `RawProps` references `jsi::dynamicFromValue`. Hosts must build it.
 7. **`getHttpClientFactory()` is declared but defined nowhere** -- a host must

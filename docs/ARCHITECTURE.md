@@ -140,7 +140,7 @@ something calls `RunLoopObserverManager::onRender()`. React Native asks for
 `Activity::BeforeWaiting` -- run once the loop has drained its work and is about
 to sleep, which on iOS is a `CFRunLoopObserver` and on Android the Choreographer.
 
-`src/GtkRunLoopObserver.cpp` is the GLib equivalent: a `GSource` that does the
+`native/src/GtkRunLoopObserver.cpp` is the GLib equivalent: a `GSource` that does the
 work in `prepare()` and never reports itself ready. `prepare()` runs once per
 main-loop iteration before the poll, so it costs a call when the loop is busy
 and nothing at all when the application is idle -- unlike a frame-clock tick
@@ -148,11 +148,11 @@ callback, which would hold the clock open and wake the process at display rate
 forever.
 
 `AnimationChoreographer` is separate and *is* on the frame clock; see
-`src/GtkAnimationChoreographer.cpp`.
+`native/src/GtkAnimationChoreographer.cpp`.
 
 ## Input
 
-`src/GtkTouchDispatcher.cpp` turns GTK input into touch events. React Native's
+`native/src/GtkTouchDispatcher.cpp` turns GTK input into touch events. React Native's
 Pressability -- what backs every `onPress` -- runs on the responder system in
 JavaScript, and the responder system is fed by touchstart/touchmove/touchend, so
 a desktop pointer is reported as a single touch point. W3C pointer events exist
@@ -192,7 +192,7 @@ implemented **nowhere in the tree**. Each host writes its own, and in doing so
 declares which components its platform supports. Fantom has its own version
 registering the full set.
 
-Ours is `src/LinuxComponentRegistry.h`. Adding a component to that list is a
+Ours is `native/src/LinuxComponentRegistry.h`. Adding a component to that list is a
 promise that a GTK peer exists for it, so the list grows only as peers are
 written:
 
@@ -221,7 +221,7 @@ content inset so padding and borders apply. It brings input methods, selection,
 the clipboard and every Linux keybinding with it.
 
 The interesting problem is that `<TextInput>` is a controlled component while
-`GtkText` holds state of its own, so `src/GtkTextInput.cpp` exists mostly to
+`GtkText` holds state of its own, so `native/src/GtkTextInput.cpp` exists mostly to
 reconcile the two: an `applying` flag so pushing a prop is not reported back as
 typing, a saved cursor position so the caret does not go home mid-word, and
 React Native's `eventCount` so a command older than what the user has since
@@ -247,7 +247,7 @@ enough that layout matches the other platforms.
 A host build has no gradle step to download third-party dependencies, so the
 project supplies them:
 
-- `cmake/ReactNativeCore.cmake` adds the 29 RN targets in the transitive
+- `native/cmake/ReactNativeCore.cmake` adds the 29 RN targets in the transitive
   closure of `react_renderer_mounting`, computed from RN's own
   `target_link_libraries`. Notably **Hermes is not in that closure** —
   mounting does not require a JS runtime.

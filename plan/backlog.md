@@ -321,6 +321,12 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   the wrong colour; the GL renderer is correct. Worth reducing to a minimal case
   and reporting, or confirming it is already fixed in a later GTK.
 
+- Ask React Native to ship `ReactCxxPlatform` in the npm package. It is absent
+  from the `files` list, while `ReactCommon`, the codegen script and the Hermes
+  pin are all present, so an installed React Native has everything needed to
+  build a C++ host except the C++ host layer itself. That single omission is
+  what stops `run-linux --build` working without a source checkout, and it would
+  block any other out-of-tree C++ platform the same way.
 - Report the `HttpUtils.h` missing-`<cstdint>` bug.
 - Report that `ReactCxxPlatform`'s `PlatformConstantsModule` hardcodes a React
   Native version of 1000.0.0 in every version, releases included, so nothing

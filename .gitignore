@@ -11,8 +11,7 @@ third_party/hermes/
 third_party/hermes-build/
 third_party/nlohmann_json/
 third_party/node/
-third_party/codegen/*
-!third_party/codegen/CMakeLists.txt
+third_party/codegen/
 
 # CI clones React Native inside the workspace, because actions/cache will not
 # save a path that escapes it.

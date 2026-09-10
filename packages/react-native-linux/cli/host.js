@@ -37,6 +37,8 @@ function candidates(projectRoot, options) {
   if (process.env.RN_LINUX_HOST) {
     found.push(path.resolve(process.env.RN_LINUX_HOST));
   }
+  // Where `run-linux --build` puts one.
+  found.push(path.join(projectRoot, '.rn-linux', 'build', BINARY));
   found.push(path.join(projectRoot, 'linux', 'build', BINARY));
   found.push(path.join(projectRoot, 'build', BINARY));
   found.push(path.resolve(__dirname, '..', '..', '..', 'build', BINARY));
@@ -67,11 +69,11 @@ function resolveHost(projectRoot, options) {
       'Looked in:\n' +
       looked.map(entry => `  ${entry}`).join('\n') +
       '\n\n' +
-      'react-native-linux does not build the host yet. Build it from a checkout:\n\n' +
-      '  scripts/bootstrap.sh /path/to/react-native\n' +
-      '  cmake -B build -G Ninja -DRN_DIR=/path/to/react-native/packages/react-native\n' +
-      '  cmake --build build\n\n' +
-      `then point at it with --host-binary <path> or RN_LINUX_HOST.`,
+      'Build one with:\n\n' +
+      '  react-native run-linux --build\n\n' +
+      'That needs a React Native source checkout, cmake, ninja, a C++20 ' +
+      'compiler,\nand the GTK4 and Pango development packages. Or build it ' +
+      'yourself and point\nat it with --host-binary <path> or RN_LINUX_HOST.',
   );
 }
 
