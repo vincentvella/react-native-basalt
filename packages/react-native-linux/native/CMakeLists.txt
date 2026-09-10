@@ -105,6 +105,7 @@ if(DEFINED RN_DIR)
     src/GtkTextInput.cpp
     src/ExpoRuntime.cpp
     src/LinuxPlatformConstants.cpp
+    src/LinuxStatusBar.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     src/PangoTextLayoutManager.cpp)

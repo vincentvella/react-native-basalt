@@ -76,10 +76,6 @@ Found by bundling and running a real application; see `plan/10-first-real-app.md
   the weekly drift job, which does not block. So a regression that only affects
   `main` can wait up to a week. Building both on every run would be the fix and
   would double CI cost on a private repo.
-- **`StatusBarManager` is what a blank Expo app now stops on.** A desktop has no
-  status bar, so a module that exists and does nothing is the right answer, but
-  the codegen spec for it is not among the artifacts this build generates. See
-  `plan/15-expo-runtime.md`.
 - **Expo starts but no Expo module works.** `globalThis.expo` is installed now, from the
   app's own expo-modules-core, so an Expo app starts and renders. What does not
   exist is any Expo *module*: `ExpoAsset` and `ExponentConstants` are stubs that

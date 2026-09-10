@@ -212,6 +212,13 @@ glog header fails with *"was not included correctly"*. The define is set in
 RN headers also carry Xcode's `#pragma mark`, so GCC needs
 `-Wno-unknown-pragmas`.
 
+## A stock Expo app runs
+
+`npx create-expo-app --template blank`, unmodified, renders on Linux. Expo
+57.0.21, React Native 0.86.3, both stock from npm, on a platform that forks
+neither. That is what this project exists to show; `plan/15-expo-runtime.md` is
+how, and what it does not yet cover, which is every actual Expo module.
+
 ## Supported React Native versions
 
 | Version | State |

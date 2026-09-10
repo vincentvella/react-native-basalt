@@ -1,7 +1,6 @@
 # Phase 15 — Expo's runtime
 
-> **Started, 2026-09-10.** A stock Expo app starts, and renders until it asks
-> for a React Native module this platform does not have.
+> **Done, 2026-09-10.** A stock Expo app renders on Linux.
 
 The point of this platform is that a desktop target can track React Native
 without forking it. The thing that would make that matter is Expo apps reaching
@@ -15,18 +14,24 @@ Native 0.86.3, React 19.2.3. Nothing modified except a Metro config.
 
 ## Where it gets to
 
-- **It bundles**, with one line on top of Expo's own Metro config.
-- **Expo's runtime installs**, so `globalThis.expo` is there and the first
-  import no longer kills start-up.
-- **React renders.** The failure is now a component stack several `View`s deep.
-- **It stops at `StatusBarManager`**, a React Native core module this platform
-  does not provide, which the blank template uses through `expo-status-bar`.
+On screen, with no JavaScript errors:
 
-That last one is not an Expo problem. It is one of the missing core modules
-already listed in `plan/backlog.md`, and a desktop has no status bar, so the
-honest implementation is a module that exists and does nothing. It is not a
-two-minute fix only because the codegen spec for it is not among the artifacts
-this build generates.
+```
+view tag=1 frame=(0,0 900x700)
+  view tag=6 frame=(0,0 900x700) bg=#ffffffff
+  view tag=4 frame=(308.5,342.5 283x15) clip text="Open up App.js to start working on your app!"
+```
+
+Centred to the half-pixel in both directions, which means Yoga laid out Expo's
+template exactly as it would anywhere else.
+
+Getting there took two things. Expo's runtime, below. And `StatusBarManager`,
+which `expo-status-bar` reaches for and which is looked up with `getEnforcing`,
+so its absence threw and took the first render with it. A desktop has no status
+bar, so that module now exists and does nothing, and reports a height of zero --
+literally, because React Native's own JavaScript lays out around that number and
+a plausible-looking phone height would push every app's content down by a bar
+that is not there.
 
 ## The part worth reporting
 
@@ -79,9 +84,21 @@ Both would hit any real consumer, and neither had shown up in this repository.
   `node_modules` explicitly, which covers the linked and monorepo cases as well
   as the installed one.
 
+## What this does and does not demonstrate
+
+It demonstrates the thesis: an application written the way React Native
+applications are written now, unmodified, on a desktop platform that forks
+nothing. The React Native underneath is stock 0.86.3 from npm, and the Expo
+underneath is stock 57.0.21.
+
+It does not demonstrate that Expo *modules* work, because none do. The blank
+template uses no native Expo module, which is exactly why it was the right first
+subject and exactly why it is not the last one.
+
 ## Next
 
-1. `StatusBarManager`, and the rest of the core modules in `plan/backlog.md`.
-   That is what stands between here and a blank Expo app on screen.
-2. Then an Expo app that uses an actual Expo module, which is the first real
-   test of the module system rather than of start-up.
+1. An Expo app that uses a real Expo module -- `expo-font` or `expo-image` --
+   which is the first test of the module system rather than of start-up.
+2. The rest of the missing core modules in `plan/backlog.md`. `StatusBarManager`
+   was the one in the way; appearance, clipboard, linking and alerts are the
+   ones an app notices next.

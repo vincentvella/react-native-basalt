@@ -41,6 +41,7 @@
 #include <exception>
 #include "ExpoRuntime.h"
 #include "LinuxPlatformConstants.h"
+#include "LinuxStatusBar.h"
 
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsDefaults.h>
@@ -332,6 +333,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders() {
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
           return std::make_shared<rnlinux::LinuxPlatformConstantsModule>(jsInvoker);
+        }
+        if (name == rnlinux::LinuxStatusBarModule::kModuleName) {
+          return std::make_shared<rnlinux::LinuxStatusBarModule>(jsInvoker);
         }
         return nullptr;
       });
