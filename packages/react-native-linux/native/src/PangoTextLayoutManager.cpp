@@ -26,7 +26,7 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
                                            const LayoutConstraints &layoutConstraints) const {
   const auto &attributedString = attributedStringBox.getValue();
 
-  // pointScaleFactor joined the cache key in React Native 0.83. On 0.81 the key
+  // pointScaleFactor joined the cache key in React Native 0.87. On 0.81 the key
   // has three fields and naming a fourth is a compile error. Its absence only
   // makes the cache coarser there, and since nothing below uses the factor --
   // see the note further down -- coarser is harmless.
@@ -34,12 +34,12 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
       .attributedString = attributedString,
       .paragraphAttributes = paragraphAttributes,
       .layoutConstraints = layoutConstraints,
-#if RN_LINUX_RN_MINOR >= 83
+#if RN_LINUX_RN_MINOR >= 87
       .pointScaleFactor = layoutContext.pointScaleFactor,
 #endif
   };
 
-#if RN_LINUX_RN_MINOR < 83
+#if RN_LINUX_RN_MINOR < 87
   (void)layoutContext;
 #endif
 

@@ -68,6 +68,28 @@ untested and refused.
 kino stays unrunnable. It pins 0.81.6, and supporting that was attempted and
 stopped; see below.
 
+## 0.86, which is what an Expo app installs
+
+Added deliberately, because a current Expo app installs React Native 0.86.3 and
+the point of this platform is that Expo apps can reach the desktop. Kino sits at
+0.81 because react-native-macos does, not because Expo does.
+
+It builds and runs: 60/60 unit tests and four of five end-to-end scenarios.
+
+The fifth is **Fast Refresh, and it cannot work on 0.86**. `ReactHost`'s
+teardown sets `reactInstanceData_->mountingManager` to null, along with the
+context container and the TurboModule providers. A reload destroys the instance
+and recreates it, so the new one comes up with no mounting manager and the host
+collapses three milliseconds after the refresh arrives. React Native 0.87
+deleted exactly those three lines, which is what makes the same test pass there.
+Reproduced by hand, root-caused against the two sources, and recorded against
+the version rather than treated as ours.
+
+Two guards were also needed in this project's own sources: `TextAlignment` gains
+`Start` and `End` in 0.87, and `TextMeasureCacheKey` gains `pointScaleFactor` in
+0.87. Both thresholds were first guessed at 0.83 and 0.86 disproved the guess,
+which is the argument for checking against tags rather than assuming.
+
 ## What supporting 0.81 turned out to cost
 
 Attempted deliberately after the table was in place, and abandoned with the

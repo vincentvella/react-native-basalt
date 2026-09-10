@@ -20,6 +20,16 @@
   ],
   "supported": [
     {
+      "reactNative": "0.86",
+      "hermes": "250829098.0.0-stable",
+      "hermesTarget": "hermesvm",
+      "verified": "0.86.3",
+      "notes": "The React Native a current Expo app installs, which is why it is supported.",
+      "limitations": [
+        "No Fast Refresh. ReactHost::destroyReactInstance sets reactInstanceData_->mountingManager to null on teardown, so a reload recreates the instance without a mounting manager and the host collapses. Reproduced, root-caused, and fixed upstream in 0.87 by deleting those three lines. Four of five end-to-end scenarios pass; the fifth is this."
+      ]
+    },
+    {
       "reactNative": "0.87",
       "hermes": "250829098.0.0-stable",
       "verified": "0.87.1",
@@ -35,8 +45,8 @@
   },
   "known-unsupported": [
     {
-      "reactNative": "0.83 - 0.86",
-      "why": "Never built or tested. Expected to work, since they share 0.87's unguarded native module lookup, but expectation is not support."
+      "reactNative": "0.83 - 0.85",
+      "why": "Never built or tested. Nothing suggests they would not work; nothing has checked."
     },
     {
       "reactNative": "0.82 and older",

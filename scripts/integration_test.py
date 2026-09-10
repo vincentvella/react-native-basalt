@@ -295,6 +295,14 @@ def test_scroll_round_trip(bundle: Path) -> None:
 METRO_PORT = 8099
 
 
+def is_port_taken(port: int, host: str = "localhost") -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1.5):
+            return True
+    except OSError:
+        return False
+
+
 class Metro:
     """Metro on its own port, for the Fast Refresh scenario."""
 
@@ -303,6 +311,21 @@ class Metro:
         self.log = log
 
     def __enter__(self) -> "Metro":
+        # Refuse to share the port. A packager already listening here is not
+        # ours, and talking to it means testing against whatever React Native
+        # *it* was started with. That happened: a Metro left over from a run
+        # against another version served its bundle to this one for an hour,
+        # and the symptom was a version mismatch nobody had introduced. Note
+        # that `pkill -f "cli.js start"` does not match these -- scripts/metro.sh
+        # execs `metro serve` -- which is why they accumulate unnoticed.
+        if is_port_taken(METRO_PORT):
+            raise Failure(
+                f"something is already listening on port {METRO_PORT}.\n"
+                "This scenario needs its own packager, and reusing a stranger's "
+                "would test whatever React Native that one was started with.\n"
+                'Stop it with: pkill -f "metro serve"'
+            )
+
         # Kept rather than discarded: when this scenario fails it is almost
         # always Metro doing something, and a CI run that only says "no update
         # arrived" costs another four minutes to learn anything from.
