@@ -2,6 +2,8 @@
 
 #include "LinuxFonts.h"
 
+#include <glib.h>
+
 #include <string>
 #include <string_view>
 
@@ -75,6 +77,56 @@ std::string localPathFrom(Runtime &rt, const Value &resource) {
     uri.erase(0, std::string_view{"file://"}.size());
   }
   return uri;
+}
+
+// ExpoAsset, which is how expo-asset turns an asset's URL into a local file.
+//
+// For a `file://` URL there is nothing to download: React Native resolved it
+// beside the bundle and it is already on disk, so the work is confirming that
+// and handing the same URL back. The existence check is the point -- without it
+// a missing asset succeeds here and fails much later, somewhere that has no
+// idea which file was meant.
+//
+// An http URL is what a dev server produces, and fetching one is not
+// implemented. It rejects saying so rather than pretending.
+Object makeAssetModule(Runtime &runtime) {
+  Object module(runtime);
+
+  module.setProperty(
+      runtime,
+      "downloadAsync",
+      Function::createFromHostFunction(
+          runtime,
+          PropNameID::forAscii(runtime, "downloadAsync"),
+          3,
+          [](Runtime &rt, const Value &, const Value *args, size_t count) -> Value {
+            if (count < 1 || !args[0].isString()) {
+              return rejectedPromise(rt, "downloadAsync expects a url");
+            }
+            const std::string url = args[0].asString(rt).utf8(rt);
+
+            if (url.rfind("file://", 0) != 0) {
+              return rejectedPromise(
+                  rt,
+                  "react-native-linux cannot fetch assets over the network yet; "
+                  "got " + url);
+            }
+
+            const std::string path = url.substr(std::string_view{"file://"}.size());
+            if (!g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR)) {
+              return rejectedPromise(
+                  rt,
+                  "no asset at " + path +
+                      ". Assets are not copied beside the bundle yet; see plan/16-assets.md.");
+            }
+
+            return rt.global()
+                .getPropertyAsObject(rt, "Promise")
+                .getPropertyAsFunction(rt, "resolve")
+                .call(rt, String::createFromUtf8(rt, url));
+          }));
+
+  return module;
 }
 
 // ExpoFontLoader, as far as a non-web platform is concerned. expo-font's own
@@ -182,7 +234,7 @@ void installExpoRuntime(facebook::jsi::Runtime &runtime) {
   // `require("expo").registerRootComponent(App)` call to survive, no more.
   // Anything that actually calls into them will fail, and should.
   jsi::Object modules(runtime);
-  modules.setProperty(runtime, "ExpoAsset", jsi::Object(runtime));
+  modules.setProperty(runtime, "ExpoAsset", makeAssetModule(runtime));
   modules.setProperty(runtime, "ExponentConstants", jsi::Object(runtime));
 
   // The first Expo module here that is not a stub. It loads a real font file

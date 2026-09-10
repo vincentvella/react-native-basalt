@@ -41,6 +41,7 @@
 #include <exception>
 #include "ExpoRuntime.h"
 #include "LinuxPlatformConstants.h"
+#include "LinuxSourceCode.h"
 #include "LinuxStatusBar.h"
 
 #include <react/featureflags/ReactNativeFeatureFlags.h>
@@ -325,10 +326,10 @@ class LinuxFeatureFlags : public facebook::react::ReactNativeFeatureFlagsDefault
 // consults these before its own, so naming a module it also provides replaces
 // it. Today that is only PlatformConstants; this is also the seam an Expo port
 // would use.
-facebook::react::TurboModuleProviders makeTurboModuleProviders() {
+facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scriptURL) {
   facebook::react::TurboModuleProviders providers;
   providers.emplace_back(
-      [](const std::string &name,
+      [scriptURL = std::move(scriptURL)](const std::string &name,
          const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
@@ -336,6 +337,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders() {
         }
         if (name == rnlinux::LinuxStatusBarModule::kModuleName) {
           return std::make_shared<rnlinux::LinuxStatusBarModule>(jsInvoker);
+        }
+        if (name == rnlinux::LinuxSourceCodeModule::kModuleName) {
+          return std::make_shared<rnlinux::LinuxSourceCodeModule>(jsInvoker, scriptURL);
         }
         return nullptr;
       });
@@ -443,7 +447,13 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                   facebook::react::getDefaultOnJsErrorFunc(),
                                                   logToGlib,
                                                   nullptr,
-                                                  makeTurboModuleProviders(),
+                                                  makeTurboModuleProviders(rnlinux::scriptURLFor(
+                                                      host->bundlePath,
+                                                      config.enableDevMode,
+                                                      config.devServerHost,
+                                                      config.devServerPort,
+                                                      host->sourcePath.empty() ? "index"
+                                                                               : host->sourcePath)),
                                                   nullptr,
                                                   nullptr,
                                                   installBindings,

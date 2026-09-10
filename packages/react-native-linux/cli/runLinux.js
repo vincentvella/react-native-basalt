@@ -65,6 +65,12 @@ function bundleForRelease(context, options, outputPath) {
     options.entryFile,
     '--bundle-output',
     outputPath,
+    // Beside the bundle, because that is where React Native looks. Its asset
+    // resolution answers `require('./logo.png')` with a path relative to the
+    // script's own location, so assets emitted anywhere else resolve to a file
+    // that is not there. See plan/16-assets.md.
+    '--assets-dest',
+    path.dirname(outputPath),
   ];
 
   const result = require('child_process').spawnSync(process.execPath, args, {

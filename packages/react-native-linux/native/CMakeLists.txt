@@ -113,6 +113,7 @@ if(DEFINED RN_DIR)
     src/ExpoRuntime.cpp
     src/LinuxFonts.cpp
     src/LinuxPlatformConstants.cpp
+    src/LinuxSourceCode.cpp
     src/LinuxStatusBar.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
