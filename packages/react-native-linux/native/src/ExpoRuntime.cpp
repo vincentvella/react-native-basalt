@@ -1,5 +1,10 @@
 #include "ExpoRuntime.h"
 
+#include "LinuxFonts.h"
+
+#include <string>
+#include <string_view>
+
 #ifdef RN_LINUX_HAS_EXPO
 #include <EventEmitter.h>
 #include <JSI/JSIUtils.h>
@@ -19,6 +24,134 @@ bool hasExpoRuntime() {
 }
 
 #ifdef RN_LINUX_HAS_EXPO
+
+namespace {
+
+using facebook::jsi::Function;
+using facebook::jsi::Object;
+using facebook::jsi::PropNameID;
+using facebook::jsi::Runtime;
+using facebook::jsi::String;
+using facebook::jsi::Value;
+
+// An already-settled promise, which is all this module needs: registering a
+// font is synchronous, and the JavaScript signature is async only because it is
+// asynchronous everywhere else.
+Value resolvedPromise(Runtime &rt) {
+  return rt.global()
+      .getPropertyAsObject(rt, "Promise")
+      .getPropertyAsFunction(rt, "resolve")
+      .call(rt);
+}
+
+Value rejectedPromise(Runtime &rt, const std::string &message) {
+  Function error = rt.global().getPropertyAsFunction(rt, "Error");
+  Value reason = error.callAsConstructor(rt, String::createFromUtf8(rt, message));
+  return rt.global()
+      .getPropertyAsObject(rt, "Promise")
+      .getPropertyAsFunction(rt, "reject")
+      .call(rt, reason);
+}
+
+// expo-font hands over whatever `expo-asset` resolved: a string, or an object
+// with a localUri or uri. Both shapes appear depending on how the asset was
+// bundled, so both are read rather than one being assumed.
+std::string localPathFrom(Runtime &rt, const Value &resource) {
+  std::string uri;
+  if (resource.isString()) {
+    uri = resource.asString(rt).utf8(rt);
+  } else if (resource.isObject()) {
+    Object object = resource.asObject(rt);
+    for (const char *key : {"localUri", "uri"}) {
+      Value value = object.getProperty(rt, key);
+      if (value.isString()) {
+        uri = value.asString(rt).utf8(rt);
+        break;
+      }
+    }
+  }
+
+  if (uri.rfind("file://", 0) == 0) {
+    uri.erase(0, std::string_view{"file://"}.size());
+  }
+  return uri;
+}
+
+// ExpoFontLoader, as far as a non-web platform is concerned. expo-font's own
+// type declaration marks everything but these two as web-only.
+Object makeFontLoader(Runtime &runtime) {
+  Object loader(runtime);
+
+  loader.setProperty(
+      runtime,
+      "loadAsync",
+      Function::createFromHostFunction(
+          runtime,
+          PropNameID::forAscii(runtime, "loadAsync"),
+          2,
+          [](Runtime &rt, const Value &, const Value *args, size_t count) -> Value {
+            if (count < 2 || !args[0].isString()) {
+              return rejectedPromise(rt, "loadAsync expects a family name and a font");
+            }
+            const std::string name = args[0].asString(rt).utf8(rt);
+            const std::string path = localPathFrom(rt, args[1]);
+            if (path.empty()) {
+              return rejectedPromise(
+                  rt, "could not find a local file for font '" + name + "'");
+            }
+            if (!registerFont(name, path)) {
+              return rejectedPromise(rt, "could not load font '" + name + "' from " + path);
+            }
+            return resolvedPromise(rt);
+          }));
+
+  loader.setProperty(
+      runtime,
+      "isLoaded",
+      Function::createFromHostFunction(
+          runtime,
+          PropNameID::forAscii(runtime, "isLoaded"),
+          1,
+          [](Runtime &rt, const Value &, const Value *args, size_t count) -> Value {
+            if (count < 1 || !args[0].isString()) {
+              return Value(false);
+            }
+            return Value(isFontRegistered(args[0].asString(rt).utf8(rt)));
+          }));
+
+  loader.setProperty(
+      runtime,
+      "getLoadedFonts",
+      Function::createFromHostFunction(
+          runtime,
+          PropNameID::forAscii(runtime, "getLoadedFonts"),
+          0,
+          [](Runtime &rt, const Value &, const Value *, size_t) -> Value {
+            Object array = rt.global()
+                               .getPropertyAsFunction(rt, "Array")
+                               .callAsConstructor(rt)
+                               .asObject(rt);
+            Function push = array.getPropertyAsFunction(rt, "push");
+
+            const std::string joined = registeredFontNamesJoined('\n');
+            std::size_t start = 0;
+            while (start < joined.size()) {
+              const std::size_t end = joined.find('\n', start);
+              const std::string one =
+                  joined.substr(start, end == std::string::npos ? std::string::npos : end - start);
+              push.callWithThis(rt, array, String::createFromUtf8(rt, one));
+              if (end == std::string::npos) {
+                break;
+              }
+              start = end + 1;
+            }
+            return Value(rt, array);
+          }));
+
+  return loader;
+}
+
+} // namespace
 
 void installExpoRuntime(facebook::jsi::Runtime &runtime) {
   namespace jsi = facebook::jsi;
@@ -51,6 +184,11 @@ void installExpoRuntime(facebook::jsi::Runtime &runtime) {
   jsi::Object modules(runtime);
   modules.setProperty(runtime, "ExpoAsset", jsi::Object(runtime));
   modules.setProperty(runtime, "ExponentConstants", jsi::Object(runtime));
+
+  // The first Expo module here that is not a stub. It loads a real font file
+  // into fontconfig, which is where Pango looks, so `fontFamily` works
+  // afterwards for text this platform renders. See src/LinuxFonts.cpp.
+  modules.setProperty(runtime, "ExpoFontLoader", makeFontLoader(runtime));
 
   // expo-modules-core builds its NativeModulesProxy by iterating this, falling
   // back to the legacy proxy when it is absent, so its presence matters even

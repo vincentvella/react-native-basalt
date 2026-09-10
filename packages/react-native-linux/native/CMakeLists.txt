@@ -24,6 +24,13 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
+# For fonts an app loads at runtime. Pango finds fonts through fontconfig, so
+# adding one to fontconfig is what makes it available to text this platform
+# renders. See src/LinuxFonts.cpp.
+pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
+# pango_fc_font_map_config_changed lives here rather than in pango proper. It is
+# how Pango is told that the set of fonts changed underneath it.
+pkg_check_modules(PANGOFT2 REQUIRED IMPORTED_TARGET pangoft2)
 
 # ---------------------------------------------------------------------------
 # rn_view — the GTK4 widget layer.
@@ -36,7 +43,7 @@ add_library(rn_view STATIC src/RnView.cpp)
 # its targets set their own flags, and these are PRIVATE so they never reach it.
 target_compile_options(rn_view PRIVATE -Wall -Wextra)
 target_include_directories(rn_view PUBLIC src)
-target_link_libraries(rn_view PUBLIC PkgConfig::GTK4)
+target_link_libraries(rn_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
 
 # ---------------------------------------------------------------------------
 # demo_layout — exercises the widget layer with hand-written frames.
@@ -104,6 +111,7 @@ if(DEFINED RN_DIR)
     src/GtkScrollView.cpp
     src/GtkTextInput.cpp
     src/ExpoRuntime.cpp
+    src/LinuxFonts.cpp
     src/LinuxPlatformConstants.cpp
     src/LinuxStatusBar.cpp
     src/PangoTextLayout.cpp

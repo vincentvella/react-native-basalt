@@ -1,5 +1,7 @@
 #include "PangoTextLayout.h"
 
+#include "LinuxFonts.h"
+
 #include <react/renderer/graphics/Color.h>
 
 #include <cmath>
@@ -133,9 +135,14 @@ void applyFragmentAttributes(PangoAttrList *attributes,
 
   PangoFontDescription *font = pango_font_description_new();
 
-  pango_font_description_set_family(
-      font,
-      textAttributes.fontFamily.empty() ? kDefaultFontFamily : textAttributes.fontFamily.c_str());
+  // Through the runtime registry: a font an app loaded at runtime is known to
+  // the app by a name it chose, and to fontconfig by the name inside the file.
+  // resolveFontFamily returns the argument unchanged for ordinary system
+  // families, so this costs a lookup and changes nothing for them.
+  const std::string family = textAttributes.fontFamily.empty()
+      ? std::string{kDefaultFontFamily}
+      : resolveFontFamily(textAttributes.fontFamily);
+  pango_font_description_set_family(font, family.c_str());
 
   float fontSize = isSet(textAttributes.fontSize) ? static_cast<float>(textAttributes.fontSize) : kDefaultFontSize;
   if (isSet(textAttributes.fontSizeMultiplier) && textAttributes.fontSizeMultiplier > 0) {

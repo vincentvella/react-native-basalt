@@ -218,8 +218,12 @@ has gone unrecorded until now.
   pattern node rather than one texture append.
 - `blurRadius`, `tintColor`, `overlayColor`, `fadeDuration` and
   `progressiveRenderingEnabled` are ignored.
-- `require()`d assets are not resolved: the demo passes a path. Asset
-  registration is bundler work and belongs with the npm package.
+- **`require()`d assets are not resolved**, and this is now the largest single
+  blocker rather than a footnote. It stops `<Image source={require(...)}>`, and
+  `expo-font`'s `useFonts`, and anything else handed a bundled file: the failure
+  is inside `expo-asset` before the native module is reached. The asset registry
+  works -- `require()` yields an id and `getAssetByID` returns the record -- so
+  what is missing is resolution and retrieval. See `plan/15-expo-runtime.md`.
 - `onProgress` and `onPartialLoad` are never emitted.
 - `IImageLoader` itself is still unimplemented, so `Image.getSize` and
   `Image.prefetch` do nothing. That is a separate seam from the rendering path.

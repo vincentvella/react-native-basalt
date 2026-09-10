@@ -11,11 +11,36 @@
 // be thread-safe and it must be fast. `textMeasureCache_` handles the second
 // part: Yoga measures the same string repeatedly while resolving flex.
 
+#include "LinuxFonts.h"
 #include "PangoTextLayout.h"
+
+#include <mutex>
+#include <unordered_map>
 
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 
 namespace facebook::react {
+
+namespace {
+
+std::mutex &measurementCacheMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+// Emptied whenever a font is registered; see the note at its first use.
+std::unordered_map<TextMeasureCacheKey, TextMeasurement> &measurementCache() {
+  static std::unordered_map<TextMeasureCacheKey, TextMeasurement> cache;
+  static unsigned long generation = 0;
+  const unsigned long current = rnlinux::fontGeneration();
+  if (current != generation) {
+    cache.clear();
+    generation = current;
+  }
+  return cache;
+}
+
+} // namespace
 
 TextLayoutManager::TextLayoutManager(const std::shared_ptr<const ContextContainer> &contextContainer)
     : contextContainer_(contextContainer), textMeasureCache_(kSimpleThreadSafeCacheSizeCap) {}
@@ -43,7 +68,24 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
   (void)layoutContext;
 #endif
 
-  return textMeasureCache_.get(key, [&]() {
+  // Not React Native's `textMeasureCache_`, which has no way to be emptied.
+  //
+  // A font registered since a measurement invalidates it: the same string with
+  // the same attributes measures differently once its family exists. That is
+  // not expressible in the cache key, which React Native defines, so the cache
+  // has to be droppable instead -- and without that, a font loaded after first
+  // render, which is how `useFonts` and every other loader works, appears to do
+  // nothing at all.
+  {
+    const std::lock_guard<std::mutex> lock(measurementCacheMutex());
+    auto &cache = measurementCache();
+    const auto hit = cache.find(key);
+    if (hit != cache.end()) {
+      return hit->second;
+    }
+  }
+
+  const TextMeasurement measured = [&]() {
     // An infinite maximum width means "do not wrap"; Pango wants -1 for that.
     const float maxWidth = std::isinf(layoutConstraints.maximumSize.width)
         ? -1.0F
@@ -83,7 +125,14 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
     }
 
     return TextMeasurement{.size = layoutConstraints.clamp(measured), .attachments = attachments};
-  });
+  }();
+
+  {
+    const std::lock_guard<std::mutex> lock(measurementCacheMutex());
+    measurementCache().emplace(key, measured);
+  }
+
+  return measured;
 }
 
 } // namespace facebook::react
