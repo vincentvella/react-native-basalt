@@ -124,6 +124,21 @@ jobs:
           cmake --build build -j "$(nproc)"
           ccache --show-stats
 
+      - name: Raise inotify limits
+        # Metro watches the whole React Native checkout, roughly eight thousand
+        # directories, and libuv takes one inotify watch per directory and one
+        # instance per watcher. A runner's defaults are not sized for that, and
+        # exhausting either is silent: Metro keeps serving, and simply never
+        # notices a file change again. That is exactly what the Fast Refresh
+        # scenario saw -- a fresh bundle still carrying the old text.
+        #
+        # The values are printed as well as set, because if this is not the
+        # cause the numbers are the next thing worth knowing.
+        run: |
+          sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+          sudo sysctl -w fs.inotify.max_user_instances=1024
+
       - name: Start a display
         # Both suites need one. No window manager is involved: the tests map
         # their own windows, and gtk_widget_pick only needs mapped, not managed.
