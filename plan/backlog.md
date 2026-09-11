@@ -218,12 +218,6 @@ has gone unrecorded until now.
   pattern node rather than one texture append.
 - `blurRadius`, `tintColor`, `overlayColor`, `fadeDuration` and
   `progressiveRenderingEnabled` are ignored.
-- **`require()`d assets resolve now, but nothing emits them for an Expo app.**
-  React Native's CLI has `--assets-dest` and `run-linux` passes it, which covers
-  a React Native app. An Expo app has no React Native CLI and Metro's own
-  `build` has no asset option, so it needs the programmatic path: a Metro
-  `Server`, its `getAssets`, and copying each file where its
-  `httpServerLocation` and scale say. See `plan/16-assets.md`.
 - Assets are never fetched over the network, so a dev server's assets do not
   work; `downloadAsync` rejects saying so. The host has an http client already.
 - Nothing caches a downloaded asset, which is right for a local file and will

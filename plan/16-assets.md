@@ -1,7 +1,7 @@
 # Phase 16 — the asset pipeline
 
-> **Runtime half done, 2026-09-10.** `useFonts` works with a `require()`d font.
-> The bundler half is not: assets are not yet emitted for an Expo app.
+> **Done, 2026-09-10.** `useFonts` with a `require()`d font works from a clean
+> bundle, with nothing placed by hand.
 
 `require('./logo.png')` had never worked on this platform. It blocks
 `<Image source={require(...)}>`, `expo-font`'s `useFonts`, `expo-image`, and
@@ -43,18 +43,36 @@ against 270x29 for the same string in the default sans.
 The one manual step was putting the file where the bundle expects it, because
 nothing emits it there yet.
 
+## Emitting them
+
+`react-native-linux-bundle` builds a bundle and writes its assets beside it. One
+command, and the same one for every kind of app.
+
+React Native's CLI could have done half of it -- it has `--assets-dest` -- but
+only an app that *has* that CLI can reach it, and an Expo app does not: `expo`
+is its CLI and does not know this platform, while Metro's own `build` command
+has no asset option at all. Since the code had to exist for Expo apps anyway, it
+became the only path, so both kinds of app get identical output and there is one
+place for assets to go wrong. `run-linux` calls the same function.
+
+It does what React Native's CLI does internally: build, then ask a Metro
+`Server` for `getAssets`, then copy each file to the location its
+`httpServerLocation` and scale imply. Two details matter.
+
+`metro/private/*` is how Metro's package exports its internals, and `Server` is
+not otherwise reachable -- `metro/src/Server` is blocked by its exports map.
+
+And the destination rule has to agree exactly with what React Native computes at
+runtime in `scaledAssetPath`, down to the `@2x` suffix and the `../` to `_`
+replacement for assets outside the project root. Disagreeing means files land
+where resolution does not look, and the symptom is a missing file with no
+explanation.
+
+Metro is looked up from the project first and from React Native second. An
+installed app has it hoisted; a checkout or a workspace may not, and it is
+always beside React Native.
+
 ## What is left
-
-**Assets are not emitted at bundle time.** React Native's own CLI has
-`--assets-dest`, and `run-linux` now passes it, pointing beside the bundle,
-which is where resolution looks. That covers a React Native app.
-
-It does not cover an Expo app, which has no React Native CLI -- `expo` is its
-CLI, and Metro's own `build` command has no asset option at all. That needs the
-programmatic path React Native's CLI uses internally: a Metro `Server`, its
-`getAssets`, and copying each file to the location its `httpServerLocation` and
-scale imply. That belongs in this package, since an Expo app has no other way to
-reach it.
 
 **Network assets are not fetched.** A dev server serves assets over http and
 `downloadAsync` rejects saying so. The host has an http client already, so this

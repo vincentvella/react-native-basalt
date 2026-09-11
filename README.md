@@ -212,6 +212,15 @@ glog header fails with *"was not included correctly"*. The define is set in
 RN headers also carry Xcode's `#pragma mark`, so GCC needs
 `-Wno-unknown-pragmas`.
 
+## Bundling
+
+    react-native-linux-bundle --bundle-output build/main.jsbundle.js
+
+One bundle, its assets beside it, which is where React Native looks for them.
+`react-native run-linux --mode release` calls the same code. An Expo app needs
+this command, because `expo` does not know this platform and Metro's own `build`
+emits no assets.
+
 ## A stock Expo app runs
 
 `npx create-expo-app --template blank`, unmodified, renders on Linux. Expo

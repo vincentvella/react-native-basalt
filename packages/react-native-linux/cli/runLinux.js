@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 
 const {buildHost} = require('./build');
+const {bundleWithAssets} = require('./bundleWithAssets');
 const {MissingHost, resolveHost} = require('./host');
 const {isPortTaken, startMetro} = require('./metro');
 
@@ -52,34 +53,25 @@ function resolveModuleName(projectRoot, options) {
   );
 }
 
-function bundleForRelease(context, options, outputPath) {
-  const cli = path.join(context.reactNativePath, 'cli.js');
-  const args = [
-    cli,
-    'bundle',
-    '--platform',
-    'linux',
-    '--dev',
-    'false',
-    '--entry-file',
-    options.entryFile,
-    '--bundle-output',
-    outputPath,
-    // Beside the bundle, because that is where React Native looks. Its asset
-    // resolution answers `require('./logo.png')` with a path relative to the
-    // script's own location, so assets emitted anywhere else resolve to a file
-    // that is not there. See plan/16-assets.md.
-    '--assets-dest',
-    path.dirname(outputPath),
-  ];
-
-  const result = require('child_process').spawnSync(process.execPath, args, {
-    cwd: context.root,
-    stdio: 'inherit',
+/**
+ * One bundler for every app.
+ *
+ * React Native's CLI could do this, and did, but only an app that has that CLI
+ * can reach it -- an Expo app cannot. Since the same code has to exist for
+ * them, it may as well be the only path, so both kinds of app get identical
+ * output and there is one place where assets can go wrong.
+ */
+async function bundleForRelease(context, options, outputPath) {
+  const result = await bundleWithAssets({
+    projectRoot: context.root,
+    entryFile: options.entryFile,
+    bundleOutput: outputPath,
+    platform: 'linux',
+    dev: false,
   });
-  if (result.status !== 0) {
-    throw new Error('bundling failed');
-  }
+  console.log(
+    `    ${result.files} asset file${result.files === 1 ? '' : 's'} beside the bundle`,
+  );
 }
 
 /**
@@ -153,12 +145,11 @@ async function runLinux(_argv, context, options) {
     if (!fs.existsSync(bundlePath)) {
       console.log('==> writing a fallback bundle for when Metro is unreachable');
       fs.mkdirSync(path.dirname(bundlePath), {recursive: true});
-      bundleForRelease(context, options, bundlePath);
+      await bundleForRelease(context, options, bundlePath);
     }
   } else {
     console.log('==> bundling for release');
-    fs.mkdirSync(path.dirname(bundlePath), {recursive: true});
-    bundleForRelease(context, options, bundlePath);
+    await bundleForRelease(context, options, bundlePath);
   }
 
   console.log(`==> ${path.basename(hostBinary)} ${moduleName}${dev ? ' (dev)' : ''}`);

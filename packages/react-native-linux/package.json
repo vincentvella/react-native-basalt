@@ -22,5 +22,8 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.25.0"
+  },
+  "bin": {
+    "react-native-linux-bundle": "./cli/bundle-cli.js"
   }
 }
