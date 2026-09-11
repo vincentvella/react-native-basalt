@@ -475,12 +475,17 @@ Or against Metro, which is how to develop, and the only way to get Fast Refresh:
     scripts/metro.sh ../react-native          # one terminal
     BASALT_DEV=1 ./build/basalt_gtk      # another
 
-`scripts/bundle.sh` writes a production bundle. A `--dev` one cannot be loaded
-from disk at all: it pulls in LogBox, which reads the `DevSettings` TurboModule
-at import time, and `ReactCxxTurboModuleProvider` serves that module only when a
-dev server exists -- in which case the bundle comes from Metro and the file on
-disk is ignored. So there is no configuration in which a `--dev` bundle is the
-thing being run.
+`scripts/bundle.sh` writes a production bundle. A `--dev` one loads and runs
+too, which it did not before phase 32: it pulls in LogBox, which reads the
+`DevSettings` TurboModule at import time, and `ReactCxxTurboModuleProvider`
+serves that module only when a dev server exists. This project now supplies one
+outside dev mode, so that import no longer takes the app down. What a `--dev`
+bundle still is not is a development *mode* -- nothing reloads it, nothing
+refreshes it, and LogBox's own images are not among the assets copied next to
+it. Use Metro for that.
+
+If Metro cannot build, the host says so and exits rather than starting: the
+error you see is Metro's own, code frame and all. See plan/33-dev-bundle-errors.md.
 
 Arguments are `basalt_gtk [bundle] [moduleName]`, defaulting to
 `build/main.jsbundle.js` and `BasaltDemo`. An **empty** module name starts a

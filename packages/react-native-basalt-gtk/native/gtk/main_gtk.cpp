@@ -43,6 +43,7 @@
 #include "BlobModule.h"
 #include "CoreModules.h"
 #include "ColorScheme.h"
+#include "DevBundle.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -111,6 +112,9 @@ struct Host {
   std::string sourcePath;
   bool surfaceStarted{false};
   int scaleFactor{1};
+  // Read by main() after the loop ends. GApplication has no exit status to set
+  // any more, and a startup that failed has to be tellable from one that ran.
+  int exitStatus{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -492,6 +496,10 @@ void onActivate(GtkApplication *app, gpointer data) {
               config.devServerHost.c_str(),
               config.devServerPort,
               host->sourcePath.c_str());
+    // So the http client can tell the bundle request apart from an app's own
+    // fetch, and refuse to feed a Metro error page to the JS engine. See
+    // core/DevBundle.h.
+    basalt::setDevServerOrigin(config.devServerHost, config.devServerPort);
   }
 
   try {
@@ -518,7 +526,24 @@ void onActivate(GtkApplication *app, gpointer data) {
     g_error("could not construct ReactHost: %s", error.what());
   }
 
-  if (!host->reactHost->loadScript(host->bundlePath, host->sourcePath)) {
+  // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
+  // fails, which is right when nothing is listening and wrong when Metro
+  // answered with an error: running the last bundle that built, while the
+  // developer looks at source that is not what is executing, hides the very
+  // thing they need to see. So the fallback is allowed only for the first case,
+  // and the second stops here with Metro's own message.
+  const bool loaded = host->reactHost->loadScript(host->bundlePath, host->sourcePath);
+  if (const auto devError = basalt::devBundleError()) {
+    g_warning("Metro could not build the bundle (HTTP %ld):\n%s",
+              devError->status,
+              devError->message.c_str());
+    // Non-zero, so a script that starts this host can tell a build failure from
+    // a run that ended. The AppKit host returns 1 from main for the same reason.
+    host->exitStatus = 1;
+    g_application_quit(G_APPLICATION(gtk_window_get_application(host->window)));
+    return;
+  }
+  if (!loaded) {
     g_warning("could not load script: %s", host->bundlePath.c_str());
     gtk_window_present(host->window);
     return;
@@ -635,5 +660,5 @@ int main(int argc, char **argv) {
 
   const int status = g_application_run(G_APPLICATION(app), 1, argv);
   g_object_unref(app);
-  return status;
+  return host.exitStatus != 0 ? host.exitStatus : status;
 }

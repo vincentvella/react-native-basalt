@@ -4,13 +4,12 @@
 # Usage:  scripts/bundle.sh [/path/to/react-native] [--dev|--prod] [--platform P]
 #                          [--build-dir DIR] [--entry FILE] [--out NAME]
 #
-# Produces a production bundle by default, because a development one cannot be
-# loaded from disk. A __DEV__ bundle pulls in LogBox, which reads the
-# DevSettings TurboModule at module scope, and ReactCxxTurboModuleProvider only
-# serves that module when a DevServerHelper exists -- which is to say, in dev
-# mode, where the bundle is fetched from Metro and this file is ignored anyway.
-# So --dev writes something nothing can run. It is kept because seeing the
-# unminified output is occasionally what you want.
+# Produces a production bundle by default. A --dev one does load and run since
+# phase 32 -- a __DEV__ bundle pulls in LogBox, which reads the DevSettings
+# TurboModule at module scope, and until this project supplied one outside dev
+# mode that import took the app down. What it still does not get you is a
+# development *mode*: nothing reloads it and nothing refreshes it, and LogBox's
+# own images are not among the assets copied next to it.
 #
 # Development is Metro plus BASALT_DEV=1, not a --dev bundle:
 #
@@ -71,8 +70,8 @@ mkdir -p "$REPO_ROOT/$BUILD_DIR"
 
 echo "==> bundling js/$ENTRY (platform=$PLATFORM, dev=$DEV) against $RN_DIR"
 if [ "$DEV" = true ]; then
-  echo "    note: the host cannot load a --dev bundle from disk; it needs" >&2
-  echo "          DevSettings, which only exists in dev mode. See the header." >&2
+  echo "    note: a --dev bundle runs, but nothing reloads or refreshes it." >&2
+  echo "          For development use Metro and BASALT_DEV=1. See the header." >&2
 fi
 # metro appends .js to --out.
 # The entry is resolved against projectRoot (js/), so it is named relative to

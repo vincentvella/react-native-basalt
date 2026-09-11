@@ -215,10 +215,11 @@ so anything importing them dies at startup.
   neither platform has a notification API wired up.
 - **A desktop notification API**, which is what `ToastAndroid` should really be
   and what any app wanting to tell a user something out-of-band needs.
-- **Dev mode with no Metro running is a fatal error**, on both platforms: the
-  host fetches from localhost:8081, gets a connection-refused body, and compiles
-  it as JavaScript. It should notice and fall back to the on-disk bundle, which
-  is what it says it does.
+- **A Metro error still has no red box.** Phase 33 stopped the error page being
+  compiled as JavaScript and prints Metro's own message, which is most of the
+  value, but the host exits rather than showing it. An app already running when
+  a reload fails is a separate case, and it currently keeps running the code it
+  has, with the error only in the log.
 
 ## Desktop capabilities
 

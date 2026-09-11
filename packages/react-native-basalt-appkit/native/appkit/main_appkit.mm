@@ -38,6 +38,7 @@
 #include "BlobModule.h"
 #include "CoreModules.h"
 #include "ColorScheme.h"
+#include "DevBundle.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -479,6 +480,12 @@ int main(int argc, const char *argv[]) {
     if (const char *devPort = getenv("BASALT_DEV_PORT")) {
       config.devServerPort = (uint32_t)strtoul(devPort, nullptr, 10);
     }
+    // So the http client can tell the bundle request apart from an app's own
+    // fetch, and refuse to feed a Metro error page to the JS engine. See
+    // core/DevBundle.h.
+    if (config.enableDevMode) {
+      basalt::setDevServerOrigin(config.devServerHost, config.devServerPort);
+    }
 
     try {
       gHost.reactHost = std::make_unique<ReactHost>(
@@ -505,8 +512,26 @@ int main(int argc, const char *argv[]) {
       return 1;
     }
 
-    if (!gHost.reactHost->loadScript(gHost.bundlePath, gHost.sourcePath)) {
+    // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
+    // fails, which is right when nothing is listening and wrong when Metro
+    // answered with an error: running the last bundle that built, while the
+    // developer looks at source that is not what is executing, hides the very
+    // thing they need to see. So the fallback is allowed only for the first
+    // case, and the second stops here with Metro's own message.
+    const bool loaded = gHost.reactHost->loadScript(gHost.bundlePath, gHost.sourcePath);
+    if (const auto devError = basalt::devBundleError()) {
+      NSLog(@"Metro could not build the bundle (HTTP %ld):\n%s",
+            devError->status,
+            devError->message.c_str());
+      // Through shutdown() rather than straight out: the fallback bundle is
+      // already running on the JS thread, and dropping the host without
+      // joining it aborts in a destructor instead of exiting.
+      shutdown();
+      return 1;
+    }
+    if (!loaded) {
       NSLog(@"could not load script: %s", gHost.bundlePath.c_str());
+      shutdown();
       return 1;
     }
     NSLog(@"loaded script: %s", gHost.bundlePath.c_str());

@@ -50,6 +50,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_devbundle.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
@@ -130,6 +131,7 @@ if(DEFINED RN_DIR)
     # Clipboard, Vibration, Alert, Linking, I18nManager, AccessibilityInfo --
     # the core modules ReactCxxPlatform does not provide.
     core/CoreModules.cpp
+    core/DevBundle.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp
     # The bytes behind an <Image>, which is the half of image loading that is

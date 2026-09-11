@@ -12,5 +12,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `02-reacthost-surface.md` — next milestone: a live surface driven by Hermes
 - `03-metro-bundle.md` — React actually reconciling, with Fast Refresh
 - `04-text-pango.md` — the big one
+- `33-dev-bundle-errors.md` — what Metro said, instead of what it compiled to
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

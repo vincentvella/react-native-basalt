@@ -25,6 +25,7 @@
 // its CallInvoker.
 
 #include "BlobRegistry.h"
+#include "DevBundle.h"
 
 #include <react/http/IHttpClient.h>
 
@@ -161,7 +162,22 @@ void performRequest(http::NetworkCallbacks callbacks,
   long statusCode = 0;
   curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &statusCode);
 
-  if (result == CURLE_OK) {
+  // A failed bundle fetch is the one case where the body must not be delivered.
+  // `DevServerHelper` hands whatever arrives to the JS engine without reading
+  // the status, so Metro's 500 -- which is how it reports every error in your
+  // app -- gets compiled as JavaScript. Reporting it as an error instead means
+  // `ReactHost` never sees a script, and core/DevBundle.h keeps the message
+  // that was in the body. Only the bundle request: an app's own fetch() of a
+  // 404 or a 500 needs its body, which is what the status code is for.
+  const bool bundleFailed = result == CURLE_OK && (statusCode < 200 || statusCode >= 300) &&
+      basalt::isDevBundleRequest(method, url);
+
+  if (bundleFailed) {
+    basalt::recordDevBundleError(statusCode, url, responseBody);
+    if (callbacks.onResponseComplete) {
+      callbacks.onResponseComplete("Metro answered " + std::to_string(statusCode), false);
+    }
+  } else if (result == CURLE_OK) {
     if (callbacks.onResponse) {
       callbacks.onResponse(static_cast<uint16_t>(statusCode), responseHeaders);
     }
