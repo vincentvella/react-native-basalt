@@ -30,27 +30,40 @@ brings the host's sources and `react-native run-linux --build` can compile one.
 `native/` below is `packages/react-native-linux/native/`. Plan documents written
 before 2026-09-10 name these files without that prefix.
 
-`native/` has two halves. `core/` is the part that is not about a toolkit --
-the Expo runtime, the core modules, the http client -- and it builds without
-GTK on the include path, which is how that claim is kept honest rather than
-aspirational. `src/` is the GTK view layer, and would be something else on
-another desktop. See `plan/17-shared-core.md`.
+`native/` has three parts. `core/` is everything that is not about a toolkit --
+the Expo runtime, the core modules, the http client -- and it builds and *links*
+without GTK on the path, which is how that claim is kept honest rather than
+aspirational. `gtk/` is the Linux view layer. `mac/` is the beginning of the
+macOS one. See `plan/17-shared-core.md` and `plan/18-macos-view-layer.md`.
 
-    native/src/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
-    native/src/GtkMountingManager.*    IMountingManager implementation.
-    native/src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
-    native/src/LinuxComponentRegistry.h     Which components this platform supports.
-    native/src/LinuxNetworking.cpp     The IHttpClient seam, backed by libcurl.
-    native/src/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
-                                measurement and painting, so they agree.
-    native/src/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
-    native/src/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
-    native/src/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
-    native/src/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
-    native/src/GtkTextInput.*          <TextInput>, over a real GtkText.
-    native/src/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
+    native/core/ExpoRuntime.*          globalThis.expo, and the modules on it.
+    native/core/PlatformConstantsModule.*  Platform.OS and friends.
+    native/core/SourceCodeModule.*     Where the bundle came from. Assets need it.
+    native/core/StatusBarModule.*      StatusBar, reporting a height of zero.
+    native/core/HttpClient.cpp         The IHttpClient seam, backed by libcurl.
+    native/core/FontRegistry.h         The one seam a new desktop has to fill.
+    native/core/portability_probe.cpp  Links core alone, so the claim is a build
+                                failure rather than a paragraph.
+
+    native/gtk/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
+    native/gtk/GtkMountingManager.*    IMountingManager implementation.
+    native/gtk/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
+    native/gtk/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
+    native/gtk/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
+    native/gtk/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
+    native/gtk/GtkTextInput.*          <TextInput>, over a real GtkText.
+    native/gtk/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
                                 an emitter produces ever reaches JavaScript.
-    native/src/main.cpp                The host: ReactHost, Hermes, one live surface.
+    native/gtk/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
+                                measurement and painting, so they agree.
+    native/gtk/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
+    native/gtk/FontRegistryFontconfig.cpp  The font seam, on fontconfig.
+    native/gtk/main.cpp                The host: ReactHost, Hermes, one live surface.
+
+    native/mac/RnMacView.h/.mm         AppKit view layer. Flipped, layer-backed.
+                                Nothing drives it yet -- there is no macOS
+                                mounting manager. Built only on a Mac.
+
     js/index.js                 The demo app. Ordinary React Native.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     native/CMakeLists.txt       The host build. CMakeLists.txt at the repo root
@@ -62,8 +75,10 @@ another desktop. See `plan/17-shared-core.md`.
     examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
-    native/src/mount_harness.cpp       Hand-built mutations; no JS runtime.
-    native/src/demo_layout.cpp         Renders hand-written frames; no RN needed.
+    native/gtk/mount_harness.cpp       Hand-built mutations; no JS runtime.
+    native/gtk/demo_layout.cpp         Renders hand-written frames; no RN needed.
+    native/mac/demo_layout_mac.mm      The same boxes, on AppKit. Snapshots to a
+                                PNG offscreen with RN_MAC_SNAPSHOT=out.png.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time
@@ -337,10 +352,12 @@ See `plan/backlog.md` for the per-component detail.
 
     ./build/rn_tests                    # unit
     scripts/integration_test.py         # end to end, needs a built bundle
+    ./build/rn_mac_tests                # the macOS view layer, on a Mac only
 
-Both need a display; on a headless machine prefix with `xvfb-run -a`. Both run
-in CI on Linux, where the end-to-end suite drives the app with real pointer
-events rather than injected ones. See `docs/TESTING.md`.
+The first two need a display; on a headless machine prefix with `xvfb-run -a`.
+Both run in CI on Linux, where the end-to-end suite drives the app with real
+pointer events rather than injected ones. `rn_mac_tests` needs neither a display
+nor a window, and is only built where AppKit exists. See `docs/TESTING.md`.
 
 ## Running it
 

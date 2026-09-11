@@ -23,14 +23,64 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
+
+# GTK is required everywhere except a Mac, where it is optional: the macOS view
+# layer below needs AppKit and nothing else, and a Mac with no GTK installed
+# should still be able to build and test it.
+if(APPLE)
+  set(RN_DESKTOP_GTK_REQUIREMENT "")
+else()
+  set(RN_DESKTOP_GTK_REQUIREMENT REQUIRED)
+endif()
+
+pkg_check_modules(GTK4 ${RN_DESKTOP_GTK_REQUIREMENT} IMPORTED_TARGET gtk4)
 # For fonts an app loads at runtime. Pango finds fonts through fontconfig, so
 # adding one to fontconfig is what makes it available to text this platform
-# renders. See gtk/LinuxFonts.cpp.
-pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
+# renders. See gtk/FontRegistryFontconfig.cpp.
+pkg_check_modules(FONTCONFIG ${RN_DESKTOP_GTK_REQUIREMENT} IMPORTED_TARGET fontconfig)
 # pango_fc_font_map_config_changed lives here rather than in pango proper. It is
 # how Pango is told that the set of fonts changed underneath it.
-pkg_check_modules(PANGOFT2 REQUIRED IMPORTED_TARGET pangoft2)
+pkg_check_modules(PANGOFT2 ${RN_DESKTOP_GTK_REQUIREMENT} IMPORTED_TARGET pangoft2)
+
+# ---------------------------------------------------------------------------
+# The macOS view layer.
+#
+# Built only where it can be: an AppKit view compiles on a Mac and nowhere else,
+# and the GTK half is in the same position on the other side. Both sit beside
+# the shared core rather than underneath each other, which is the arrangement
+# the whole split exists to make possible.
+#
+# Objective-C++ is enabled here rather than at the top of the file so that a
+# Linux build never asks for a compiler it has no reason to have.
+# ---------------------------------------------------------------------------
+if(APPLE)
+  enable_language(OBJCXX)
+
+  add_library(rn_mac_view STATIC mac/RnMacView.mm)
+  target_compile_options(rn_mac_view PRIVATE -Wall -Wextra -fobjc-arc)
+  target_include_directories(rn_mac_view PUBLIC mac)
+  target_link_libraries(rn_mac_view PUBLIC "-framework Cocoa" "-framework QuartzCore")
+
+  add_executable(demo_layout_mac mac/demo_layout_mac.mm)
+  target_compile_options(demo_layout_mac PRIVATE -Wall -Wextra -fobjc-arc)
+  target_link_libraries(demo_layout_mac PRIVATE rn_mac_view)
+
+  # The same harness the GTK tests use. It has no toolkit dependency, which is
+  # the point: the test infrastructure is shared even though the views are not.
+  add_executable(rn_mac_tests tests/TestHarness.cpp mac/test_mac_view.mm)
+  target_compile_options(rn_mac_tests PRIVATE -Wall -Wextra -fobjc-arc)
+  target_include_directories(rn_mac_tests PRIVATE tests)
+  target_link_libraries(rn_mac_tests PRIVATE rn_mac_view)
+endif()
+
+# Everything past this point is GTK, and on a Mac without it there is nothing
+# further to configure. Stopping here rather than wrapping four hundred lines in
+# a condition, and deliberately not a fatal error: the macOS targets above are a
+# complete, useful build on their own.
+if(NOT GTK4_FOUND)
+  message(STATUS "gtk4 not found; building the macOS view layer only")
+  return()
+endif()
 
 # ---------------------------------------------------------------------------
 # rn_view — the GTK4 widget layer.
@@ -226,6 +276,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   # ---------------------------------------------------------------------------
   add_executable(rn_tests
     tests/TestHarness.cpp
+    tests/main_gtk.cpp
     tests/test_mounting.cpp
     tests/test_view.cpp
     tests/test_text.cpp

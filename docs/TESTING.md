@@ -1,12 +1,15 @@
 # Testing
 
-Two suites. Both need a display, because everything here is a GTK program. Both
-run in CI on Linux, which is where they matter: see `.github/workflows/ci.yml`.
+Three suites. The two Linux ones need a display, because everything in them is a
+GTK program, and both run in CI on Linux, which is where they matter: see
+`.github/workflows/ci.yml`.
 
 ```bash
 ./build/rn_tests                    # unit
 scripts/bundle.sh ../react-native --prod
 scripts/integration_test.py         # end to end
+
+./build/rn_mac_tests                # the macOS view layer, on a Mac only
 ```
 
 On a headless machine, run either under a virtual display:
@@ -18,6 +21,9 @@ xvfb-run -a scripts/integration_test.py
 
 `rn_tests` exits 77 rather than failing when it cannot reach a display, which
 is the convention for "skipped".
+
+`rn_mac_tests` needs neither a display nor a window: nothing in it is presented.
+It is built only on a Mac, and CMake omits the target everywhere else.
 
 ## `build/rn_tests` — the unit suite
 
@@ -33,7 +39,33 @@ Hermes: mutations are hand-built, the way `mount_harness` builds them.
 | `native/tests/test_image.cpp` | The image loader. Decoding, the cache answering synchronously, and the three ways a load can fail. |
 | `native/tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. |
 
-The harness is `native/tests/TestHarness.h`, about sixty lines, no dependencies. Its
+## `build/rn_mac_tests` — the macOS view layer
+
+`native/mac/test_mac_view.mm`, against `RnMacView` alone: no Fabric, no React
+Native, no toolkit initialisation. It pins the tag and frame, the child order
+including insertion into the middle, that removing a view that is not yours is a
+no-op, that background colour, opacity, clipping and corner radius reach the
+CALayer, that the background is in sRGB rather than the display's space, and
+that `describeTree` emits the same text the GTK side does.
+
+The one worth naming is `mac_view_is_flipped_so_frames_are_top_left`. AppKit's
+origin is bottom-left and every frame Fabric produces is top-left, so a child at
+y=32 in a 420-tall parent belongs 32 from the top; unflipped it would sit at 228
+and the layout would look plausible and be wrong.
+
+`native/mac/demo_layout_mac.mm` is the visual half. It carries the same boxes at
+the same coordinates as the GTK `demo_layout`, so the two can be compared
+directly, and `RN_MAC_SNAPSHOT=out.png ./build/demo_layout_mac` renders them
+offscreen to a PNG. `RN_MAC_DUMP_TREE=1` prints the tree instead — useful, but
+it would print the same thing whether or not the flip works, which is what the
+snapshot is for.
+
+## The harness
+
+`native/tests/TestHarness.h`, about sixty lines, no dependencies, shared by all
+three. `TestHarness.cpp` is the runner and knows about no toolkit; each suite
+brings its own `main` — `tests/main_gtk.cpp` initialises GTK, and the macOS one
+sits at the bottom of `test_mac_view.mm`. Its
 assertions are `EXPECT`, `EXPECT_EQ` and `EXPECT_NEAR` rather than `CHECK*`
 because glog — which React Native pulls in almost everywhere — already defines
 `CHECK` and `CHECK_EQ`. Those win the preprocessor silently, and a failing

@@ -1,6 +1,10 @@
-#include "TestHarness.h"
+// The runner itself, with no toolkit in it.
+//
+// The toolkit lives in the `main` beside this file -- GTK has to be initialised
+// before a widget can be constructed, and AppKit has its own requirements -- so
+// each platform brings its own entry point and shares everything below.
 
-#include <gtk/gtk.h>
+#include "TestHarness.h"
 
 #include <sstream>
 
@@ -32,6 +36,8 @@ void recordFailure(const std::string &where, const std::string &what) {
 int runAllTests() {
   int failed = 0;
 
+  std::cout << "running " << registry().size() << " tests\n";
+
   for (const auto &test : registry()) {
     current().name = test.name;
     current().failures.clear();
@@ -55,21 +61,3 @@ int runAllTests() {
 }
 
 } // namespace rnlinux::testing
-
-int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
-
-  // Every test touches widgets, and a GtkWidget cannot be constructed before
-  // GTK is initialised. No window is ever presented, but GTK still needs a
-  // display connection: on a headless machine run this under a nested or
-  // virtual display server. See docs/TESTING.md.
-  if (gtk_init_check() == FALSE) {
-    std::cerr << "could not initialise GTK; these tests need a display.\n"
-              << "On a headless Linux box: xvfb-run -a ./build/rn_tests\n";
-    return 77; // The convention automake uses for "skipped", not "failed".
-  }
-
-  std::cout << "running " << rnlinux::testing::registry().size() << " tests\n";
-  return rnlinux::testing::runAllTests();
-}
