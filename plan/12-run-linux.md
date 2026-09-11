@@ -12,8 +12,8 @@ project would.
 
 Everything `run-android` does except the build:
 
-- Finds the host binary. Explicit `--host-binary`, then `RN_LINUX_HOST`, then
-  `<project>/.rn-linux/build` where `--build` puts one, then `<project>/linux/build`
+- Finds the host binary. Explicit `--host-binary`, then `BASALT_HOST`, then
+  `<project>/.basalt/build` where `--build` puts one, then `<project>/linux/build`
   and `<project>/build`, and finally the build tree of a development checkout.
   When none of those has one, it says how to make one rather than printing a
   path that does not exist.
@@ -39,7 +39,7 @@ references to files that do not exist.
 Setting it is what marks a platform *out-of-tree* to React Native's CLI, and it
 is what react-native-windows and react-native-macos both do. The CLI responds by
 installing `reactNativePlatformResolver`, which rewrites every
-`react-native/...` import to `react-native-linux/...` while bundling for linux,
+`react-native/...` import to `react-native-basalt/...` while bundling for linux,
 and by requiring the package to export `./setup-env`.
 
 Both are right for those platforms, because both are forks that vendor React
@@ -60,7 +60,7 @@ lives.
 **A path prefix test without a separator.** `withLinuxPlatform` adds its own
 directory to `watchFolders` unless it is already covered, and asked that with
 `startsWith`. A React Native checkout at `/src/react-native` is a string prefix
-of this package at `/src/react-native-linux/packages/react-native-linux`, so it
+of this package at `/src/react-native-basalt/packages/react-native-basalt`, so it
 concluded the package was already watched and Metro then refused to read the
 files the plugin hands it. That is exactly the layout this repository is
 developed in, which is why it survived being written and tested the same day.
@@ -69,26 +69,26 @@ developed in, which is why it survived being written and tested the same day.
 inherited stdout, so anything reading `run-linux`'s output waited forever for a
 process meant to outlive the command. This repository's own CI workflow carries
 a warning about the identical shape. Metro's output now goes to
-`.rn-linux/metro.log`, whose path is printed.
+`.basalt/metro.log`, whose path is printed.
 
 ## The native code moved into the package
 
 Everything that was at the root of this repository -- `CMakeLists.txt`,
 `cmake/`, `src/`, `tests/` and `bootstrap.sh` -- now lives in
-`packages/react-native-linux/native/`, because npm can only ship what is inside
+`packages/react-native-basalt/native/`, because npm can only ship what is inside
 the package directory. That is the same shape react-native-windows uses, where
 the package *is* `vnext/`.
 
 `CMakeLists.txt` at the root is now a wrapper. It contributes the two things a
 checkout knows and an app must not assume: that `third_party` belongs at the
 root of the repository, and that the binary should appear at
-`build/rn_linux_host`, which every script and document here names. So the way
+`build/basalt_gtk`, which every script and document here names. So the way
 this repository has always been built is unchanged.
 
 Three things had to stop being assumed:
 
-- **Where `third_party` lives.** `RN_LINUX_THIRD_PARTY` now says, and bootstrap
-  takes the same path. An app gets `.rn-linux/third_party` under itself, never a
+- **Where `third_party` lives.** `BASALT_THIRD_PARTY` now says, and bootstrap
+  takes the same path. An app gets `.basalt/third_party` under itself, never a
   directory inside `node_modules`, which npm rewrites on install and which is no
   place to leave a Hermes build.
 - **That the codegen `CMakeLists.txt` is checked in.** It is ours rather than

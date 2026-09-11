@@ -26,7 +26,7 @@ is no longer blocked on the platform, but still needs keyboard input and a
 focus model. See `plan/decisions.md`.
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
-`ReactHost`), plus Hermes and codegen. `rn_linux_host` runs a real React Native
+`ReactHost`), plus Hermes and codegen. `basalt_gtk` runs a real React Native
 app: Metro bundles `js/index.js`, `AppRegistry` starts the surface, React
 reconciles, Yoga lays out, and the mutations reach GTK4 widgets through
 `GtkMountingManager`. Fast Refresh works against a running Metro.
@@ -37,15 +37,15 @@ scroll. Accessibility properties reach AT-SPI. What is missing is still the comp
 surface rather than the runtime: no `<TextInput>`, and no keyboard or focus
 model.
 
-There are tests now -- `build/rn_tests` and `scripts/integration_test.py`. See
+There are tests now -- `build/basalt_gtk_tests` and `scripts/integration_test.py`. See
 `docs/TESTING.md`, which also has the recipe for running everything on Linux in
 a VM, which is where it should be checked before being believed.
 
 ## Setup
 
 ```bash
-git clone https://github.com/vincentvella/react-native-linux
-cd react-native-linux
+git clone https://github.com/vincentvella/react-native-basalt
+cd react-native-basalt
 git clone --depth 1 https://github.com/react/react-native ../react-native
 scripts/bootstrap.sh ../react-native
 ```
@@ -68,15 +68,15 @@ Then:
 cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DRN_DIR=../react-native/packages/react-native
 nice -n 10 cmake --build build -j 12
-./build/mount_harness
+./build/mount_harness_gtk
 ```
 
 ## macOS: verified 2026-09-08
 
 Built and run on an Apple Silicon Mac (macOS 26, AppleClang 21, Homebrew GTK4
-4.22.4). `mount_harness` renders both transactions correctly on the quartz
+4.22.4). `mount_harness_gtk` renders both transactions correctly on the quartz
 backend: the frames, the recolour, the removal and the overflowing nested child
-all match what the mutations describe. `demo_layout` renders too. Four things
+all match what the mutations describe. `demo_layout_gtk` renders too. Four things
 needed fixing, all now in the repo:
 
 - **`bootstrap.sh` died under bash 3.2**, which macOS ships. `"${arr[@]}"` of an

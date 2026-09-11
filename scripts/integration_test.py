@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """End-to-end tests for the host.
 
-The unit suite (build/rn_tests) covers everything that can be reached without a
+The unit suite (build/basalt_gtk_tests) covers everything that can be reached without a
 JavaScript runtime. What it cannot cover is the path this project actually
 exists to provide: JavaScript, React, Fabric, the mounting manager, and GTK
 widgets, all in one process. Until there was a way to read the resulting widget
 tree, the only way to check that path was to look at a screenshot.
 
-RN_LINUX_DUMP_TREE makes it assertable. Each scenario below runs the real host
+BASALT_DUMP_TREE makes it assertable. Each scenario below runs the real host
 against the real bundle, taps something, and asserts on the tree it wrote on
 the way out.
 
@@ -16,7 +16,7 @@ Taps arrive one of two ways:
   real       xdotool moves the pointer and clicks, so the event goes through
              the X server and GDK exactly as a person's click would. This is
              the only mode that exercises event delivery itself.
-  injected   RN_LINUX_TEST_TAP calls the gesture callback directly, skipping
+  injected   BASALT_TEST_TAP calls the gesture callback directly, skipping
              GDK. The fallback where a real event cannot be synthesised --
              notably macOS, where it needs accessibility permission an
              automated run does not have.
@@ -55,8 +55,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 # Rebound by --build-dir. Testing against a second React Native version means a
 # second build tree, and the suite has to run the host from it.
-HOST = REPO / "build" / "rn_linux_host"
-MODULE = "RNLinuxDemo"
+HOST = REPO / "build" / "basalt_gtk"
+MODULE = "BasaltDemo"
 
 # Coordinates are in surface-root points, and depend on the demo's layout. They
 # are computed from js/index.js rather than measured from a screenshot: the
@@ -105,7 +105,7 @@ def check_output(stderr: str, returncode: int) -> None:
 def click_with_xdotool(points: list[tuple[int, int]]) -> None:
     """Clicks through the X server, so GDK delivers the event itself."""
     window = subprocess.run(
-        ["xdotool", "search", "--name", "react-native-linux"],
+        ["xdotool", "search", "--name", "react-native-basalt"],
         capture_output=True,
         text=True,
     ).stdout.split()
@@ -146,15 +146,15 @@ def run_host(bundle: Path, taps: str = "", run_ms: int = 4000, typing: str = "")
     with tempfile.TemporaryDirectory() as directory:
         dump = Path(directory) / "tree.txt"
         env = dict(os.environ)
-        env["RN_LINUX_DUMP_TREE"] = str(dump)
-        env["RN_LINUX_QUIT_AFTER_MS"] = str(run_ms)
-        env.pop("RN_LINUX_TEST_TAP", None)
-        env.pop("RN_LINUX_TEST_TYPE", None)
+        env["BASALT_DUMP_TREE"] = str(dump)
+        env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+        env.pop("BASALT_TEST_TAP", None)
+        env.pop("BASALT_TEST_TYPE", None)
 
         if points and INPUT_MODE == "injected":
-            env["RN_LINUX_TEST_TAP"] = taps
+            env["BASALT_TEST_TAP"] = taps
         if typing and INPUT_MODE == "injected":
-            env["RN_LINUX_TEST_TYPE"] = typing
+            env["BASALT_TEST_TYPE"] = typing
 
         command = [str(HOST), str(bundle), MODULE]
         timeout = run_ms / 1000 + 60
@@ -429,7 +429,7 @@ def test_fast_refresh(bundle: Path) -> None:
     takes longer than a developer's warm one -- which is the same class of
     flake as any other "should be long enough".
     """
-    if os.environ.get("RN_LINUX_SKIP_FAST_REFRESH"):
+    if os.environ.get("BASALT_SKIP_FAST_REFRESH"):
         raise Skipped(
             "Metro does not notice file edits on this machine; see docs/TESTING.md"
         )
@@ -445,14 +445,14 @@ def test_fast_refresh(bundle: Path) -> None:
         dump = Path(directory) / "tree.txt"
         log = Path(directory) / "host.log"
         env = dict(os.environ)
-        env["RN_LINUX_DUMP_TREE"] = str(dump)
+        env["BASALT_DUMP_TREE"] = str(dump)
         # A backstop, not the schedule: the host is asked to quit by signal as
         # soon as the refresh shows up.
-        env["RN_LINUX_QUIT_AFTER_MS"] = "180000"
-        env["RN_LINUX_DEV"] = "1"
-        env["RN_LINUX_DEV_PORT"] = str(METRO_PORT)
-        env.pop("RN_LINUX_TEST_TAP", None)
-        env.pop("RN_LINUX_TEST_TYPE", None)
+        env["BASALT_QUIT_AFTER_MS"] = "180000"
+        env["BASALT_DEV"] = "1"
+        env["BASALT_DEV_PORT"] = str(METRO_PORT)
+        env.pop("BASALT_TEST_TAP", None)
+        env.pop("BASALT_TEST_TYPE", None)
 
         metro_log = Path(directory) / "metro.log"
 
@@ -607,7 +607,7 @@ def main() -> int:
     arguments = parser.parse_args()
 
     global INPUT_MODE, HOST
-    HOST = REPO / arguments.build_dir / "rn_linux_host"
+    HOST = REPO / arguments.build_dir / "basalt_gtk"
     if arguments.bundle is None:
         arguments.bundle = f"{arguments.build_dir}/main.jsbundle.js"
     if arguments.input == "auto":

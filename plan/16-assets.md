@@ -45,7 +45,7 @@ nothing emits it there yet.
 
 ## Emitting them
 
-`react-native-linux-bundle` builds a bundle and writes its assets beside it. One
+`basalt-bundle` builds a bundle and writes its assets beside it. One
 command, and the same one for every kind of app.
 
 React Native's CLI could have done half of it -- it has `--assets-dest` -- but

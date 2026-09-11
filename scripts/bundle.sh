@@ -12,12 +12,12 @@
 # So --dev writes something nothing can run. It is kept because seeing the
 # unminified output is occasionally what you want.
 #
-# Development is Metro plus RN_LINUX_DEV=1, not a --dev bundle:
+# Development is Metro plus BASALT_DEV=1, not a --dev bundle:
 #
 #   scripts/metro.sh ../react-native
-#   RN_LINUX_DEV=1 ./build/rn_linux_host build/main.jsbundle.js RNLinuxDemo
+#   BASALT_DEV=1 ./build/basalt_gtk build/main.jsbundle.js BasaltDemo
 #
-# Built for the `linux` platform: packages/react-native-linux supplies the
+# Built for the `linux` platform: packages/react-native-basalt supplies the
 # Platform module and the Metro configuration that makes Metro resolve it, so
 # an app sees Platform.OS === 'linux' and can use .linux.js files.
 #

@@ -14,7 +14,7 @@ machine. Windows is the same shape and cannot be verified here.
 
 ## What it is
 
-`native/mac/RnMacView.{h,mm}`, deliberately the same shape as `gtk/RnView`: a
+`native/mac/RnAppKitView.{h,mm}`, deliberately the same shape as `gtk/RnView`: a
 view owns a tag and an absolute frame, does no layout of its own, and places
 children at the rects the shadow tree already resolved. Yoga has run by the time
 a mutation arrives; a second layout system underneath it is the thing to avoid.
@@ -42,9 +42,9 @@ the same app on Linux, which is the one thing this project is trying not to be.
 
 ## Checking it
 
-`demo_layout_mac.mm` carries the same six boxes at the same coordinates as the
-GTK `demo_layout`, so the two are comparable by looking rather than by argument.
-It renders offscreen to a PNG with `RN_MAC_SNAPSHOT=out.png`, and the picture is
+`demo_layout_appkit.mm` carries the same six boxes at the same coordinates as the
+GTK `demo_layout_gtk`, so the two are comparable by looking rather than by argument.
+It renders offscreen to a PNG with `BASALT_SNAPSHOT=out.png`, and the picture is
 the one the GTK demo produces.
 
 Getting that snapshot working found something worth writing down, because it
@@ -56,11 +56,11 @@ reads as "the children did not paint" and is actually "the children are not in
 the layer tree". The fix is an offscreen `NSWindow` that is never ordered front,
 plus one `[window display]`.
 
-`RN_MAC_DUMP_TREE=1` prints the tree instead. Useful for diffing against the GTK
+`BASALT_DUMP_TREE=1` prints the tree instead. Useful for diffing against the GTK
 side, and worth being clear that it proves much less: it prints the frames that
 were set, so it would look identical whether or not the flip works.
 
-Seven unit tests in `rn_mac_tests`, sharing the harness the GTK suite uses. That
+Seven unit tests in `basalt_appkit_tests`, sharing the harness the GTK suite uses. That
 sharing needed a small change — `TestHarness.cpp` had `main` and `gtk_init` in
 it, so it was not the toolkit-free thing its header claimed. The runner is now
 just the runner and each suite brings its own entry point.

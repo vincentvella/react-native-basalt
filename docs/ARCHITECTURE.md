@@ -52,12 +52,12 @@ flowchart TD
     Sched -->|executeMount| MM["MountingWalk<br/>★ this project, shared"]
     MM --> Registry["tag → view registry"]
     MM --> Gtk["GtkMountingManager<br/>★ seven operations"]
-    MM --> Mac["MacMountingManager<br/>★ seven operations"]
+    MM --> Mac["AppKitMountingManager<br/>★ seven operations"]
     Gtk --> RnView["RnView (GtkWidget)"]
     RnView --> RnLayout["RnLayout<br/>(GtkLayoutManager, no-op)"]
     RnLayout --> GTK["GTK4 / GSK / Wayland"]
-    Mac --> RnMacView["RnMacView (NSView)<br/>flipped, layer-backed"]
-    RnMacView --> AppKit["AppKit / Core Animation"]
+    Mac --> RnAppKitView["RnAppKitView (NSView)<br/>flipped, layer-backed"]
+    RnAppKitView --> AppKit["AppKit / Core Animation"]
 ```
 
 ## The view layer
@@ -74,7 +74,7 @@ This is the same conclusion `react-native-gtkx` reached independently with its
 
 `RnView` deliberately has no React Native dependency. It knows only about
 frames and paint properties. That keeps it independently buildable and
-testable (`demo_layout`), and keeps RN types out of the widget layer.
+testable (`demo_layout_gtk`), and keeps RN types out of the widget layer.
 
 ## Mutation semantics
 
@@ -186,7 +186,7 @@ into the nearest ancestor that does, with layout metrics rebased onto it. A
 `<View>` holding a row of an `<Image>` and a `<Text>` arrives as three
 *siblings* of the scroll content, not as a parent and two children.
 
-This is visible in a `RN_LINUX_DUMP_TREE` dump and is easy to mistake for a
+This is visible in a `BASALT_DUMP_TREE` dump and is easy to mistake for a
 mounting bug, because it is invisible on screen: each view is placed at the
 frame Fabric gave it either way. A `<Pressable>` is not flattened -- it handles
 touches, so it forms a stacking context -- which is why its label *does* appear
@@ -309,7 +309,7 @@ which hid that Expo alone is likely larger than the two phases before it. See
 `getDefaultComponentRegistryFactory()` is declared by ReactCommon and defined
 nowhere in it: each host supplies its own and, in doing so, declares what its
 platform can put on screen. It is defined per platform here --
-`gtk/ComponentRegistryGtk.cpp` with seven descriptors, `mac/ComponentRegistryMac.mm`
+`gtk/ComponentRegistryGtk.cpp` with seven descriptors, `mac/ComponentRegistryAppKit.mm`
 with one -- and that is not tidiness. `ParagraphComponentDescriptor` constructs a
 `TextLayoutManager`, whose stub this build drops so the platform's own can be the
 only definition, so a shared registry means a platform with no text engine fails
@@ -322,9 +322,9 @@ reporting anything.
 
 ## Testing
 
-Three suites: `build/rn_tests` for everything reachable without a JavaScript
+Three suites: `build/basalt_gtk_tests` for everything reachable without a JavaScript
 runtime, `scripts/integration_test.py` for the whole stack, asserting on the
-widget tree the host dumps rather than on a screenshot, and `build/rn_mac_tests`
+widget tree the host dumps rather than on a screenshot, and `build/basalt_appkit_tests`
 for the macOS view layer and mounting manager. See `docs/TESTING.md`, which also
 records what is still not covered and why.
 

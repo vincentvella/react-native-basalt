@@ -1,7 +1,7 @@
 # Phase 9 — `<TextInput>`
 
 > **Done, 2026-09-09.** `src/GtkTextInput.*`,
-> `packages/react-native-linux/src/overrides/TextInput.js` (named
+> `packages/react-native-basalt/src/overrides/TextInput.js` (named
 > `TextInput.linux.js` until phase 21, when it turned out to be about every
 > desktop rather than about Linux).
 

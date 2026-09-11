@@ -6,7 +6,7 @@
 
 **Goal:** a GTK window running a real React Native surface, with the JS side
 being a hand-written script rather than a Metro bundle. Success is the mutation
-stream arriving from Fabric instead of from `mount_harness`.
+stream arriving from Fabric instead of from `mount_harness_gtk`.
 
 ## Why this is the hard step
 
@@ -130,4 +130,4 @@ avoid needing a parser path first.
 ## Done when
 
 A GTK window shows a `<View>` tree whose mutations came from Fabric, driven by
-JS executing in Hermes, with `mount_harness` no longer involved.
+JS executing in Hermes, with `mount_harness_gtk` no longer involved.

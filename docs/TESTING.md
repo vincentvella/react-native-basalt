@@ -5,31 +5,31 @@ GTK program, and both run in CI on Linux, which is where they matter: see
 `.github/workflows/ci.yml`.
 
 ```bash
-./build/rn_tests                    # unit
+./build/basalt_gtk_tests                    # unit
 scripts/bundle.sh ../react-native --prod
 scripts/integration_test.py         # end to end
 
-./build/rn_mac_tests                # the macOS view layer and mounting, on a Mac
+./build/basalt_appkit_tests                # the macOS view layer and mounting, on a Mac
 scripts/compare_hosts.sh            # both hosts, same script, diffed
 ```
 
 On a headless machine, run either under a virtual display:
 
 ```bash
-xvfb-run -a ./build/rn_tests
+xvfb-run -a ./build/basalt_gtk_tests
 xvfb-run -a scripts/integration_test.py
 ```
 
-`rn_tests` exits 77 rather than failing when it cannot reach a display, which
+`basalt_gtk_tests` exits 77 rather than failing when it cannot reach a display, which
 is the convention for "skipped".
 
-`rn_mac_tests` needs neither a display nor a window: nothing in it is presented.
+`basalt_appkit_tests` needs neither a display nor a window: nothing in it is presented.
 It is built only on a Mac, and CMake omits the target everywhere else.
 
-## `build/rn_tests` — the unit suite
+## `build/basalt_gtk_tests` — the unit suite
 
 Everything reachable without a JavaScript runtime. No React, no Metro, no
-Hermes: mutations are hand-built, the way `mount_harness` builds them.
+Hermes: mutations are hand-built, the way `mount_harness_gtk` builds them.
 
 | File | What it pins down |
 |---|---|
@@ -40,18 +40,18 @@ Hermes: mutations are hand-built, the way `mount_harness` builds them.
 | `native/tests/test_image.cpp` | The image loader. Decoding, the cache answering synchronously, and the three ways a load can fail. |
 | `native/tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. |
 
-## `build/rn_mac_tests` — the macOS suite
+## `build/basalt_appkit_tests` — the macOS suite
 
 Two files, sixteen tests, no window and no toolkit initialisation.
 
-`native/mac/test_mac_view.mm` is against `RnMacView` alone, with no Fabric and no
+`native/mac/test_appkit_view.mm` is against `RnAppKitView` alone, with no Fabric and no
 React Native in it. It pins the tag and frame, the child order including
 insertion into the middle, that removing a view that is not yours is a no-op,
 that background colour, opacity, clipping and corner radius reach the CALayer,
 that the background is in sRGB rather than the display's space, and that
 `describeTree` emits the same text the GTK side does.
 
-`native/mac/test_mac_mounting.mm` is against `MacMountingManager`, and is
+`native/mac/test_appkit_mounting.mm` is against `AppKitMountingManager`, and is
 deliberately the same questions `native/tests/test_mounting.cpp` asks of GTK, in
 the same order, with the same tags and frames. Since both managers now share
 their mutation walk, most of what these test is whether that sharing still holds.
@@ -63,16 +63,16 @@ origin is bottom-left and every frame Fabric produces is top-left, so a child at
 y=32 in a 420-tall parent belongs 32 from the top; unflipped it would sit at 228
 and the layout would look plausible and be wrong.
 
-`native/mac/mount_harness_mac.mm` is the mounting equivalent: the same two
-transactions `gtk/mount_harness.cpp` runs, driven through the real mounting
-manager with no JavaScript anywhere. `RN_MAC_SNAPSHOT_DIR=/tmp/out
-./build/mount_harness_mac` writes `mount-1.png` and `mount-2.png` and prints the
+`native/mac/mount_harness_appkit.mm` is the mounting equivalent: the same two
+transactions `gtk/mount_harness_gtk.cpp` runs, driven through the real mounting
+manager with no JavaScript anywhere. `BASALT_SNAPSHOT_DIR=/tmp/out
+./build/mount_harness_appkit` writes `mount-1.png` and `mount-2.png` and prints the
 tree after each; with no directory set it opens a window and applies the second
 transaction two seconds in, the way the GTK harness does.
 
 `scripts/compare_hosts.sh` is the one that matters most and the one that cannot
 run in CI. It runs `js/views.js` -- a real React app made only of `<View>` --
-through `rn_linux_host` and `rn_mac_host`, and checks two things that fail
+through `basalt_gtk` and `basalt_appkit`, and checks two things that fail
 differently: that the view trees match, and that each host's log reports the
 `Platform.OS` its bundle was built for. A bundle built for the wrong platform
 can render perfectly and be wrong about everything `Platform.OS` guards.
@@ -86,10 +86,10 @@ scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
 scripts/compare_hosts.sh
 ```
 
-`native/mac/demo_layout_mac.mm` is the visual half of the view layer. It carries the same boxes at
-the same coordinates as the GTK `demo_layout`, so the two can be compared
-directly, and `RN_MAC_SNAPSHOT=out.png ./build/demo_layout_mac` renders them
-offscreen to a PNG. `RN_MAC_DUMP_TREE=1` prints the tree instead — useful, but
+`native/mac/demo_layout_appkit.mm` is the visual half of the view layer. It carries the same boxes at
+the same coordinates as the GTK `demo_layout_gtk`, so the two can be compared
+directly, and `BASALT_SNAPSHOT=out.png ./build/demo_layout_appkit` renders them
+offscreen to a PNG. `BASALT_DUMP_TREE=1` prints the tree instead — useful, but
 it would print the same thing whether or not the flip works, which is what the
 snapshot is for.
 
@@ -98,7 +98,7 @@ snapshot is for.
 `native/tests/TestHarness.h`, about sixty lines, no dependencies, shared by all
 three. `TestHarness.cpp` is the runner and knows about no toolkit; each suite
 brings its own `main` — `tests/main_gtk.cpp` initialises GTK, and the macOS one
-sits at the bottom of `test_mac_view.mm`. Its
+sits at the bottom of `test_appkit_view.mm`. Its
 assertions are `EXPECT`, `EXPECT_EQ` and `EXPECT_NEAR` rather than `CHECK*`
 because glog — which React Native pulls in almost everywhere — already defines
 `CHECK` and `CHECK_EQ`. Those win the preprocessor silently, and a failing
@@ -117,7 +117,7 @@ no frame due it returns immediately and the children are still unallocated.
 Runs the real host against the real Metro bundle, injects taps, and asserts on
 the widget tree the host writes on the way out.
 
-This is what `RN_LINUX_DUMP_TREE` exists for. The path this project exists to
+This is what `BASALT_DUMP_TREE` exists for. The path this project exists to
 provide — JavaScript, React, Fabric, the mounting manager, GTK — can only be
 exercised by running the whole thing, and before the dump the only way to check
 the result was to look at a screenshot.
@@ -159,7 +159,7 @@ Current scenarios:
    the same edit on the same runner, the inotify limits are generous, both
    sides run the same Node, neither has watchman, and CI's directory layout
    reproduces green in a local VM — so it is the runner, not this repo, and
-   chasing it further was costing more than it was worth. `RN_LINUX_SKIP_FAST_REFRESH`
+   chasing it further was costing more than it was worth. `BASALT_SKIP_FAST_REFRESH`
    turns it off and CI sets it; the scenario reports itself as skipped rather
    than quietly passing. It does run, and pass, on macOS and on Linux in a VM.
    `plan/backlog.md` lists what to try next, starting with installing watchman
@@ -202,7 +202,7 @@ the X server and GDK exactly as a person's would. This is the only mode that
 exercises event delivery itself. Chosen automatically when `DISPLAY` is set and
 `xdotool` is installed.
 
-**`injected`** — `RN_LINUX_TEST_TAP` calls the gesture callback directly,
+**`injected`** — `BASALT_TEST_TAP` calls the gesture callback directly,
 skipping GDK. The fallback where a real event cannot be synthesised, which
 notably includes macOS: doing it there needs accessibility permission an
 automated run does not have.
@@ -211,7 +211,7 @@ Force either with `--input real` or `--input injected`.
 
 Typing splits the same way. In `real` mode `xdotool type` sends key events
 through the X server, so GDK and the input method see them. In `injected` mode
-`RN_LINUX_TEST_TYPE` inserts through `GtkEditable` on whatever field has focus,
+`BASALT_TEST_TYPE` inserts through `GtkEditable` on whatever field has focus,
 which skips the key controller and the input method and exercises everything
 above them.
 
@@ -222,8 +222,8 @@ be checked on Linux before it is believed. A VM is enough:
 
 ```bash
 brew install lima
-limactl start --name=rnlinux <a template with vz, 8 cpus, 16GiB, 120GiB>
-limactl shell rnlinux
+limactl start --name=basalt <a template with vz, 8 cpus, 16GiB, 120GiB>
+limactl shell basalt
 ```
 
 Apple Virtualization rather than QEMU: the guest is aarch64 like the host, so it
@@ -252,7 +252,7 @@ sudo apt install sway grim mesa-vulkan-drivers libgl1-mesa-dri
 printf 'output HEADLESS-1 resolution 1400x1000\ndefault_border none\n' > /tmp/sway.conf
 XDG_RUNTIME_DIR=/run/user/$(id -u) WLR_BACKENDS=headless WLR_RENDERER=pixman \
   sway -c /tmp/sway.conf &
-WAYLAND_DISPLAY=wayland-1 GSK_RENDERER=gl ./build/rn_linux_host build/main.jsbundle.js
+WAYLAND_DISPLAY=wayland-1 GSK_RENDERER=gl ./build/basalt_gtk build/main.jsbundle.js
 grim shot.png
 ```
 

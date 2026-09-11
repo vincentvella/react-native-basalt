@@ -1,10 +1,21 @@
-# react-native-linux (skeleton)
+# react-native-basalt
 
-A React Native out-of-tree platform for Linux: Fabric's mounting layer rendered
-onto GTK4 widgets.
+React Native on the desktop -- Linux, macOS and eventually Windows -- built on
+React Native's *own* C++ core rather than on a fork of it.
 
-This is a skeleton, not a working platform. It exists to make the shape of the
-work concrete.
+Basalt is the bedrock everything else sits on, and it forms columns: one shared
+mass, separate columns standing on it. That is the architecture. React Native's
+C++ platform, Hermes, Yoga, Fabric's mutation walk and the JavaScript platform
+layer are shared; a GTK4 widget layer and an AppKit view layer stand on them
+separately. Nothing is forked, which is why this can track the current Expo
+instead of trailing a rebase.
+
+Today: Linux runs real Expo apps -- text, images, scrolling, text input,
+accessibility, fonts, assets. macOS mounts `<View>` and is catching up. Both
+hosts produce a byte-identical view tree from the same JavaScript, which
+`scripts/compare_hosts.sh` checks. Windows is a name in a list.
+
+This was called `react-native-linux` until it stopped being about Linux.
 
 ## Why this is tractable
 
@@ -25,89 +36,105 @@ interface has exactly two pure-virtual methods — `executeMount` and
 
 ## Layout
 
-Everything native lives inside the npm package, so that installing the package
-brings the host's sources and `react-native run-linux --build` can compile one.
-`native/` below is `packages/react-native-linux/native/`. Plan documents written
-before 2026-09-10 name these files without that prefix.
+Three npm packages, and the split is the architecture rather than tidiness.
 
-`native/` has three parts. `core/` is everything that is not about a toolkit --
-the mutation walk, the Expo runtime, the core modules, the http client -- and it
-builds and *links* without GTK on the path, which is how that claim is kept
-honest rather than aspirational. `gtk/` is the Linux platform. `mac/` is the
-macOS one: a view layer, a mounting manager and a host, mounting `<View>` and
-nothing else so far. Both hosts produce a byte-identical view tree from the same
-script; `scripts/compare_hosts.sh` is what says so. See `plan/17-shared-core.md`
-through `plan/20-macos-host.md`.
+    packages/react-native-basalt          the shared half
+    packages/react-native-basalt-gtk      Linux, over GTK4
+    packages/react-native-basalt-appkit   macOS, over AppKit
 
-    native/core/MountingWalk.h         Fabric's mutation semantics, once. Every
-                                platform supplies seven operations; the
-                                Create/Insert/Remove/Update/Delete rules are
-                                here and shared.
-    native/core/ComponentRegistry.h    Documents which components a platform
-                                claims -- a seam, defined per platform.
-    native/core/ExpoRuntime.*          globalThis.expo, and the modules on it.
-    native/core/PlatformConstantsModule.*  Platform.OS and friends.
-    native/core/SourceCodeModule.*     Where the bundle came from. Assets need it.
-    native/core/StatusBarModule.*      StatusBar, reporting a height of zero.
-    native/core/HttpClient.cpp         The IHttpClient seam, backed by libcurl.
-    native/core/FontRegistry.h         The one seam a new desktop has to fill.
-    native/core/portability_probe.cpp  Links core alone, so the claim is a build
-                                failure rather than a paragraph.
+`react-native-basalt` is everything that is not about a toolkit: the JavaScript
+platform layer, the bundler, React Native's C++ core and Hermes, the Expo
+runtime, the core TurboModules, and Fabric's mutation walk. It builds and
+*links* with no toolkit at all, which is how that claim is kept honest rather
+than aspirational -- `basalt_core_probe` is a program that links it and nothing
+else, built on every build.
 
-    native/gtk/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
-    native/gtk/GtkMountingManager.*    The GTK half of IMountingManager: making a
-                                widget, parenting it, and turning a ShadowView
-                                into widget state. The walk is in core/.
-    native/gtk/ComponentRegistryGtk.cpp  What GTK claims: View, Paragraph, Text,
-                                RawText, Image, ScrollView, TextInput.
-    native/gtk/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
-    native/gtk/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
-    native/gtk/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
-    native/gtk/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
-    native/gtk/GtkTextInput.*          <TextInput>, over a real GtkText.
-    native/gtk/GtkRunLoopObserver.*    Drives the event beat. Without it, no event
-                                an emitter produces ever reaches JavaScript.
-    native/gtk/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
+A platform package is a view layer, a mounting manager and a host, and nothing
+more. Each adds the shared one to its CMake build and skips itself where it
+cannot compile, so a Mac with no GTK builds the AppKit half alone and a Linux
+box never asks for an Objective-C++ compiler.
+
+Both hosts produce a byte-identical view tree from the same script;
+`scripts/compare_hosts.sh` is what says so. See `plan/17-shared-core.md` through
+`plan/22-the-name.md`.
+
+Inside the shared package, under `native/`:
+
+    core/MountingWalk.h         Fabric's mutation semantics, once. Every platform
+                                supplies seven operations; the Create/Insert/
+                                Remove/Update/Delete rules are here and shared.
+    core/ComponentRegistry.h    Documents which components a platform claims --
+                                a seam, defined per platform.
+    core/ExpoRuntime.*          globalThis.expo, and the modules on it.
+    core/PlatformConstantsModule.*  Platform.OS and friends.
+    core/SourceCodeModule.*     Where the bundle came from. Assets need it.
+    core/StatusBarModule.*      StatusBar, reporting a height of zero.
+    core/HttpClient.cpp         The IHttpClient seam, backed by libcurl.
+    core/FontRegistry.h         One of the three seams a new desktop must fill.
+    core/portability_probe.cpp  Links core alone, so the claim is a build failure
+                                rather than a paragraph.
+    tests/TestHarness.*         The test runner. No toolkit; each platform
+                                package brings its own `main`.
+    bootstrap.sh                Vendors folly, Hermes and RN's codegen output.
+    cmake/                      React Native's C++ core, third party, Expo.
+    src/overrides/              The JavaScript React Native cannot supply for a
+                                platform it has never heard of.
+    metro-config.js             withDesktopPlatforms: linux, macos, windows.
+    cli/                        The bundler, and Metro.
+
+`react-native-basalt-gtk`, under `native/`:
+
+    gtk/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
+    gtk/GtkMountingManager.*    The GTK half of IMountingManager: making a widget,
+                                parenting it, turning a ShadowView into widget
+                                state. The walk is in the shared half.
+    gtk/ComponentRegistryGtk.cpp  What GTK claims: View, Paragraph, Text, RawText,
+                                Image, ScrollView, TextInput.
+    gtk/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
+    gtk/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
+    gtk/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
+    gtk/GtkScrollView.*         <ScrollView>: offset, clipping, onScroll, state.
+    gtk/GtkTextInput.*          <TextInput>, over a real GtkText.
+    gtk/GtkRunLoopObserver.*    Drives the event beat. Without it, no event an
+                                emitter produces ever reaches JavaScript.
+    gtk/PangoTextLayout.*       AttributedString -> PangoLayout. Shared by both
                                 measurement and painting, so they agree.
-    native/gtk/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
-    native/gtk/FontRegistryFontconfig.cpp  The font seam, on fontconfig.
-    native/gtk/main.cpp                The host: ReactHost, Hermes, one live surface.
+    gtk/PangoTextLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
+    gtk/FontRegistryFontconfig.cpp  The font seam, on fontconfig.
+    gtk/main_gtk.cpp            The host: ReactHost, Hermes, one live surface.
+    gtk/demo_layout_gtk.cpp     Hand-written frames; no RN needed.
+    gtk/mount_harness_gtk.cpp   Hand-built mutations; no JS runtime.
+    cli/                        run-linux, and building a host from an app.
 
-    native/mac/RnMacView.h/.mm         AppKit view layer. Flipped, layer-backed.
-    native/mac/MacMountingManager.*    The AppKit half of IMountingManager. Mounts
-                                <View>; everything else is unimplemented and
-                                says so. Built only on a Mac.
-    native/mac/ComponentRegistryMac.mm   What macOS claims: View. The shortness
-                                is the honest part; see core/ComponentRegistry.h.
-    native/mac/MacRunLoopObserver.*    The event beat, on a CFRunLoopObserver.
-    native/mac/MacAnimationChoreographer.*  Animation frames, on a CADisplayLink.
-    native/mac/FontRegistryCoreText.mm   macOS's half of the font seam.
-    native/mac/main_mac.mm             The host: ReactHost, Hermes, one surface
-                                in an NSWindow.
-    native/mac/MacSnapshot.*           Renders a view tree to a PNG with no window.
+`react-native-basalt-appkit`, under `native/`:
 
+    appkit/RnAppKitView.h/.mm   AppKit view layer. Flipped, layer-backed.
+    appkit/AppKitMountingManager.*  The AppKit half of IMountingManager. Mounts
+                                <View>; everything else is unimplemented and says
+                                so.
+    appkit/ComponentRegistryAppKit.mm  What macOS claims: View. The shortness is
+                                the honest part; see core/ComponentRegistry.h.
+    appkit/AppKitRunLoopObserver.*  The event beat, on a CFRunLoopObserver.
+    appkit/AppKitAnimationChoreographer.*  Animation frames, on a CADisplayLink.
+    appkit/FontRegistryCoreText.mm  macOS's half of the font seam.
+    appkit/AppKitSnapshot.*     Renders a view tree to a PNG with no window.
+    appkit/main_appkit.mm       The host: ReactHost, Hermes, one surface in an
+                                NSWindow.
+    appkit/demo_layout_appkit.mm    The same boxes as GTK's, on AppKit.
+    appkit/mount_harness_appkit.mm  The same two transactions as GTK's.
+
+And at the repository root:
+
+    CMakeLists.txt              The development build: adds all three packages.
     js/index.js                 The demo app. Ordinary React Native.
     js/views.js                 A React app made only of <View>, which is what
                                 macOS can mount. What compare_hosts.sh runs.
+    js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
-    native/CMakeLists.txt       The host build. CMakeLists.txt at the repo root
-                                is a wrapper that points third_party and the
-                                binary output where a checkout expects them.
-    native/bootstrap.sh         Vendors folly, Hermes and RN's codegen output.
-    packages/react-native-linux/  The platform package: this JavaScript, the
-                                `run-linux` command, and native/ above.
     examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     scripts/compare_hosts.sh    Runs one script through both hosts and diffs the
                                 trees. Needs both toolkits, so not CI.
-    js/demo.js                  Drives Fabric's JSI binding by hand. No React.
-    native/gtk/mount_harness.cpp       Hand-built mutations; no JS runtime.
-    native/gtk/demo_layout.cpp         Renders hand-written frames; no RN needed.
-    native/mac/demo_layout_mac.mm      The same boxes, on AppKit. Snapshots to a
-                                PNG offscreen with RN_MAC_SNAPSHOT=out.png.
-    native/mac/mount_harness_mac.mm    The same two transactions as the GTK
-                                harness, on AppKit. RN_MAC_SNAPSHOT_DIR=dir
-                                writes a PNG per transaction.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time
@@ -174,7 +201,7 @@ a different machine.
 
 The manual equivalents of each bootstrap step are documented below.
 
-Produces `librn_view.a`, `librn_mounting.a` and the `demo_layout` executable.
+Produces `librn_view.a`, `librn_mounting.a` and the `demo_layout_gtk` executable.
 Omit `-DRN_DIR` to build only the widget layer and the demo.
 
 ### Dependencies
@@ -264,7 +291,7 @@ RN headers also carry Xcode's `#pragma mark`, so GCC needs
 
 ## Bundling
 
-    react-native-linux-bundle --bundle-output build/main.jsbundle.js
+    basalt-bundle --bundle-output build/main.jsbundle.js
 
 One bundle, its assets beside it, which is where React Native looks for them.
 `react-native run-linux --mode release` calls the same code. An Expo app needs
@@ -286,7 +313,7 @@ how, and what it does not yet cover, which is every actual Expo module.
 | `main` | supported, and where development happens |
 | everything else | refused, with a message saying so |
 
-`packages/react-native-linux/supported-versions.json` is the source of truth,
+`packages/react-native-basalt/supported-versions.json` is the source of truth,
 and it pins a triple: this platform, a React Native, and the Hermes to build for
 it, chosen and tested together. Bootstrap reads it and stops in seconds on an
 unsupported version rather than failing three compile errors deep.
@@ -323,7 +350,7 @@ Verified, on screen:
 - **React runs, from Metro, with Fast Refresh.** Editing `js/index.js` while the
   app is running updates it in place, verified by watching the change land in
   the dumped widget tree. Development is `scripts/metro.sh` plus
-  `RN_LINUX_DEV=1`; a `--dev` bundle on disk is not a development mode and will
+  `BASALT_DEV=1`; a `--dev` bundle on disk is not a development mode and will
   not load, which is why `scripts/bundle.sh` produces a production bundle.
 - **It works on Linux, not only on the Mac it is developed on.** Verified on
   Ubuntu 24.04 arm64: 56/56 unit tests, the demo rendering correctly, and the
@@ -337,12 +364,12 @@ Verified, on screen:
   `accessibilityHint` and `accessibilityState` reach GTK's accessible layer, and
   so AT-SPI. A `<Text>` calls itself a label and an `<Image>` an image without
   the app saying so.
-- `mount_harness` still drives hand-built `ShadowViewMutation`s with no JS
+- `mount_harness_gtk` still drives hand-built `ShadowViewMutation`s with no JS
   runtime, and `js/demo.js` still drives Fabric's JSI binding with no React.
 - This project's own sources build under `-Wall -Wextra` with zero diagnostics,
   enforced by the build rather than asserted.
 
-None of that is checked by eye any more. `build/rn_tests` covers the mutation
+None of that is checked by eye any more. `build/basalt_gtk_tests` covers the mutation
 walk, the widget layer, text measurement, hit testing, the image loader, text
 input and accessibility without a JavaScript runtime; `scripts/integration_test.py` runs
 the real host against the real bundle and asserts on the widget tree it dumps.
@@ -379,13 +406,13 @@ See `plan/backlog.md` for the per-component detail.
 
 ## Testing
 
-    ./build/rn_tests                    # unit
+    ./build/basalt_gtk_tests                    # unit
     scripts/integration_test.py         # end to end, needs a built bundle
-    ./build/rn_mac_tests                # the macOS view layer and mounting, on a Mac
+    ./build/basalt_appkit_tests                # the macOS view layer and mounting, on a Mac
 
 The first two need a display; on a headless machine prefix with `xvfb-run -a`.
 Both run in CI on Linux, where the end-to-end suite drives the app with real
-pointer events rather than injected ones. `rn_mac_tests` needs neither a display
+pointer events rather than injected ones. `basalt_appkit_tests` needs neither a display
 nor a window, and is only built where AppKit exists. See `docs/TESTING.md`.
 
 ## Running it
@@ -402,12 +429,12 @@ cannot find it. `examples/demo` is a small app that exercises exactly this;
 Directly, without the CLI. Build a bundle once, then run:
 
     scripts/bundle.sh ../react-native      # production; see below
-    ./build/rn_linux_host
+    ./build/basalt_gtk
 
 Or against Metro, which is how to develop, and the only way to get Fast Refresh:
 
     scripts/metro.sh ../react-native          # one terminal
-    RN_LINUX_DEV=1 ./build/rn_linux_host      # another
+    BASALT_DEV=1 ./build/basalt_gtk      # another
 
 `scripts/bundle.sh` writes a production bundle. A `--dev` one cannot be loaded
 from disk at all: it pulls in LogBox, which reads the `DevSettings` TurboModule
@@ -416,48 +443,48 @@ dev server exists -- in which case the bundle comes from Metro and the file on
 disk is ignored. So there is no configuration in which a `--dev` bundle is the
 thing being run.
 
-Arguments are `rn_linux_host [bundle] [moduleName]`, defaulting to
-`build/main.jsbundle.js` and `RNLinuxDemo`. An **empty** module name starts a
+Arguments are `basalt_gtk [bundle] [moduleName]`, defaulting to
+`build/main.jsbundle.js` and `BasaltDemo`. An **empty** module name starts a
 surface without calling `AppRegistry`, which is the raw-Fabric mode `js/demo.js`
 uses:
 
-    ./build/rn_linux_host js/demo.js ""
+    ./build/basalt_gtk js/demo.js ""
 
 Environment:
 
-    RN_LINUX_DEV=1            load from Metro; enables Fast Refresh and DevSettings
-    RN_LINUX_DEV_HOST/_PORT   where Metro is (default localhost:8081)
-    RN_LINUX_DEV_ENTRY        Metro entry name without extension (default "index")
-    RN_LINUX_QUIT_AFTER_MS    quit on a timer, for automation that knows in
+    BASALT_DEV=1            load from Metro; enables Fast Refresh and DevSettings
+    BASALT_DEV_HOST/_PORT   where Metro is (default localhost:8081)
+    BASALT_DEV_ENTRY        Metro entry name without extension (default "index")
+    BASALT_QUIT_AFTER_MS    quit on a timer, for automation that knows in
                               advance how long it needs. SIGINT and SIGTERM
                               also shut down cleanly, so Ctrl-C and `kill` run
                               GApplication::shutdown -- stopAllSurfaces, the
                               teardown ordering, and the tree dump -- rather
                               than dropping the process where it stands.
-    RN_LINUX_TEST_TAP         "x,y;x,y" -- synthesise taps a second apart, in
+    BASALT_TEST_TAP         "x,y;x,y" -- synthesise taps a second apart, in
                               surface-root coordinates. Enters where GTK's
                               gesture callback would, so it exercises hit
                               testing and event delivery but not GDK itself.
-    RN_LINUX_TEST_TYPE        text to insert into whatever field has focus,
+    BASALT_TEST_TYPE        text to insert into whatever field has focus,
                               after the taps above. Enters through GtkEditable,
                               so it skips the key controller and the input
                               method and exercises everything above them.
-    RN_LINUX_DUMP_TREE        write the widget tree to a file on the way out.
+    BASALT_DUMP_TREE        write the widget tree to a file on the way out.
                               Useful on its own for seeing what React actually
                               produced, and what the end-to-end tests assert on.
 
 ### On a Mac
 
-`build/rn_mac_host` is the same host over AppKit, and takes the same arguments.
+`build/basalt_appkit` is the same host over AppKit, and takes the same arguments.
 It mounts `<View>` and nothing else so far, and it defaults to an **empty**
-module name rather than `RNLinuxDemo`, because a React app with any text in it
+module name rather than `BasaltDemo`, because a React app with any text in it
 would render blank rectangles:
 
-    ./build/rn_mac_host js/demo.js
+    ./build/basalt_appkit js/demo.js
 
-Its environment variables are `RN_MAC_*` in place of `RN_LINUX_*`:
-`RN_MAC_DEV`, `RN_MAC_DEV_HOST`, `RN_MAC_DEV_PORT`, `RN_MAC_DEV_ENTRY`,
-`RN_MAC_QUIT_AFTER_MS`, `RN_MAC_DUMP_TREE`, plus `RN_MAC_SNAPSHOT`, which writes
+Its environment variables are `BASALT_*` in place of `BASALT_*`:
+`BASALT_DEV`, `BASALT_DEV_HOST`, `BASALT_DEV_PORT`, `BASALT_DEV_ENTRY`,
+`BASALT_QUIT_AFTER_MS`, `BASALT_DUMP_TREE`, plus `BASALT_SNAPSHOT`, which writes
 a PNG of what is actually on screen. Two prefixes for the same knobs is an
 inconsistency that should become one; see `plan/20-macos-host.md` for why it has
 not yet.
@@ -470,7 +497,7 @@ which runs a script through both and diffs the tree each produced.
 
 ## The `linux`, `macos` and `windows` platforms
 
-`packages/react-native-linux` is the JavaScript half: the `Platform` module and
+`packages/react-native-basalt` is the JavaScript half: the `Platform` module and
 the Metro configuration that makes Metro resolve it. With it, an app bundled
 with `--platform macos` sees `Platform.OS === 'macos'` and can use `.macos.js`
 files, in development and in a release build alike. The names match
@@ -479,7 +506,7 @@ react-native-macos and react-native-windows, so a library that already ships
 
 In an app's `metro.config.js`:
 
-    const {withDesktopPlatforms} = require('react-native-linux/metro-config');
+    const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
     module.exports = withDesktopPlatforms(config);
 
 `withLinuxPlatform` still exists and still enables only `linux`.

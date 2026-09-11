@@ -28,7 +28,7 @@ Not scheduled. Roughly by value.
      currently fall back to metro-file-map's own node watcher, and that is the
      component under suspicion, so putting watchman in front of it on the
      runner both tests the theory and would be the fix if it works. Add it to
-     the dependencies step, then drop `RN_LINUX_SKIP_FAST_REFRESH` from the
+     the dependencies step, then drop `BASALT_SKIP_FAST_REFRESH` from the
      end-to-end step and read the result.
 
      Two things to know before starting. Ubuntu noble packages watchman, but
@@ -169,7 +169,7 @@ so anything importing them dies at startup.
 
 React Native has no cross-platform API for any of this, because it was built for
 phones. That makes each one a design question before it is an implementation
-question: invent a `react-native-linux` API, follow what react-native-macos or
+question: invent a `react-native-basalt` API, follow what react-native-macos or
 react-native-windows already chose, or leave it to userland modules. Nothing
 here has been decided, and none of it is needed for the demo, which is why it
 has gone unrecorded until now.

@@ -30,4 +30,4 @@ const styles = StyleSheet.create({
   body: {fontSize: 20, color: '#56c98a', marginTop: 12},
 });
 
-AppRegistry.registerComponent('RNLinuxExample', () => App);
+AppRegistry.registerComponent('BasaltExample', () => App);

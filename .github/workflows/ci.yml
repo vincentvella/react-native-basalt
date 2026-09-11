@@ -99,7 +99,7 @@ jobs:
           # that matters; scripts/bootstrap.sh is a forwarder and hashing it
           # would stop invalidating when the real script changed.
           path: third_party
-          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-linux/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -140,7 +140,7 @@ jobs:
           xdpyinfo -display :99 | grep -m1 dimensions
 
       - name: Unit tests
-        run: ./build/rn_tests
+        run: ./build/basalt_gtk_tests
 
       - name: Bundle the demo
         run: scripts/bundle.sh react-native-src --prod
@@ -167,14 +167,14 @@ jobs:
           #
           # It runs on developer machines, on macOS and on Linux, where it
           # passes. See plan/backlog.md.
-          RN_LINUX_SKIP_FAST_REFRESH: "1"
+          BASALT_SKIP_FAST_REFRESH: "1"
         run: scripts/integration_test.py
 
       - name: Save the widget tree on failure
         if: failure()
         run: |
-          RN_LINUX_DUMP_TREE="$PWD/widget-tree.txt" RN_LINUX_QUIT_AFTER_MS=6000 \
-            ./build/rn_linux_host build/main.jsbundle.js RNLinuxDemo || true
+          BASALT_DUMP_TREE="$PWD/widget-tree.txt" BASALT_QUIT_AFTER_MS=6000 \
+            ./build/basalt_gtk build/main.jsbundle.js BasaltDemo || true
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -227,6 +227,6 @@ jobs:
           Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
           disown
           for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
-          ./build/rn_tests
+          ./build/basalt_gtk_tests
           scripts/bundle.sh react-native-src --prod
           RN_DIR=react-native-src scripts/integration_test.py

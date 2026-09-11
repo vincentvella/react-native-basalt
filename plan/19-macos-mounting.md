@@ -37,7 +37,7 @@ supplies seven operations that do touch a view: `createView`, `createRootView`,
 `destroyView`, `insertChild`, `removeChild`, `updateView`, `forgetTag`.
 
 CRTP rather than virtual dispatch, because the view type differs — `RnView *`
-under GObject, `RnMacView *` under ARC — and a template keeps it concrete in each
+under GObject, `RnAppKitView *` under ARC — and a template keeps it concrete in each
 translation unit with no type erasure on a path that runs for every mutation of
 every frame.
 
@@ -65,7 +65,7 @@ View, Paragraph, Text, RawText, Image, ScrollView and TextInput, on the
 reasonable-looking grounds that a descriptor is portable C++ and registering one
 costs nothing. It does not: `ParagraphComponentDescriptor` constructs a
 `TextLayoutManager`. So the registry moved beside each platform —
-`gtk/ComponentRegistryGtk.cpp` with all seven, `mac/ComponentRegistryMac.mm` with
+`gtk/ComponentRegistryGtk.cpp` with all seven, `mac/ComponentRegistryAppKit.mm` with
 one.
 
 That is a better arrangement than the shared version was, and not only because it
@@ -83,10 +83,10 @@ uses it.
 
 ## Where it gets to
 
-`mount_harness_mac` runs the same two transactions the GTK harness does, against
+`mount_harness_appkit` runs the same two transactions the GTK harness does, against
 the same boxes, with no JavaScript anywhere. Four creates and four inserts, one
 of them nested; then an update that recolours and shrinks, and a remove-then-delete
-in the order Fabric guarantees. `RN_MAC_SNAPSHOT_DIR` renders both to PNGs. Both
+in the order Fabric guarantees. `BASALT_SNAPSHOT_DIR` renders both to PNGs. Both
 pictures are what Linux produces.
 
 Sixteen macOS unit tests, nine of them the mounting ones, which are deliberately

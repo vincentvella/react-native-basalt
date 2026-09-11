@@ -1,6 +1,10 @@
+> Names in these documents were swept when the project was renamed from
+> `react-native-linux` to `react-native-basalt` in phase 22, so paths and
+> identifiers are current rather than as-written. See plan/22-the-name.md.
+
 # Plan
 
-Working notes for react-native-linux. Committed so they survive a move between
+Working notes for react-native-basalt. Committed so they survive a move between
 machines, but still notes rather than documentation: rougher than the README,
 and allowed to be wrong or out of date. Anything that becomes true and durable
 should graduate into `README.md` or `docs/ARCHITECTURE.md`.

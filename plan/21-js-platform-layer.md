@@ -64,7 +64,7 @@ arrival, which stops working the moment there is more than one desktop.
 
 The only thing in that URL a host controls is `app=`, which comes from
 `ReactInstanceConfig::appId` and which Metro itself ignores. So the hosts now set
-it to `react-native-desktop-<platform>` and the Metro plugin reads it back.
+it to `basalt-<platform>` and the Metro plugin reads it back.
 
 It works, it is verifiable, and it should not have to exist. The fix is a
 `platform` field on `ReactInstanceConfig`, upstream — the same shape as the
@@ -131,12 +131,12 @@ platforms, so `react-native bundle --platform macos` is accepted, but only
 buildable from inside an app rather than from this repo, which is the shape of
 the next CLI step.
 
-**Dev mode is untested on macOS.** `RN_MAC_DEV` is wired through exactly as the
+**Dev mode is untested on macOS.** `BASALT_DEV` is wired through exactly as the
 GTK host does it, and the `app=` correction above is what should make it work,
 but nothing has run it: Fast Refresh needs components macOS cannot mount yet
 before the result would mean anything.
 
-**The package is still called `react-native-linux`**, and the function that
+**The package is still called `react-native-basalt`**, and the function that
 configures three platforms lives in it. That is now the largest piece of naming
 debt in the repository, and renaming an npm package, a repo and every document
 is a decision rather than a refactor.

@@ -28,7 +28,7 @@ Hover, keyboard, focus, multi-touch, and `setIsJSResponder`. See
 ## The gap in the evidence
 
 Synthesising a real pointer event needs accessibility permission the automated
-runs on this machine do not have, so `RN_LINUX_TEST_TAP` injects at the point
+runs on this machine do not have, so `BASALT_TEST_TAP` injects at the point
 GTK's gesture callback would call. Hit testing, emitter lookup, the event beat,
 the responder system and the re-render are all exercised. GDK's routing of a
 real click into the controller is not.

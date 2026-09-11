@@ -25,4 +25,4 @@ js/node_modules/
 examples/*/node_modules/
 
 # `run-linux` writes the detached packager log here.
-.rn-linux/
+.basalt/

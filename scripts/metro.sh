@@ -6,7 +6,7 @@
 #
 # Then, in another terminal:
 #
-#   RN_LINUX_DEV=1 ./build/rn_linux_host
+#   BASALT_DEV=1 ./build/basalt_gtk
 #
 # The host asks for "http://localhost:8081/index.bundle?platform=android&...",
 # a URL DevServerHelper builds from ReactInstanceConfig plus the source path.

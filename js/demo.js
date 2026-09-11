@@ -172,7 +172,7 @@
     }
   };
 
-  globalThis.rnLinuxRender = function (surfaceId, step) {
+  globalThis.basaltRender = function (surfaceId, step) {
     fabric = globalThis.nativeFabricUIManager;
     if (fabric == null) {
       throw new Error('nativeFabricUIManager is not installed on this runtime');

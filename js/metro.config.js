@@ -37,7 +37,7 @@ const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
 // Native modules that have no variant for them. Without it, bundling with
 // --platform linux produces a bundle that builds and then dies on
 // Platform.constants being undefined.
-const {withDesktopPlatforms} = require('../packages/react-native-linux/metro-config');
+const {withDesktopPlatforms} = require('../packages/react-native-basalt/metro-config');
 
 module.exports = withDesktopPlatforms(mergeConfig(getDefaultConfig(__dirname), {
   projectRoot: __dirname,
@@ -57,7 +57,7 @@ module.exports = withDesktopPlatforms(mergeConfig(getDefaultConfig(__dirname), {
     extraNodeModules: {
       react: path.join(rnDir, 'node_modules', 'react'),
       'react-native': path.join(rnDir, 'node_modules', 'react-native'),
-      'react-native-linux': path.resolve(__dirname, '..', 'packages', 'react-native-linux'),
+      'react-native-basalt': path.resolve(__dirname, '..', 'packages', 'react-native-basalt'),
     },
   },
 }));

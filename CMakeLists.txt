@@ -1,10 +1,22 @@
 # The development build of this repository.
 #
-# Everything native now lives in the npm package, at
-# packages/react-native-linux/native, so that installing the package brings the
-# host's sources with it and `react-native run-linux` can build one. That is the
-# same shape react-native-windows uses, where the package *is* the vnext
-# directory.
+# Everything native lives inside the npm packages, so that installing one brings
+# the host's sources with it and `react-native run-linux --build` can compile
+# one. That is the same shape react-native-windows uses, where the package *is*
+# the vnext directory.
+#
+# Three packages, and the split is the architecture rather than tidiness:
+#
+#   packages/react-native-basalt          the shared half. React Native's C++
+#                                         core, Hermes, the Expo runtime, the
+#                                         core modules, the mutation walk. No
+#                                         toolkit, asserted by the linker.
+#   packages/react-native-basalt-gtk      the Linux view layer and host.
+#   packages/react-native-basalt-appkit   the macOS view layer and host.
+#
+# Each platform package adds the shared one as a subdirectory and skips itself
+# where it cannot build, so this file adds both unconditionally and gets
+# whichever of them this machine can produce.
 #
 # This file exists so that the way this repository has always been built keeps
 # working:
@@ -12,22 +24,26 @@
 #   cmake -B build -DRN_DIR=../react-native/packages/react-native
 #   cmake --build build
 #
-# It contributes two things the package cannot assume: that third_party lives at
-# the root of a checkout, and that `build/rn_linux_host` is where the binary
-# should appear. Both are named here rather than inside the package, because
-# inside the package they would be wrong for an app.
+# It contributes two things a package cannot assume: that third_party lives at
+# the root of a checkout, and that `build/basalt_gtk` is where a binary should
+# appear. Both are named here rather than inside a package, because inside a
+# package they would be wrong for an app.
 
 cmake_minimum_required(VERSION 3.13)
-project(react_native_linux_dev NONE)
+project(react_native_basalt_dev NONE)
 
-if(NOT DEFINED RN_LINUX_THIRD_PARTY)
-  set(RN_LINUX_THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+if(NOT DEFINED BASALT_THIRD_PARTY)
+  set(BASALT_THIRD_PARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 endif()
 
 # RN_DIR is documented as relative to this directory, and add_subdirectory would
-# otherwise resolve it against the package.
+# otherwise resolve it against whichever package got there first.
 if(DEFINED RN_DIR)
   get_filename_component(RN_DIR "${RN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
-add_subdirectory(packages/react-native-linux/native native)
+# The shared half first, explicitly. Either platform package would add it, but
+# adding it here means the order the two are listed in cannot matter.
+add_subdirectory(packages/react-native-basalt/native basalt)
+add_subdirectory(packages/react-native-basalt-gtk/native basalt-gtk)
+add_subdirectory(packages/react-native-basalt-appkit/native basalt-appkit)

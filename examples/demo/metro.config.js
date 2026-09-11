@@ -30,7 +30,7 @@ if (!fs.existsSync(path.join(rnDir, 'node_modules', 'react-native'))) {
 const rnRequire = createRequire(path.join(rnDir, 'package.json'));
 const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
 
-const {withDesktopPlatforms} = require('../../packages/react-native-linux/metro-config');
+const {withDesktopPlatforms} = require('../../packages/react-native-basalt/metro-config');
 
 module.exports = withDesktopPlatforms(
   mergeConfig(getDefaultConfig(__dirname), {

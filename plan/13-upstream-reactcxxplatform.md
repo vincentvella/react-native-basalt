@@ -59,7 +59,7 @@ of the resulting tarball into an empty project, `ReactCxxPlatform` copied in as
 the only modification, and then this platform's bootstrap and CMake pointed at
 `node_modules/react-native`.
 
-Result: a 37MB `rn_linux_host`, which renders a React application with no
+Result: a 37MB `basalt_gtk`, which renders a React application with no
 JavaScript errors. Built entirely from an installed React Native.
 
 ## The second gap, which the build found and the path check did not

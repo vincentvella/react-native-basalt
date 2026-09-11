@@ -33,10 +33,10 @@ cd "$root"
 
 linux_bundle="${1:-build/views.linux.jsbundle.js}"
 mac_bundle="${2:-build/views.macos.jsbundle.js}"
-module="${3-RNDesktopViews}"
-quit_after="${RN_COMPARE_QUIT_AFTER_MS:-4000}"
+module="${3-BasaltViews}"
+quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-4000}"
 
-for host in build/rn_linux_host build/rn_mac_host; do
+for host in build/basalt_gtk build/basalt_appkit; do
   if [[ ! -x "$host" ]]; then
     echo "missing $host -- build both hosts first:" >&2
     echo "  cmake --build build" >&2
@@ -56,12 +56,12 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
 echo "running the GTK host..."
-RN_LINUX_DUMP_TREE="$out/linux.txt" RN_LINUX_QUIT_AFTER_MS="$quit_after" \
-  build/rn_linux_host "$linux_bundle" "$module" >"$out/linux.log" 2>&1 || true
+BASALT_DUMP_TREE="$out/linux.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
+  build/basalt_gtk "$linux_bundle" "$module" >"$out/linux.log" 2>&1 || true
 
 echo "running the macOS host..."
-RN_MAC_DUMP_TREE="$out/macos.txt" RN_MAC_QUIT_AFTER_MS="$quit_after" \
-  build/rn_mac_host "$mac_bundle" "$module" >"$out/macos.log" 2>&1 || true
+BASALT_DUMP_TREE="$out/macos.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
+  build/basalt_appkit "$mac_bundle" "$module" >"$out/macos.log" 2>&1 || true
 
 status=0
 

@@ -16,11 +16,11 @@ what a third would need:
 
 | Piece | Where macOS's came from |
 |---|---|
-| `IMountingManager` | `MacMountingManager` — phase 19 |
+| `IMountingManager` | `AppKitMountingManager` — phase 19 |
 | `RunLoopObserverManager` | ReactCxxPlatform, plus a platform observer |
-| `AnimationChoreographer` | `MacAnimationChoreographer` — new here |
+| `AnimationChoreographer` | `AppKitAnimationChoreographer` — new here |
 | `ContextContainer` | shared: http and websocket client factories |
-| `ComponentRegistryFactory` | `ComponentRegistryMac` — phase 19 |
+| `ComponentRegistryFactory` | `ComponentRegistryAppKit` — phase 19 |
 | `FontRegistry` | `FontRegistryCoreText` — new here |
 | Feature flags, TurboModules, bindings | shared with GTK, unchanged |
 
@@ -79,7 +79,7 @@ and if the trees ever differ the diff says so before anybody looks at a
 screenshot. It needs both toolkits installed, so it runs on a developer's Mac
 rather than in CI, where each host only exists on its own side.
 
-`RN_MAC_SNAPSHOT` renders what is actually on screen, which fails differently
+`BASALT_SNAPSHOT` renders what is actually on screen, which fails differently
 from the tree dump: a correct tree can still paint nothing if the layer or the
 window is wrong.
 
@@ -90,7 +90,7 @@ window is wrong.
 GTK host had, and it is what macOS can currently render, for two separate
 reasons that are worth keeping apart.
 
-The first is that `MacMountingManager` mounts `<View>` and nothing else, so a
+The first is that `AppKitMountingManager` mounts `<View>` and nothing else, so a
 React app with any text in it would render blank rectangles.
 
 The second is the one that will outlast the first: **React Native's JavaScript
@@ -103,8 +103,8 @@ next thing between here and running a real Expo app on a Mac.
 
 ## Found on the way
 
-`core/HttpClient.cpp` lives in `rn_desktop_core`, and libcurl was named only on
-`rn_mounting`. That worked for exactly as long as the GTK host was the only thing
+`core/HttpClient.cpp` lives in `basalt_core`, and libcurl was named only on
+`basalt_gtk_mounting`. That worked for exactly as long as the GTK host was the only thing
 linking core: the archive member goes unreferenced until something asks for an
 http client, so the missing dependency was invisible. The macOS host asked.
 
@@ -120,11 +120,11 @@ No input. `GtkTouchDispatcher` has no counterpart, so nothing a user does
 reaches JavaScript — the beat is running and has nothing to deliver. No
 keyboard, no focus.
 
-No dev mode in practice. `RN_MAC_DEV` is wired through to `ReactInstanceConfig`
+No dev mode in practice. `BASALT_DEV` is wired through to `ReactInstanceConfig`
 exactly as the GTK host does it, and untested, because a Metro bundle for this
 platform is the JavaScript-layer problem above.
 
-The host's environment variables are `RN_MAC_*` where GTK's are `RN_LINUX_*`.
+The host's environment variables are `BASALT_*` where GTK's are `BASALT_*`.
 Two prefixes for the same knobs is precisely the inconsistency this project
 exists to avoid; they should become one. Left as is here because renaming the
 Linux ones touches CI and the end-to-end suite, and doing that in the same change

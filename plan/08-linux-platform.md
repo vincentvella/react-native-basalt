@@ -1,6 +1,6 @@
 # Phase 8 — The `linux` Metro platform
 
-> **Done, 2026-09-09.** `packages/react-native-linux/`.
+> **Done, 2026-09-09.** `packages/react-native-basalt/`.
 
 **Goal:** an app bundled with `--platform linux` that sees
 `Platform.OS === 'linux'`, in development and in a release build alike.

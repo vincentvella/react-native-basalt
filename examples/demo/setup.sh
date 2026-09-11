@@ -29,7 +29,12 @@ RN_DIR="$(cd "$RN_DIR" && pwd)"
 
 mkdir -p "$HERE/node_modules"
 ln -sfn "$RN_DIR/node_modules/react-native" "$HERE/node_modules/react-native"
-ln -sfn "$REPO_ROOT/packages/react-native-linux" "$HERE/node_modules/react-native-linux"
+# Both packages. The shared half carries the JavaScript platform layer and the
+# bundler; the GTK one carries the host and the `run-linux` command. React
+# Native's CLI reads a react-native.config.js out of each and merges them, which
+# is how an app gets the platforms from one and the command from the other.
+ln -sfn "$REPO_ROOT/packages/react-native-basalt" "$HERE/node_modules/react-native-basalt"
+ln -sfn "$REPO_ROOT/packages/react-native-basalt-gtk" "$HERE/node_modules/react-native-basalt-gtk"
 
 # react-native's cli.js refuses to run unless it finds this in the *project's*
 # node_modules, so linking react-native alone is not enough.
@@ -38,7 +43,7 @@ ln -sfn "$RN_DIR/node_modules/@react-native-community/cli" \
   "$HERE/node_modules/@react-native-community/cli"
 
 echo "==> linked react-native from $RN_DIR"
-echo "==> linked react-native-linux from $REPO_ROOT/packages"
+echo "==> linked react-native-basalt and react-native-basalt-gtk from $REPO_ROOT/packages"
 echo
 echo "Now, from $HERE:"
 echo "  RN_DIR=$RN_DIR node node_modules/react-native/cli.js run-linux"

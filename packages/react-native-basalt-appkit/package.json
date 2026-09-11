@@ -1,0 +1,20 @@
+{
+  "name": "react-native-basalt-appkit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The macOS view layer for react-native-basalt: an AppKit view layer, a Fabric mounting manager, and a host. Everything behind them is in react-native-basalt.",
+  "license": "MIT",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "native"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "dependencies": {
+    "react-native-basalt": "0.0.0"
+  }
+}

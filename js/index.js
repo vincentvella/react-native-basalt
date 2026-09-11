@@ -238,4 +238,4 @@ const styles = StyleSheet.create({
   buttonLabel: {fontSize: 17, fontWeight: '600', color: '#11131a'},
 });
 
-AppRegistry.registerComponent('RNLinuxDemo', () => App);
+AppRegistry.registerComponent('BasaltDemo', () => App);

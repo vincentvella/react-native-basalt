@@ -1,6 +1,6 @@
 # Pinning a triple instead of following the app
 
-> **Done, 2026-09-10.** `packages/react-native-linux/supported-versions.json`.
+> **Done, 2026-09-10.** `packages/react-native-basalt/supported-versions.json`.
 
 Trying to run kino, which pins React Native 0.81.6, turned into chasing version
 differences one compile error at a time. This is the decision that stopped it.

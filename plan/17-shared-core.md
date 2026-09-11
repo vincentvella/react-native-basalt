@@ -14,7 +14,7 @@ was merely written here first?
 
 ## Asked of the compiler, not of me
 
-`rn_desktop_core` is a target that deliberately does not link GTK. That is the
+`basalt_core` is a target that deliberately does not link GTK. That is the
 entire design: a toolkit dependency creeping into the shared half fails the
 build, rather than quietly making it unshareable and being discovered by
 whoever tries to use it on another platform.
@@ -91,12 +91,12 @@ modules are added to it.
 
 ## What this does not yet do
 
-The split is a directory and a build target, not a package. `react-native-linux`
+The split is a directory and a build target, not a package. `react-native-basalt`
 still contains both halves, and a second platform would need the shared half
 published separately. That is mechanical and is the next step, deliberately left
 until the line had been drawn by something more reliable than opinion.
 
-The namespace is still `rnlinux` throughout, including in core, which will read
+The namespace is still `basalt` throughout, including in core, which will read
 badly from a macOS build. Renaming it touches every file and proves nothing, so
 it waits for the package split.
 

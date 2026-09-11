@@ -12,7 +12,7 @@ on something else entirely.
 
 The project had no tests. Every claim in the README rested on a screenshot,
 which is fine for "does this look right" and useless for "did this break".
-`build/rn_tests` now covers everything reachable without a JavaScript runtime,
+`build/basalt_gtk_tests` now covers everything reachable without a JavaScript runtime,
 and `scripts/integration_test.py` covers the whole stack by asserting on a
 widget tree the host dumps. See `docs/TESTING.md`.
 
