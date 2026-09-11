@@ -1,5 +1,6 @@
 #include "ExpoRuntime.h"
 
+#include "ExpoModules.h"
 #include "FontRegistry.h"
 
 #include <filesystem>
@@ -224,23 +225,24 @@ void installExpoRuntime(facebook::jsi::Runtime &runtime) {
   expo::SharedRef::installBaseClass(runtime);
   expo::NativeModule::installClass(runtime);
 
-  // The module registry. Empty except for the two modules Expo's own start-up
-  // reaches for before an app's code runs at all, and which are therefore not
-  // optional the way every other Expo module is.
+  // The module registry.
   //
-  // These two are stubs and are meant to be read as stubs. Expo's macOS and
-  // Windows ports stub exactly the same pair for exactly the same reason, and
-  // the comment in their installer is worth repeating: this is enough for the
-  // `require("expo").registerRootComponent(App)` call to survive, no more.
-  // Anything that actually calls into them will fail, and should.
+  // ExpoAsset is here rather than in ExpoModules.cpp because it is older than
+  // the module host and because it is half a stub: it confirms a `file://`
+  // asset exists and rejects an http one, which is enough for Expo's own
+  // start-up and no more. ExponentConstants used to sit beside it as an empty
+  // object for the same reason, and is a real module now.
   jsi::Object modules(runtime);
   modules.setProperty(runtime, "ExpoAsset", makeAssetModule(runtime));
-  modules.setProperty(runtime, "ExponentConstants", jsi::Object(runtime));
 
   // The first Expo module here that is not a stub. It loads a real font file
   // into fontconfig, which is where Pango looks, so `fontFamily` works
   // afterwards for text this platform renders. See src/LinuxFonts.cpp.
   modules.setProperty(runtime, "ExpoFontLoader", makeFontLoader(runtime));
+
+  // This platform's own Expo modules. See core/ExpoModules.h; they are separate
+  // from the stubs above because they are not stubs.
+  installExpoModules(runtime, modules);
 
   // expo-modules-core builds its NativeModulesProxy by iterating this, falling
   // back to the legacy proxy when it is absent, so its presence matters even

@@ -225,19 +225,18 @@ so anything importing them dies at startup.
 
 Measured in phase 34 against a real dependency set, on both desktops.
 
-- **An Expo module host.** `requireNativeModule('ExpoImage')` throws, and so
-  does every other Expo SDK library with native code -- at module scope, which
-  takes the app down before `AppRegistry` runs. `globalThis.expo` exists since
-  phase 15; what does not is any way for C++ to register a module under it.
-  This is the single largest thing between here and "an Expo app works", and it
-  is one piece of plumbing plus a small piece of work per library.
-- **`expo-clipboard` and `expo-linking` are already written**, as React Native's
-  `Clipboard` and `Linking` in phase 32. They need registering, not
-  implementing.
-- **`Constants.expoConfig` is null**, because nothing supplies the app manifest.
-  An app reading `Constants.expoConfig.extra.something` crashes on the property
-  access. The cheapest of these by a distance: the manifest is `app.json`, which
-  the bundler already has.
+- **Expo modules that are views.** `expo-image` is the one a real app misses
+  first, and it is not the shape phase 35 solved: a view needs a Fabric
+  component -- registry entry, prop parsing, a mounting peer -- rather than a
+  registry entry in `globalThis.expo.modules`. The module host is done; this is
+  the other half of it.
+- **A URL delivered to a running app.** `ExpoLinking.getLinkingURL` is honestly
+  null because neither desktop can receive one: macOS needs an Apple Event
+  handler and a registered scheme, Linux a desktop entry and single-instance
+  activation. The Expo and React Native modules for it both exist now.
+- **The clipboard's image and URL types**, which are separate pasteboard types
+  on each platform. Absent rather than stubbed, so expo-clipboard reports them
+  as unavailable by name.
 - **Reanimated and gesture-handler** are a different shape: native libraries in
   their own right, wanting a worklet runtime, nothing to do with Expo's module
   system.

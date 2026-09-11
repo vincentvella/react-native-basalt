@@ -39,6 +39,7 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+#include "ExpoModules.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -408,6 +409,10 @@ int main(int argc, const char *argv[]) {
     gHost.moduleName = argc > 2 ? argv[2] : "";
     const char *sourcePath = getenv("BASALT_DEV_ENTRY");
     gHost.sourcePath = sourcePath != nullptr ? sourcePath : "index";
+
+    // The app's Expo config, if this is an Expo app and it has been bundled.
+    // Before anything installs the runtime. See core/ExpoModules.h.
+    basalt::loadExpoAppConfigBeside(gHost.bundlePath);
 
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

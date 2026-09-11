@@ -342,15 +342,21 @@ module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
 That is what this project exists to show. `plan/15-expo-runtime.md` is how, and
 `plan/29-expo-on-macos.md` is the second desktop getting it for free.
 
-What neither covers is every actual Expo module, and phase 34 measured that too:
-a real app's dependency set -- expo-image, expo-font, expo-constants,
-gesture-handler, Reanimated, react-navigation and the rest -- loads nine of
-fifteen, identically on both desktops. The six that fail are mostly one failure:
-an Expo SDK library with native code calls `requireNativeModule`, this platform
-registers no Expo modules, and the import takes the app down before
-`AppRegistry` runs. `globalThis.expo` exists; nothing can register under it yet.
-See `plan/34-expo-dependencies.md` for the table and `plan/backlog.md` for what
-each one needs.
+Beyond the template, a real app's dependency set -- expo-image, expo-font,
+expo-constants, expo-clipboard, gesture-handler, Reanimated, react-navigation
+and the rest -- loads **twelve of fifteen**, identically on both desktops.
+
+`expo-clipboard` really does write the system clipboard, `Constants.expoConfig`
+really is the app's `app.json`, and `Linking.createURL` produces the app's own
+scheme. That works because `globalThis.expo.modules` is a registry a C++ module
+can be added to now, and because the bundler writes the resolved Expo config
+beside the bundle the way Expo's own native builds embed it. See
+`plan/35-expo-modules.md`.
+
+The three that are left are not that shape: `expo-image` is a *view* and needs a
+Fabric component, and Reanimated and gesture-handler are native libraries in
+their own right. `plan/34-expo-dependencies.md` has the table; `plan/backlog.md`
+has what each one needs.
 
 ## Supported React Native versions
 

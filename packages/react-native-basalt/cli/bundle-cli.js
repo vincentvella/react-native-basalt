@@ -67,7 +67,8 @@ async function main() {
   console.log(
     `wrote ${path.relative(options.projectRoot, options.bundleOutput)} ` +
       `and ${result.files} asset file${result.files === 1 ? '' : 's'} ` +
-      `from ${result.assets} asset${result.assets === 1 ? '' : 's'}`,
+      `from ${result.assets} asset${result.assets === 1 ? '' : 's'}` +
+      (result.expoConfig ? ', with app.config.json' : ''),
   );
 }
 

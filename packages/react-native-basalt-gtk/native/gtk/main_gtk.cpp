@@ -44,6 +44,7 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+#include "ExpoModules.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -650,6 +651,10 @@ int main(int argc, char **argv) {
   host.moduleName = argc > 2 ? argv[2] : "BasaltDemo";
   const char *sourcePath = g_getenv("BASALT_DEV_ENTRY");
   host.sourcePath = sourcePath != nullptr ? sourcePath : "index";
+
+  // The app's Expo config, if this is an Expo app and it has been bundled.
+  // Before anything installs the runtime. See core/ExpoModules.h.
+  basalt::loadExpoAppConfigBeside(host.bundlePath);
 
   // GTK would try to interpret argv as files to open. The bundle path is ours,
   // so the application never sees it.

@@ -21,7 +21,7 @@ const path = require('path');
 const {buildHost} = require('./build');
 const {shared} = require('./shared');
 
-const {bundleWithAssets} = shared('cli/bundleWithAssets');
+const {bundleWithAssets, writeExpoAppConfig} = shared('cli/bundleWithAssets');
 const {MissingHost, resolveHost} = require('./host');
 const {isPortTaken, startMetro} = shared('cli/metro');
 
@@ -149,6 +149,12 @@ async function runLinux(_argv, context, options) {
       fs.mkdirSync(path.dirname(bundlePath), {recursive: true});
       await bundleForRelease(context, options, bundlePath);
     }
+
+    // Every dev run, not only the one that wrote the fallback bundle: the host
+    // reads app.config.json from beside the bundle, and an app.json edited
+    // since would otherwise be invisible in development and applied in release
+    // -- the worse half of a difference between the two.
+    await writeExpoAppConfig(projectRoot, bundlePath);
   } else {
     console.log('==> bundling for release');
     await bundleForRelease(context, options, bundlePath);

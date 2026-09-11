@@ -92,6 +92,42 @@ async function copyAssets(assets, assetsDest) {
 }
 
 /**
+ * Writes the app's resolved Expo config beside the bundle, as `app.config.json`.
+ *
+ * This is what `Constants.expoConfig` is, and expo-linking reads it to find the
+ * app's URI scheme. iOS and Android embed it into the app during the native
+ * build, from a script expo-constants contributes; this platform's hosts are
+ * generic binaries with no build step of their own, so bundling is the moment
+ * that has both the project and a place to put the answer.
+ *
+ * `isPublicConfig` is Expo's own flag for "this will be readable by anything
+ * that can read the app", and drops the keys that are not meant to be --
+ * `hooks`, and EAS credentials under `extra`. Embedding the private config
+ * would be a change in what an app ships, made silently by a bundler.
+ *
+ * Returns false when the project is not an Expo app, which is not a failure:
+ * `expo/config` is simply not there to resolve.
+ */
+async function writeExpoAppConfig(projectRoot, bundleOutput) {
+  let getConfig;
+  try {
+    getConfig = createRequire(path.join(projectRoot, 'package.json'))('expo/config').getConfig;
+  } catch {
+    return false;
+  }
+
+  // Past this point the project *is* an Expo app, so a failure is a real one
+  // and silence would leave Constants.expoConfig mysteriously null.
+  const {exp} = getConfig(projectRoot, {
+    skipSDKVersionRequirement: true,
+    isPublicConfig: true,
+  });
+  const destination = path.join(path.dirname(bundleOutput), 'app.config.json');
+  await fs.promises.writeFile(destination, JSON.stringify(exp, null, 2));
+  return true;
+}
+
+/**
  * Builds `entryFile` to `bundleOutput`, and writes its assets beside it.
  *
  * Beside it by default, and that default is not arbitrary: React Native
@@ -136,10 +172,11 @@ async function bundleWithAssets({
       bundleType: 'todo',
     });
     const copied = await copyAssets(assets, destination);
-    return {assets: assets.length, files: copied, assetsDest: destination};
+    const expoConfig = await writeExpoAppConfig(projectRoot, bundleOutput);
+    return {assets: assets.length, files: copied, assetsDest: destination, expoConfig};
   } finally {
     server.end();
   }
 }
 
-module.exports = {bundleWithAssets, destinationFor};
+module.exports = {bundleWithAssets, destinationFor, writeExpoAppConfig};
