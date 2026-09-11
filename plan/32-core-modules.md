@@ -121,6 +121,43 @@ every `AccessibilityInfo` question answering.
 Eleven apps now, and `scripts/compare_all.sh` says the two hosts agree on all of
 them.
 
+## Two more, found by asking instead of reasoning
+
+The first pass through this phase declared victory on six modules. It was
+wrong, and the way it was wrong is the point: the list of what to implement came
+from `plan/backlog.md`, which came from a `grep` for `getEnforcing<...>('Name')`
+that only matched single-line calls. A multiline-tolerant sweep found
+twenty-seven names rather than fifteen.
+
+So `js/probe.js` exists now: it touches every API an app might reach -- web APIs,
+React Native modules, components -- each inside its own try/catch with `require`
+at call time, because a top-level import that throws takes the app down, which is
+exactly the failure being looked for. It reports rather than asserts.
+
+It found two more real crashes and one thing that was not one.
+
+**`ToastAndroid`** throws on import. Android's toast is a transient message over
+the app; a desktop has no such thing built in, and the nearest equivalent is a
+system notification, which is a different thing with a different lifetime. The
+message is logged rather than shown -- not a good answer, and a better one than
+throwing, because an app showing a toast is telling the user something and
+losing it silently is worse than losing it visibly.
+
+**`DevSettings`** throws in a *release bundle*, which is the worse of the two.
+Upstream provides it only when a dev server exists, so `DevSettings.reload()` --
+reachable from ordinary code -- is a production crash. Ours fills that gap and is
+offered **only when dev mode is off**, because this provider is consulted before
+upstream's and offering it unconditionally would shadow the one that actually
+works.
+
+And the one that was not a crash: `InteractionManager` throws
+"InteractionManager has been removed from react-native core", on every platform.
+That is upstream's intent, not a gap here. It is out of the probe, with a note
+saying why, because a diagnostic that reports a deliberate removal as a failure
+will get someone to "fix" it.
+
+Twelve apps now, and the probe reports 27 of 27 on both hosts.
+
 ## What is missing
 
 **Alert prompts on Linux.** `GtkAlertDialog` has no text field, and building one

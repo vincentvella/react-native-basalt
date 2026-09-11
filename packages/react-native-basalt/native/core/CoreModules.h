@@ -198,4 +198,66 @@ class DesktopAccessibilityInfoModule
                                    facebook::jsi::Function onSuccess);
 };
 
+// `ToastAndroid`, which is a getEnforcing lookup and so throws at import.
+//
+// Android's toast is a transient message that appears over the app and fades.
+// A desktop has no such thing built in: the nearest equivalent is a system
+// notification, which is a different thing with a different lifetime and needs
+// a notification API neither platform has wired up.
+//
+// So the message is logged rather than shown. That is not a good answer and it
+// is a better one than throwing: an app that shows a toast is telling the user
+// something, and losing it silently is worse than losing it visibly in a log.
+// See plan/backlog.md.
+class DesktopToastModule
+    : public facebook::react::NativeToastAndroidCxxSpec<DesktopToastModule> {
+ public:
+  explicit DesktopToastModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
+      : NativeToastAndroidCxxSpec(std::move(jsInvoker)) {}
+
+  static constexpr const char *kModuleName = "ToastAndroid";
+
+  facebook::jsi::Object getConstants(facebook::jsi::Runtime &rt);
+  void show(facebook::jsi::Runtime &rt, facebook::jsi::String message, double duration);
+  void showWithGravity(facebook::jsi::Runtime &rt,
+                       facebook::jsi::String message,
+                       double duration,
+                       double gravity);
+  void showWithGravityAndOffset(facebook::jsi::Runtime &rt,
+                                facebook::jsi::String message,
+                                double duration,
+                                double gravity,
+                                double xOffset,
+                                double yOffset);
+};
+
+// `DevSettings`, which is a getEnforcing lookup -- and which upstream provides
+// *only when a dev server exists*.
+//
+// So in a release bundle it is absent and `DevSettings.reload()` throws, which
+// is a production crash reachable from ordinary code. This module exists to
+// fill that gap and must therefore be offered only when upstream's is not:
+// the host passes `enableDevMode` and skips this in dev, where the real one can
+// actually reload.
+class DesktopDevSettingsModule
+    : public facebook::react::NativeDevSettingsCxxSpec<DesktopDevSettingsModule> {
+ public:
+  explicit DesktopDevSettingsModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
+      : NativeDevSettingsCxxSpec(std::move(jsInvoker)) {}
+
+  static constexpr const char *kModuleName = "DevSettings";
+
+  void reload(facebook::jsi::Runtime &rt);
+  void reloadWithReason(facebook::jsi::Runtime &rt, facebook::jsi::String reason);
+  void onFastRefresh(facebook::jsi::Runtime &rt);
+  void setHotLoadingEnabled(facebook::jsi::Runtime &rt, bool isHotLoadingEnabled);
+  void setProfilingEnabled(facebook::jsi::Runtime &rt, bool isProfilingEnabled);
+  void toggleElementInspector(facebook::jsi::Runtime &rt);
+  void addMenuItem(facebook::jsi::Runtime &rt, facebook::jsi::String title);
+  void openDebugger(facebook::jsi::Runtime &rt);
+  void addListener(facebook::jsi::Runtime &rt, facebook::jsi::String eventName);
+  void removeListeners(facebook::jsi::Runtime &rt, double count);
+  void setIsShakeToShowDevMenuEnabled(facebook::jsi::Runtime &rt, bool enabled);
+};
+
 } // namespace basalt

@@ -30,6 +30,7 @@ APPS=(
   "appearance:BasaltAppearance"
   "blob:BasaltBlob"
   "modules:BasaltModules"
+  "probe:BasaltProbe"
   # The real demo, last: the richest app there is, and the one whose tree
   # agreeing means the most.
   "index:BasaltDemo"

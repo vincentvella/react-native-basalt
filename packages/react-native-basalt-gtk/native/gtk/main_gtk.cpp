@@ -330,10 +330,11 @@ class LinuxFeatureFlags : public facebook::react::ReactNativeFeatureFlagsDefault
 // consults these before its own, so naming a module it also provides replaces
 // it. Today that is only PlatformConstants; this is also the seam an Expo port
 // would use.
-facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scriptURL) {
+facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scriptURL,
+                                                              bool devMode) {
   facebook::react::TurboModuleProviders providers;
   providers.emplace_back(
-      [scriptURL = std::move(scriptURL)](const std::string &name,
+      [scriptURL = std::move(scriptURL), devMode](const std::string &name,
          const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
@@ -368,6 +369,15 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopAccessibilityInfoModule::kModuleName) {
           return std::make_shared<basalt::DesktopAccessibilityInfoModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopToastModule::kModuleName) {
+          return std::make_shared<basalt::DesktopToastModule>(jsInvoker);
+        }
+        // Only outside dev mode. ReactCxxPlatform provides a real DevSettings
+        // when a dev server exists, and this provider is consulted first -- so
+        // offering ours unconditionally would shadow the one that works.
+        if (!devMode && name == basalt::DesktopDevSettingsModule::kModuleName) {
+          return std::make_shared<basalt::DesktopDevSettingsModule>(jsInvoker);
         }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
@@ -498,7 +508,8 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                       config.devServerHost,
                                                       config.devServerPort,
                                                       host->sourcePath.empty() ? "index"
-                                                                               : host->sourcePath)),
+                                                                               : host->sourcePath),
+                                                                  config.enableDevMode),
                                                   nullptr,
                                                   nullptr,
                                                   installBindings,

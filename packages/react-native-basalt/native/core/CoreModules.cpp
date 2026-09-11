@@ -415,4 +415,107 @@ void DesktopAccessibilityInfoModule::getRecommendedTimeoutMillis(Runtime &rt,
   onSuccess.call(rt, Value(mSec));
 }
 
+// ---------------------------------------------------------------------------
+// ToastAndroid
+// ---------------------------------------------------------------------------
+
+Object DesktopToastModule::getConstants(Runtime &rt) {
+  Object constants(rt);
+  // The values React Native's JavaScript passes back in. They have to exist and
+  // be distinct; nothing here reads them.
+  constants.setProperty(rt, "SHORT", 0.0);
+  constants.setProperty(rt, "LONG", 1.0);
+  constants.setProperty(rt, "TOP", 48.0);
+  constants.setProperty(rt, "BOTTOM", 80.0);
+  constants.setProperty(rt, "CENTER", 17.0);
+  return constants;
+}
+
+void DesktopToastModule::show(Runtime &rt, String message, double duration) {
+  (void)duration;
+  LOG(INFO) << "toast: " << message.utf8(rt);
+}
+
+void DesktopToastModule::showWithGravity(Runtime &rt,
+                                         String message,
+                                         double duration,
+                                         double gravity) {
+  (void)duration;
+  (void)gravity;
+  LOG(INFO) << "toast: " << message.utf8(rt);
+}
+
+void DesktopToastModule::showWithGravityAndOffset(Runtime &rt,
+                                                  String message,
+                                                  double duration,
+                                                  double gravity,
+                                                  double xOffset,
+                                                  double yOffset) {
+  (void)duration;
+  (void)gravity;
+  (void)xOffset;
+  (void)yOffset;
+  LOG(INFO) << "toast: " << message.utf8(rt);
+}
+
+// ---------------------------------------------------------------------------
+// DevSettings, for release bundles only
+// ---------------------------------------------------------------------------
+//
+// Every method here does nothing, and that is what these mean without a dev
+// server: there is nothing to reload from, no inspector to toggle, no debugger
+// to open, and no dev menu to add an item to. In dev mode the host does not
+// offer this module at all and upstream's real one is used instead.
+
+void DesktopDevSettingsModule::reload(Runtime &rt) {
+  (void)rt;
+  LOG(WARNING) << "DevSettings.reload() has nothing to reload from in a release bundle";
+}
+
+void DesktopDevSettingsModule::reloadWithReason(Runtime &rt, String reason) {
+  LOG(WARNING) << "DevSettings.reload() ignored (" << reason.utf8(rt) << ")";
+}
+
+void DesktopDevSettingsModule::onFastRefresh(Runtime &rt) {
+  (void)rt;
+}
+
+void DesktopDevSettingsModule::setHotLoadingEnabled(Runtime &rt, bool isHotLoadingEnabled) {
+  (void)rt;
+  (void)isHotLoadingEnabled;
+}
+
+void DesktopDevSettingsModule::setProfilingEnabled(Runtime &rt, bool isProfilingEnabled) {
+  (void)rt;
+  (void)isProfilingEnabled;
+}
+
+void DesktopDevSettingsModule::toggleElementInspector(Runtime &rt) {
+  (void)rt;
+}
+
+void DesktopDevSettingsModule::addMenuItem(Runtime &rt, String title) {
+  (void)rt;
+  (void)title;
+}
+
+void DesktopDevSettingsModule::openDebugger(Runtime &rt) {
+  (void)rt;
+}
+
+void DesktopDevSettingsModule::addListener(Runtime &rt, String eventName) {
+  (void)rt;
+  (void)eventName;
+}
+
+void DesktopDevSettingsModule::removeListeners(Runtime &rt, double count) {
+  (void)rt;
+  (void)count;
+}
+
+void DesktopDevSettingsModule::setIsShakeToShowDevMenuEnabled(Runtime &rt, bool enabled) {
+  (void)rt;
+  (void)enabled;
+}
+
 } // namespace basalt

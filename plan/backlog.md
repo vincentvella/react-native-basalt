@@ -209,8 +209,16 @@ so anything importing them dies at startup.
   (phase 26) and `AccessibilityInfo.js` (phase 32) all did this, each found by an
   app failing rather than by review. Worth checking for deliberately the next
   time a module misbehaves.
-- **`ShareModule`** (soft), and **`ToastAndroid`** (throws, but only if an app
-  imports it directly).
+- **`ShareModule`** (soft) is the core-module gap left. `ToastAndroid` and
+  `DevSettings` were also throwing and are done; a toast logs rather than
+  showing, because a desktop's nearest equivalent is a system notification and
+  neither platform has a notification API wired up.
+- **A desktop notification API**, which is what `ToastAndroid` should really be
+  and what any app wanting to tell a user something out-of-band needs.
+- **Dev mode with no Metro running is a fatal error**, on both platforms: the
+  host fetches from localhost:8081, gets a connection-refused body, and compiles
+  it as JavaScript. It should notice and fall back to the on-disk bundle, which
+  is what it says it does.
 
 ## Desktop capabilities
 
