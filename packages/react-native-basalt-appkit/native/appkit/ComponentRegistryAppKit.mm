@@ -1,8 +1,9 @@
 // The component registry for the macOS platform. See core/ComponentRegistry.h
 // for why this is per-platform rather than shared.
 //
-// `<View>`, `<Text>`, `<ScrollView>` and `<Image>`. The one left out is
-// TextInput, which needs an NSTextField peer and the controlled-value loop.
+// `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and `<TextInput>` -- the four
+// components an ordinary app is built from, plus the root. What is left out is
+// what neither desktop has: Switch, Modal, ActivityIndicator and the rest.
 //
 // Paragraph arrived with CoreTextLayoutManager.mm, and could not have arrived
 // before it: registering it constructs a `TextLayoutManager`, whose stub this
@@ -19,6 +20,7 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -49,6 +51,10 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // creating one if absent. React Native's cxx ImageManager is a stub, so
       // it produces no pixels; AppKitImageLoader does that from the props.
       registry->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+      // React Native's *iOS* TextInput, whose C++ is portable: it measures
+      // through a TextLayoutManager, which here is the Core Text one.
+      // Android's needs fbjni. Its component name is "TextInput".
+      registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

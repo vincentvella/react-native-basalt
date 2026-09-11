@@ -693,6 +693,33 @@ void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y)
   rn_view_scroll_offset(self, offset_x, offset_y);
 }
 
+// Escaping for the tree dump: backslash, quote and newline, and nothing else.
+//
+// Not g_strescape, which also turns every byte above 0x7f into an octal escape
+// -- so a string with a "·" in it comes out as \302\267 on this side and as
+// itself on the AppKit side, and the two dumps differ on a character neither
+// platform did anything to. The result is also simply easier to read.
+static char *rn_escape_for_dump(const char *text) {
+  GString *escaped = g_string_new(nullptr);
+  for (const char *c = text; c != nullptr && *c != '\0'; c++) {
+    switch (*c) {
+      case '\\':
+        g_string_append(escaped, "\\\\");
+        break;
+      case '"':
+        g_string_append(escaped, "\\\"");
+        break;
+      case '\n':
+        g_string_append(escaped, "\\n");
+        break;
+      default:
+        g_string_append_c(escaped, *c);
+        break;
+    }
+  }
+  return g_string_free(escaped, FALSE);
+}
+
 static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   for (int i = 0; i < depth; i++) {
     g_string_append(out, "  ");
@@ -732,7 +759,7 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   if (self->text_layout != nullptr) {
     const char *text = pango_layout_get_text(self->text_layout);
     if (text != nullptr && *text != '\0') {
-      char *escaped = g_strescape(text, nullptr);
+      char *escaped = rn_escape_for_dump(text);
       g_string_append_printf(out, " text=\"%s\"", escaped);
       g_free(escaped);
     }
@@ -742,7 +769,7 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   // it would otherwise be invisible to every test that reads this tree.
   if (self->editable != nullptr) {
     const char *value = gtk_editable_get_text(GTK_EDITABLE(self->editable));
-    char *escaped = g_strescape(value != nullptr ? value : "", nullptr);
+    char *escaped = rn_escape_for_dump(value != nullptr ? value : "");
     g_string_append_printf(out, " editable=\"%s\"", escaped);
     g_free(escaped);
     if (gtk_widget_has_focus(GTK_WIDGET(self->editable))) {

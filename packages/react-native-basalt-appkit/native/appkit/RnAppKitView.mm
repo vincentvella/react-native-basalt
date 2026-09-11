@@ -449,6 +449,31 @@ static NSAccessibilityRole RnAccessibilityRoleFor(NSString *name) {
     }
   }
 
+  // A text field's content lives in its NSTextField peer, not in anything this
+  // view draws, so it would otherwise be invisible to every test that reads
+  // this tree. Same spelling as the GTK side's.
+  if (self.rnEditable != nil) {
+    NSString *value = self.rnEditable.stringValue ?: @"";
+    NSMutableString *escaped = [value mutableCopy];
+    [escaped replaceOccurrencesOfString:@"\\" withString:@"\\\\"
+                                options:0 range:NSMakeRange(0, escaped.length)];
+    [escaped replaceOccurrencesOfString:@"\"" withString:@"\\\""
+                                options:0 range:NSMakeRange(0, escaped.length)];
+    [out appendFormat:@" editable=\"%@\"", escaped];
+
+    // First responder is the field's *field editor* while it is being edited,
+    // not the field itself, so asking the window whether it is editing this one
+    // is the question that actually has the right answer.
+    NSWindow *window = self.window;
+    const BOOL focused = window != nil &&
+        (window.firstResponder == self.rnEditable ||
+         ([window.firstResponder isKindOfClass:[NSTextView class]] &&
+          ((NSTextView *)window.firstResponder).delegate == (id)self.rnEditable));
+    if (focused) {
+      [out appendString:@" focused"];
+    }
+  }
+
   // React Native's role name, not AppKit's. The GTK side reports the same
   // string for the same reason: this dump is compared line by line across two
   // platforms, and each reporting its own toolkit's vocabulary would make every

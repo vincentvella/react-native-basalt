@@ -166,6 +166,18 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // Set on the surface root. See RnAppKitInputHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
 
+// The text field this view hosts, for <TextInput>.
+//
+// Set by AppKitTextInputManager, which owns it and positions it; the view only
+// reads it, to report the field's contents in `describeTree`. Held weakly so a
+// deleted field is not kept alive by the view that was showing it.
+//
+// A real NSTextField rather than a caret drawn on a paragraph: that brings
+// input methods, selection, the clipboard and every key binding a Mac user
+// expects, none of which is worth reimplementing and all of which is easy to
+// get subtly wrong. The GTK side embeds a real GtkText for the same reason.
+@property(nonatomic, weak, nullable) NSTextField *rnEditable;
+
 // Set on ScrollViews only. See RnAppKitScrollHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitScrollHandler> rnScrollHandler;
 

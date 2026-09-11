@@ -74,8 +74,18 @@ TEXT_FIELD = (184, 207)
 
 # The string the Fast Refresh scenario swaps in the demo's heading, and puts
 # back. Chosen to be unmistakable in a widget tree and unique in the file.
-BEFORE = "React Native on GTK4"
+BEFORE = "React Native on the desktop"
 AFTER = "Fast Refresh reached the window"
+
+
+# What the host last printed. Kept here rather than threaded through every
+# caller of run_host, which only ever wants the tree.
+LAST_HOST_OUTPUT = ""
+
+
+def _remember_output(text: str) -> None:
+    global LAST_HOST_OUTPUT
+    LAST_HOST_OUTPUT = text or ""
 
 
 class Failure(Exception):
@@ -172,16 +182,31 @@ def run_host(bundle: Path, taps: str = "", run_ms: int = 4000, typing: str = "")
                     type_with_xdotool(typing)
             finally:
                 _, stderr = process.communicate(timeout=timeout)
+            _remember_output(stderr)
             check_output(stderr, process.returncode)
         else:
             result = subprocess.run(
                 command, cwd=REPO, env=env, capture_output=True, text=True, timeout=timeout,
             )
+            _remember_output(result.stderr)
             check_output(result.stderr, result.returncode)
 
         if not dump.exists():
             raise Failure("host wrote no widget tree")
         return dump.read_text()
+
+
+def expect_logged(needle: str, why: str) -> None:
+    """Asserts on what the host printed, rather than on what it rendered.
+
+    Some facts are not in the widget tree and should not be. `Platform.OS` is
+    one: the demo used to render it, which made the tree differ between the two
+    desktops for a reason that was not a bug, so scripts/compare_all.sh could
+    never compare the richest app there is. Logging it keeps the check and lets
+    the trees match.
+    """
+    if needle not in LAST_HOST_OUTPUT:
+        raise Failure(f"{why}: expected {needle!r} in the host's output")
 
 
 def expect_contains(tree: str, needle: str, why: str) -> None:
@@ -218,14 +243,17 @@ def offset_label(tree: str) -> float:
 def test_initial_render(bundle: Path) -> None:
     tree = run_host(bundle)
 
-    expect_contains(tree, "React Native on GTK4", "React rendered no text")
+    expect_contains(tree, "React Native on the desktop", "React rendered no text")
 
     # The platform package, end to end: an app built for `linux` has to see
     # Platform.OS === 'linux'. Getting this wrong is quiet -- React Native's
     # Platform shim resolves to itself and yields undefined rather than
-    # complaining -- so the demo renders it and this asserts on it.
-    expect_contains(
-        tree,
+    # complaining -- so the demo logs it and this asserts on the log.
+    #
+    # The log rather than the tree, since phase 28: rendering it made the demo's
+    # tree differ between the two desktops for a reason that was not a bug, and
+    # that tree is the thing scripts/compare_all.sh compares.
+    expect_logged(
         "Platform.OS is linux",
         "the app did not see Platform.OS === 'linux'; was it bundled for linux?",
     )

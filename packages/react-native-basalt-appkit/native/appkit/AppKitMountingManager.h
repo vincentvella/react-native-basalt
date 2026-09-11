@@ -15,6 +15,7 @@
 
 #import "AppKitImageLoader.h"
 #import "AppKitScrollView.h"
+#import "AppKitTextInput.h"
 
 #include "MountingWalk.h"
 #include "RnAppKitView.h"
@@ -82,9 +83,11 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void applyScrollView(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyImage(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyAccessibility(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+  void applyTextInput(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
 
   AppKitScrollViewManager scrollViews_;
+  AppKitTextInputManager textInputs_;
   AppKitImageLoader imageLoader_;
 
   // The source each <Image> is currently showing, so that a mutation which

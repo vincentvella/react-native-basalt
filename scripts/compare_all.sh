@@ -26,6 +26,10 @@ APPS=(
   "image:BasaltImage"
   "text:BasaltText"
   "a11y:BasaltA11y"
+  "input:BasaltInput"
+  # The real demo, last: the richest app there is, and the one whose tree
+  # agreeing means the most.
+  "index:BasaltDemo"
 )
 
 quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-2800}"

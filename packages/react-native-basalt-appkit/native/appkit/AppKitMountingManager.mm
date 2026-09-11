@@ -42,7 +42,8 @@ using facebook::react::Tag;
 using facebook::react::ViewProps;
 
 AppKitMountingManager::AppKitMountingManager()
-    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
+    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
 
 AppKitMountingManager::~AppKitMountingManager() noexcept {
   // MountingWalk cannot do this itself: by the time a base destructor runs, the
@@ -132,6 +133,9 @@ void AppKitMountingManager::applyCommand(Tag tag,
   if (scrollViews_.dispatchCommand(tag, commandName, args)) {
     return;
   }
+  if (textInputs_.dispatchCommand(tag, commandName, args)) {
+    return;
+  }
   LOG(INFO) << "dispatchCommand '" << commandName << "' on tag " << tag
             << " is not implemented on macOS";
 }
@@ -151,10 +155,11 @@ bool AppKitMountingManager::hasComponent(const std::string &name) {
   // ScrollView's content child arrives as "ScrollContentView", which the
   // registry rewrites to "View" before it reaches here, so it needs no entry.
   //
-  // TextInput is the one still missing, and it needs an NSTextField peer and
-  // the controlled-value loop. See plan/26-macos-image.md.
+  // The four components an ordinary app is built from, plus the root. What is
+  // left out is what neither desktop has: Switch, Modal, ActivityIndicator and
+  // the rest. See plan/backlog.md.
   return name == "View" || name == "RootView" || name == "Paragraph" ||
-      name == "ScrollView" || name == "Image";
+      name == "ScrollView" || name == "Image" || name == "TextInput";
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +193,7 @@ void AppKitMountingManager::removeChild(RnAppKitView *parent, RnAppKitView *chil
 
 void AppKitMountingManager::forgetTag(Tag tag) {
   scrollViews_.remove(tag);
+  textInputs_.remove(tag);
   imageUris_.erase(tag);
 }
 
@@ -304,11 +310,20 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
   applyText(view, shadowView);
   applyImage(view, shadowView);
   applyAccessibility(view, shadowView);
+  applyTextInput(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before
   // state, or the offset is clamped against a stale size.
   applyScrollView(view, shadowView);
+}
+
+void AppKitMountingManager::applyTextInput(RnAppKitView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr ||
+      std::string_view(shadowView.componentName) != "TextInput") {
+    return;
+  }
+  textInputs_.update(view, shadowView);
 }
 
 void AppKitMountingManager::applyScrollView(RnAppKitView *view, const ShadowView &shadowView) {

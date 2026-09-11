@@ -1,0 +1,102 @@
+// <TextInput> on AppKit.
+//
+// The native half is React Native's own *iOS* TextInput: its shadow node,
+// props, state and event emitter are pure C++ and measure through a
+// TextLayoutManager, which on this platform is the Core Text one. Android's
+// variant includes fbjni and calls into a Java FabricUIManager, so it is
+// unusable here; see plan/decisions.md. The component name is therefore
+// "TextInput", which is what src/overrides/TextInput.js asks for -- and the
+// same name the GTK side answers to.
+//
+// The editing itself is a real NSTextField rather than a caret drawn on a
+// paragraph. That brings input methods, selection, the clipboard, and every
+// key binding a Mac user expects, none of which is worth reimplementing.
+//
+// The awkward part of a text field is not typing, it is that React Native's
+// <TextInput> is a controlled component: JavaScript owns the value, and the
+// widget must not fight it. Every change is reported to JavaScript, which
+// re-renders and sends the text back down as a prop -- so applying that prop
+// must not itself look like the user typing, or the two chase each other.
+// `applying` is what breaks that loop, exactly as on GTK.
+
+#pragma once
+
+#import "RnAppKitView.h"
+
+#include <react/renderer/components/iostextinput/TextInputShadowNode.h>
+#include <react/renderer/components/textinput/TextInputEventEmitter.h>
+#include <react/renderer/core/EventEmitter.h>
+#include <react/renderer/mounting/ShadowView.h>
+
+#include <functional>
+#include <string>
+#include <unordered_map>
+
+namespace basalt {
+
+class AppKitTextInputManager {
+ public:
+  using EmitterLookup = std::function<facebook::react::EventEmitter::Shared(facebook::react::Tag)>;
+
+  explicit AppKitTextInputManager(EmitterLookup lookup);
+  ~AppKitTextInputManager();
+
+  AppKitTextInputManager(const AppKitTextInputManager &) = delete;
+  AppKitTextInputManager &operator=(const AppKitTextInputManager &) = delete;
+
+  // Called for every mutation touching a TextInput. Creates the field the first
+  // time, then applies props.
+  void update(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+
+  void remove(facebook::react::Tag tag);
+
+  // focus, blur, and setTextAndSelection. Returns false for anything else.
+  bool dispatchCommand(facebook::react::Tag tag,
+                       const std::string &name,
+                       const folly::dynamic &args);
+
+  // Called by the Objective-C delegate. Public because the trampoline has to
+  // reach them; not part of anything a caller would use.
+  void handleChanged(facebook::react::Tag tag);
+  void handleSubmit(facebook::react::Tag tag);
+  void handleFocus(facebook::react::Tag tag);
+  void handleBlur(facebook::react::Tag tag);
+
+ private:
+  struct Entry {
+    RnAppKitView *view{nil};
+    NSTextField *field{nil};
+    facebook::react::Tag tag{0};
+
+    // React Native counts events so it can ignore a prop update that is older
+    // than what the user has since typed. Every emitted metric carries it.
+    int eventCount{0};
+
+    // True while a prop is being pushed into the field, so the change it
+    // provokes is not reported back as the user typing.
+    bool applying{false};
+
+    bool secure{false};
+    std::string lastReportedText;
+  };
+
+  Entry *entryFor(facebook::react::Tag tag);
+
+  // Fills in the parts of Metrics every event carries.
+  facebook::react::TextInputEventEmitter::Metrics metricsFor(const Entry &entry) const;
+
+  std::shared_ptr<const facebook::react::TextInputEventEmitter> emitterFor(
+      facebook::react::Tag tag) const;
+
+  // Builds the field, or rebuilds it when secureTextEntry changed: a secure
+  // field is a different class on AppKit, not a property.
+  void makeField(Entry &entry, bool secure);
+
+  EmitterLookup lookup_;
+  std::unordered_map<facebook::react::Tag, Entry> entries_;
+  // The delegate every field points at. One for all of them: it dispatches by
+  // tag, so there is nothing per-field to keep in step.
+  id delegate_;
+};
+
+} // namespace basalt

@@ -11,10 +11,12 @@ separately. Nothing is forked, which is why this can track the current Expo
 instead of trailing a rebase.
 
 Today: Linux runs real Expo apps -- text, images, scrolling, text input,
-accessibility, fonts, assets. macOS mounts `<View>`, `<Text>`,
-`<ScrollView>` and `<Image>`, responds to a press and a wheel, and reports
-itself to a screen reader -- everything but `<TextInput>`. The two hosts agree
-on all six test apps; `scripts/compare_all.sh` is what says so. Both hosts produce a byte-identical view tree from the same
+accessibility, fonts, assets. macOS mounts all four of the components an
+ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
+`<TextInput>` -- responds to a press and a wheel, and reports itself to a screen
+reader. The demo app written for GTK runs on it unchanged, and the two hosts
+produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
+says so. Both hosts produce a byte-identical view tree from the same
 JavaScript, which `scripts/compare_hosts.sh` checks. Windows is a name in a
 list.
 
@@ -118,13 +120,14 @@ Inside the shared package, under `native/`:
                                 <View>; everything else is unimplemented and says
                                 so.
     appkit/ComponentRegistryAppKit.mm  What macOS claims: View, Paragraph, Text,
-                                RawText, ScrollView, Image. See
+                                RawText, ScrollView, Image, TextInput. See
                                 core/ComponentRegistry.h.
     appkit/AppKitTouchDispatcher.*  Mouse -> RN touch events. Hit testing is in
                                 the view layer, so it tests without RN.
     appkit/AppKitScrollView.*   <ScrollView>: offset, clipping, onScroll, state
                                 and commands. bounds.origin, not NSScrollView.
     appkit/AppKitImageLoader.*  <Image> pixels, decoded off the main thread.
+    appkit/AppKitTextInput.*    <TextInput>, over a real NSTextField.
     appkit/AppKitRunLoopObserver.*  The event beat, on a CFRunLoopObserver.
     appkit/AppKitAnimationChoreographer.*  Animation frames, on a CADisplayLink.
     appkit/FontRegistryCoreText.mm  macOS's half of the font seam.
@@ -149,6 +152,8 @@ And at the repository root:
     js/scroll.js                A <ScrollView> that scrolls itself by command.
     js/image.js                 Four resize modes, a data: URI, a broken source.
     js/a11y.js                  Roles, labels, hints, states and hiding.
+    js/input.js                 A controlled field that upper-cases what it is
+                                given, which is how the loop is checked.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.

@@ -621,6 +621,33 @@ int main(int argc, const char *argv[]) {
       }
     }
 
+    // BASALT_TEST_TYPE: text to insert into whatever field has focus, for the
+    // same reason BASALT_TEST_TAP exists -- synthesising a real key event means
+    // CGEvent and accessibility permission an automated run does not have.
+    //
+    // It inserts through the field editor, so it skips the key-down path and
+    // the input method and exercises everything above them: the delegate, the
+    // event emitter, React's re-render, and the controlled value coming back
+    // down. The GTK host's version enters through GtkEditable for the same
+    // reason, and the Linux end-to-end suite types with xdotool where it can.
+    if (const char *text = getenv("BASALT_TEST_TYPE")) {
+      NSString *typed = [NSString stringWithUTF8String:text];
+      const char *afterMs = getenv("BASALT_TEST_TYPE_AFTER_MS");
+      const int64_t delayMs = afterMs != nullptr ? strtoll(afterMs, nullptr, 10) : 2500;
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                     dispatch_get_main_queue(),
+                     ^{
+                       NSResponder *responder = gHost.window.firstResponder;
+                       if (![responder isKindOfClass:[NSText class]]) {
+                         NSLog(@"BASALT_TEST_TYPE: no text field has focus");
+                         return;
+                       }
+                       NSLog(@"BASALT_TEST_TYPE: typing \"%@\"", typed);
+                       NSText *editor = (NSText *)responder;
+                       [editor insertText:typed];
+                     });
+    }
+
     // BASALT_SNAPSHOT: render what is actually on screen to a PNG on the way
     // out. The tree dump above says what was mounted; this says what it looks
     // like, and the two fail differently -- a correct tree can still paint

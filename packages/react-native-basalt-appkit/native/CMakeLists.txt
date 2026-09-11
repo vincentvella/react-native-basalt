@@ -118,7 +118,9 @@ if(TARGET basalt_core)
     appkit/AppKitScrollView.mm
     # <Image> pixels. RN's cxx ImageManager produces none; the fetch is in the
     # shared half, and only the decode and the cache are here.
-    appkit/AppKitImageLoader.mm)
+    appkit/AppKitImageLoader.mm
+    # <TextInput>, over a real NSTextField.
+    appkit/AppKitTextInput.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)
@@ -148,7 +150,9 @@ if(TARGET basalt_core)
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
     appkit/AppKitTouchDispatcher.mm
-    tests/test_appkit_input.mm)
+    tests/test_appkit_input.mm
+    # <TextInput>'s controlled-value loop, through real mutations.
+    tests/test_appkit_textinput.mm)
 endif()
 
 add_executable(basalt_appkit_tests ${BASALT_APPKIT_TEST_SOURCES})

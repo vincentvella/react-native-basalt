@@ -94,6 +94,8 @@ where the two platforms stand:
   image    identical, frames included
   text     identical, frames ignored
   a11y     identical, frames ignored
+  input    identical, frames ignored
+  index    identical, frames ignored
 ```
 
 An app that only passes with frames ignored is one whose layout depends on text

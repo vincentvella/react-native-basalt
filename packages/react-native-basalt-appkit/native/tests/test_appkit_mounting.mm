@@ -292,7 +292,7 @@ TEST(appkit_has_component_matches_the_registered_descriptors) {
     // ScrollView's content child arrives as "ScrollContentView", which the
     // registry rewrites to "View" before it reaches here.
     const std::vector<std::string> supported = {
-        "View", "RootView", "Paragraph", "ScrollView", "Image",
+        "View", "RootView", "Paragraph", "ScrollView", "Image", "TextInput",
     };
     for (const auto &name : supported) {
       if (!manager.hasComponent(name)) {
@@ -305,7 +305,7 @@ TEST(appkit_has_component_matches_the_registered_descriptors) {
     // gap: the registry would build shadow nodes nothing can mount, and the app
     // would render blank rectangles rather than fail.
     const std::vector<std::string> unsupported = {
-        "TextInput", "Switch", "Slider", "Modal", "ActivityIndicator",
+        "Switch", "Slider", "Modal", "ActivityIndicator",
     };
     for (const auto &name : unsupported) {
       if (manager.hasComponent(name)) {

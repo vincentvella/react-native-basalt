@@ -15,8 +15,13 @@ Not scheduled. Roughly by value.
 - **Fonts loaded at runtime are untested.** `resolveFontFamily` is wired into
   the Core Text font lookup, and `expo-font` on macOS has never been run end to
   end.
-- **No `<TextInput>`**, which is the last of the four components an ordinary
-  app is built from, and brings the focus model and the keyboard with it.
+- **No `maxLength` on macOS.** An NSTextField has no maximum length; enforcing
+  one needs a formatter or a delegate that rejects edits. GTK gets it from
+  `gtk_text_set_max_length`, so the two behave differently.
+- **No multiline `<TextInput>`** on either platform. It wants an NSTextView in a
+  scroll view on macOS, and a GtkTextView on GTK -- a different peer either way.
+- **No `keyboardType`, `autoCapitalize`, `autoCorrect` or `spellCheck`** on
+  macOS, all of which AppKit has some form of.
 - **Nothing tested against a real screen reader**, on either platform.
   VoiceOver and Orca are both a manual step nobody has taken; the unit tests
   assert the properties were set and cannot assert the result is usable.
@@ -32,9 +37,9 @@ Not scheduled. Roughly by value.
   The GTK side gets them from its widget theme.
 - **No scroll momentum or elasticity.** A trackpad flick stops dead, which is
   visibly un-Mac-like. `onMomentumScroll*` never fire, as on GTK.
-- **No keyboard and no focus.** Nothing is reachable by Tab and no key event
-  reaches JavaScript. Arrives with `<TextInput>`, which needs the focus model
-  anyway. Pointer input works as of phase 24.
+- **Nothing is reachable by Tab**, on either platform: no tab order is
+  implemented, so a field can be clicked into and not tabbed into. A focused
+  field does take keyboard input, as of phase 28.
 - **No gesture cancellation from the platform.** `dispatchTouchCancel` exists
   and nothing calls it: AppKit has no equivalent of GTK's gesture `cancel`, and
   the case it covers -- a press interrupted by the window losing focus -- has no

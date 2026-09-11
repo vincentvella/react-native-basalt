@@ -2,7 +2,9 @@
  * The demo app, in React.
  *
  * Ordinary React Native throughout: hooks, StyleSheet, flexbox, Text, View,
- * Image, Pressable and ScrollView. Nothing here knows it is running on GTK4.
+ * Image, Pressable and ScrollView. Nothing here knows which desktop it is
+ * running on -- which is the point, and is why scripts/compare_all.sh can diff
+ * its tree between the two.
  */
 
 'use strict';
@@ -19,6 +21,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+console.log(`Platform.OS is ${Platform.OS}`);
 
 const PALETTE = ['#4285f4', '#9b59f6', '#f26f56', '#56c98a', '#f2c14e'];
 
@@ -86,8 +90,7 @@ function App() {
   return (
     <View style={styles.root}>
       <Text style={styles.heading}>
-        React Native on GTK4 &middot; Platform.OS is{' '}
-        <Text style={styles.platform}>{Platform.OS}</Text>
+        React Native on the desktop
       </Text>
 
       <PropsStrip />
