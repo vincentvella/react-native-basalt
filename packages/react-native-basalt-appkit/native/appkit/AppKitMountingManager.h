@@ -13,6 +13,8 @@
 
 #pragma once
 
+#import "AppKitScrollView.h"
+
 #include "MountingWalk.h"
 #include "RnAppKitView.h"
 
@@ -25,7 +27,7 @@ namespace basalt {
 class AppKitMountingManager final : public facebook::react::IMountingManager,
                                  public MountingWalk<AppKitMountingManager, RnAppKitView *> {
  public:
-  AppKitMountingManager() = default;
+  AppKitMountingManager();
   ~AppKitMountingManager() noexcept override;
 
   // --- IMountingManager -----------------------------------------------------
@@ -55,6 +57,12 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void applyTransaction(facebook::react::SurfaceId surfaceId,
                         facebook::react::MountingTransaction &&transaction);
 
+  // The main-thread half of dispatchCommand, public for the same reason
+  // applyTransaction is.
+  void applyCommand(facebook::react::Tag tag,
+                    const std::string &commandName,
+                    const folly::dynamic &args);
+
  private:
   // --- What MountingWalk asks of a platform ---------------------------------
   friend class MountingWalk<AppKitMountingManager, RnAppKitView *>;
@@ -70,7 +78,10 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   // --- The AppKit half of updateView ----------------------------------------
   void applyProps(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+  void applyScrollView(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+
+  AppKitScrollViewManager scrollViews_;
 };
 
 } // namespace basalt

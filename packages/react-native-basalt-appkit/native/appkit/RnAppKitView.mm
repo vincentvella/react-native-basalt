@@ -17,7 +17,17 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   if (root == nil || root.hidden) {
     return nil;
   }
-  if (!NSPointInRect(NSMakePoint(x, y), root.bounds)) {
+
+  // The point arrives relative to this view's visible top-left; child frames
+  // are in its *bounds* space. For an unscrolled view those are the same, and
+  // for a scrolled one they differ by exactly the offset -- which is what makes
+  // hit testing follow the scroll without anything here knowing about
+  // ScrollViews.
+  const NSRect bounds = root.bounds;
+  const CGFloat bx = x + bounds.origin.x;
+  const CGFloat by = y + bounds.origin.y;
+
+  if (!NSPointInRect(NSMakePoint(bx, by), bounds)) {
     return nil;
   }
 
@@ -27,8 +37,8 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
     }
     const NSRect frame = child.frame;
     RnAppKitView *hit = RnAppKitHitTest((RnAppKitView *)child,
-                                        x - frame.origin.x,
-                                        y - frame.origin.y);
+                                        bx - frame.origin.x,
+                                        by - frame.origin.y);
     if (hit != nil) {
       return hit;
     }
@@ -100,6 +110,21 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   self.layer.backgroundColor = color;
   CGColorRelease(color);
   CGColorSpaceRelease(space);
+}
+
+- (void)setRnScrollOffsetX:(CGFloat)x y:(CGFloat)y {
+  const NSRect bounds = self.bounds;
+  if (bounds.origin.x == x && bounds.origin.y == y) {
+    return;
+  }
+  [self setBoundsOrigin:NSMakePoint(x, y)];
+  // setBoundsOrigin: moves subviews but does not repaint what this view draws
+  // itself, which matters the moment a ScrollView has a background or text.
+  self.needsDisplay = YES;
+}
+
+- (NSPoint)rnScrollOffset {
+  return self.bounds.origin;
 }
 
 - (void)setRnTextLayout:(id)layout {
@@ -185,6 +210,10 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   if (_clipsChildren) {
     [out appendString:@" clip"];
   }
+  const NSPoint scroll = self.bounds.origin;
+  if (scroll.x != 0 || scroll.y != 0) {
+    [out appendFormat:@" scroll=(%g,%g)", scroll.x, scroll.y];
+  }
   if (_textLayout != nil) {
     NSString *text = _textLayout.attributedString.string;
     if (text.length > 0) {
@@ -248,6 +277,27 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
     case 'u': [handler rnMouseUpAt:point]; break;
     default: break;
   }
+}
+
+// Wheel and touchpad. Unhandled scrolls go to super, which walks the responder
+// chain -- so a wheel over a plain view inside a list reaches the list.
+- (void)scrollWheel:(NSEvent *)event {
+  id<RnAppKitScrollHandler> handler = self.rnScrollHandler;
+  if (handler != nil) {
+    const NSPoint delta = NSMakePoint(event.scrollingDeltaX, event.scrollingDeltaY);
+    // `hasPreciseScrollingDeltas` is the only thing that can tell a touchpad's
+    // pixels from a wheel's line counts -- both arrive as small numbers, so the
+    // deltas alone cannot. Passed on rather than resolved here: how many pixels
+    // a line is worth is a cross-platform decision, and it is made next to the
+    // GTK side's copy of it.
+    if ([handler rnScrollView:self
+                           by:delta
+                      precise:event.hasPreciseScrollingDeltas
+                        phase:event.phase]) {
+      return;
+    }
+  }
+  [super scrollWheel:event];
 }
 
 - (void)mouseDown:(NSEvent *)event {

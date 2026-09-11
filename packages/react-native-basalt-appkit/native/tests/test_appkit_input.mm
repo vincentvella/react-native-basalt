@@ -140,6 +140,30 @@ TEST(hit_test_skips_hidden_views) {
   }
 }
 
+// Hit testing has to follow the scroll, and it does so without knowing what a
+// ScrollView is: the point is translated into bounds space, and a scrolled view
+// has a non-zero bounds origin. Getting this wrong means a list that scrolls
+// correctly and whose rows respond to presses meant for the row above.
+TEST(hit_test_follows_the_scroll_offset) {
+  @autoreleasepool {
+    RnAppKitView *scroller = box(1, 0, 0, 200, 100);
+    RnAppKitView *content = box(2, 0, 0, 200, 600);
+    RnAppKitView *lower = box(10, 0, 200, 200, 50);
+    [scroller insertRnChild:content atIndex:0];
+    [content insertRnChild:lower atIndex:0];
+
+    // Unscrolled, the row at y=200 is below the 100-tall viewport.
+    EXPECT_EQ((long)hit(scroller, 100, 50), 2L);
+
+    [scroller setRnScrollOffsetX:0 y:200];
+
+    // Scrolled to it, the same screen point is now that row.
+    EXPECT_EQ((long)hit(scroller, 100, 10), 10L);
+    // And a point past its bottom is the content again.
+    EXPECT_EQ((long)hit(scroller, 100, 80), 2L);
+  }
+}
+
 TEST(hit_test_survives_a_nil_root) {
   @autoreleasepool {
     EXPECT(RnAppKitHitTest(nil, 0, 0) == nil);

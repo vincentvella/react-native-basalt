@@ -75,7 +75,7 @@ NSInteger childTagAt(RnAppKitView *view, NSInteger index) {
 
 } // namespace
 
-TEST(mac_create_and_insert_builds_the_tree) {
+TEST(appkit_create_and_insert_builds_the_tree) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -95,7 +95,7 @@ TEST(mac_create_and_insert_builds_the_tree) {
   }
 }
 
-TEST(mac_insert_honours_the_index) {
+TEST(appkit_insert_honours_the_index) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -125,7 +125,7 @@ TEST(mac_insert_honours_the_index) {
   }
 }
 
-TEST(mac_remove_detaches_but_does_not_destroy) {
+TEST(appkit_remove_detaches_but_does_not_destroy) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -157,7 +157,7 @@ TEST(mac_remove_detaches_but_does_not_destroy) {
   }
 }
 
-TEST(mac_update_changes_frame_without_reparenting) {
+TEST(appkit_update_changes_frame_without_reparenting) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -184,7 +184,7 @@ TEST(mac_update_changes_frame_without_reparenting) {
   }
 }
 
-TEST(mac_delete_removes_the_view_from_the_registry) {
+TEST(appkit_delete_removes_the_view_from_the_registry) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -213,7 +213,7 @@ TEST(mac_delete_removes_the_view_from_the_registry) {
   }
 }
 
-TEST(mac_nested_children_are_parented_to_their_own_parent) {
+TEST(appkit_nested_children_are_parented_to_their_own_parent) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -236,7 +236,7 @@ TEST(mac_nested_children_are_parented_to_their_own_parent) {
   }
 }
 
-TEST(mac_surface_root_is_reused_not_recreated) {
+TEST(appkit_surface_root_is_reused_not_recreated) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *first = manager.createSurfaceRoot(kSurfaceId);
@@ -256,7 +256,7 @@ TEST(mac_surface_root_is_reused_not_recreated) {
 
 // Props travel the same path as the tree does, so a mutation that carries only
 // new props has to land on the layer without anything else changing.
-TEST(mac_props_reach_the_layer_through_a_mutation) {
+TEST(appkit_props_reach_the_layer_through_a_mutation) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
     RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
@@ -288,11 +288,14 @@ TEST(appkit_has_component_admits_what_does_not_mount_yet) {
     // there was a Core Text TextLayoutManager to measure it with.
     EXPECT(manager.hasComponent("Paragraph"));
 
+    // Its content child arrives as "ScrollContentView", which the registry
+    // rewrites to "View" before it reaches here, so it needs no entry.
+    EXPECT(manager.hasComponent("ScrollView"));
+
     // Everything else. Claiming a component without an AppKit peer is worse
     // than admitting the gap: the registry would build shadow nodes nothing can
     // mount, and the app would render blank rectangles rather than fail.
     EXPECT(!manager.hasComponent("Image"));
-    EXPECT(!manager.hasComponent("ScrollView"));
     EXPECT(!manager.hasComponent("TextInput"));
   }
 }

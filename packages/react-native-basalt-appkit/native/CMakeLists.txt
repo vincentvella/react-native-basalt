@@ -107,7 +107,9 @@ if(TARGET basalt_core)
     appkit/CoreTextLayout.mm
     # Replaces React Native's stub TextLayoutManager; see the shared half's
     # cmake/ReactNativeCore.cmake for why the stub has to leave the build.
-    appkit/CoreTextLayoutManager.mm)
+    appkit/CoreTextLayoutManager.mm
+    # <ScrollView>: offset, clipping, onScroll, state and commands.
+    appkit/AppKitScrollView.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)

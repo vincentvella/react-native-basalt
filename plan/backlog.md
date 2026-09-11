@@ -15,7 +15,12 @@ Not scheduled. Roughly by value.
 - **Fonts loaded at runtime are untested.** `resolveFontFamily` is wired into
   the Core Text font lookup, and `expo-font` on macOS has never been run end to
   end.
-- **No `<Image>`, `<ScrollView>` or `<TextInput>`.**
+- **No `<Image>` or `<TextInput>`.**
+- **No scrollbars.** AppKit's are `NSScroller`, which comes with
+  `NSScrollView`, so an overlay indicator is real work rather than a property.
+  The GTK side gets them from its widget theme.
+- **No scroll momentum or elasticity.** A trackpad flick stops dead, which is
+  visibly un-Mac-like. `onMomentumScroll*` never fire, as on GTK.
 - **No keyboard and no focus.** Nothing is reachable by Tab and no key event
   reaches JavaScript. Arrives with `<TextInput>`, which needs the focus model
   anyway. Pointer input works as of phase 24.

@@ -573,6 +573,54 @@ int main(int argc, const char *argv[]) {
       }
     }
 
+    // BASALT_TEST_SCROLL: "x,y,lines;x,y,lines" -- scroll wheel notches over a
+    // point, a second apart, in surface-root coordinates. Positive scrolls
+    // down, as a contentOffset does.
+    //
+    // The event is a real NSEvent, built the way a wheel builds one, and it is
+    // handed to the view this project's own hit test finds. So it proves the
+    // whole path below AppKit -- scrollWheel:, the handler lookup, the offset,
+    // the clamp, the state write and onScroll -- and does not prove that AppKit
+    // routes a wheel to that view, which is ordinary responder-chain behaviour
+    // that `[super scrollWheel:]` takes part in.
+    if (const char *scrolls = getenv("BASALT_TEST_SCROLL")) {
+      NSString *spec = [NSString stringWithUTF8String:scrolls];
+      int64_t delayMs = 1500;
+      for (NSString *step in [spec componentsSeparatedByString:@";"]) {
+        NSArray<NSString *> *parts = [step componentsSeparatedByString:@","];
+        if (parts.count != 3) {
+          continue;
+        }
+        const CGFloat x = parts[0].doubleValue;
+        const CGFloat y = parts[1].doubleValue;
+        const int32_t lines = (int32_t)parts[2].intValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         RnAppKitView *target = RnAppKitHitTest(gHost.root, x, y);
+                         if (target == nil) {
+                           NSLog(@"BASALT_TEST_SCROLL: nothing at (%.0f, %.0f)", x, y);
+                           return;
+                         }
+                         NSLog(@"BASALT_TEST_SCROLL: %d lines over tag %ld",
+                               lines, (long)target.rnTag);
+                         // Negative because AppKit's positive Y is a scroll up,
+                         // and this is spelled the way contentOffset reads.
+                         CGEventRef wheel = CGEventCreateScrollWheelEvent(
+                             nullptr, kCGScrollEventUnitLine, 1, -lines);
+                         if (wheel == nullptr) {
+                           return;
+                         }
+                         NSEvent *event = [NSEvent eventWithCGEvent:wheel];
+                         CFRelease(wheel);
+                         if (event != nil) {
+                           [target scrollWheel:event];
+                         }
+                       });
+        delayMs += 1000;
+      }
+    }
+
     // BASALT_SNAPSHOT: render what is actually on screen to a PNG on the way
     // out. The tree dump above says what was mounted; this says what it looks
     // like, and the two fail differently -- a correct tree can still paint

@@ -105,6 +105,17 @@ BASALT_COMPARE_TAP="400,100;400,100;400,100" BASALT_COMPARE_QUIT_AFTER_MS=5000 \
   build/press.linux.jsbundle.js build/press.macos.jsbundle.js BasaltPress
 ```
 
+`js/scroll.js` scrolls itself through `scrollTo` on a ref, which is how both
+hosts can be driven identically from one file -- a wheel has to be injected per
+platform and a command does not -- and is the only test of the command path:
+
+```bash
+scripts/bundle.sh --platform linux --entry scroll.js --out scroll.linux.jsbundle
+scripts/bundle.sh --platform macos --entry scroll.js --out scroll.macos.jsbundle
+BASALT_COMPARE_QUIT_AFTER_MS=3000 scripts/compare_hosts.sh \
+  build/scroll.linux.jsbundle.js build/scroll.macos.jsbundle.js BasaltScroll
+```
+
 For `js/text.js`, frames have to be ignored:
 
 ```bash

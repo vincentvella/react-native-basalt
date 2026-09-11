@@ -46,6 +46,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)rnMouseUpAt:(NSPoint)point;
 @end
 
+// Where a scrolling view sends the wheel.
+//
+// Set only on views that are ScrollViews. A view with none calls super, which
+// walks the responder chain to an ancestor that has one -- so a wheel over a
+// plain view inside a list scrolls the list, and a list inside a list scrolls
+// the inner one first, which is what AppKit's own nesting does.
+@protocol RnAppKitScrollHandler <NSObject>
+// Returns YES if the scroll was consumed.
+- (BOOL)rnScrollView:(RnAppKitView *)view
+                  by:(NSPoint)delta
+             precise:(BOOL)precise
+               phase:(NSEventPhase)phase;
+@end
+
 // The deepest view at a point, in `root`'s coordinates, or nil for a miss.
 //
 // A free function because it is a pure function of the view tree and nothing
@@ -97,6 +111,19 @@ RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x,
 // compared and eventually asserted on by the same tests.
 // Set on the surface root. See RnAppKitInputHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
+
+// Set on ScrollViews only. See RnAppKitScrollHandler.
+@property(nonatomic, weak, nullable) id<RnAppKitScrollHandler> rnScrollHandler;
+
+// Shifts this view's children by (-x, -y), which is how a ScrollView scrolls.
+//
+// Through `bounds.origin` rather than by moving every child: AppKit then shifts
+// drawing, hit testing and the clip together, and the frames the mounting
+// manager wrote stay exactly the ones Yoga produced. The GTK side does the same
+// thing by shifting children in its layout manager, for the same reason --
+// React Native decides sizes, and the platform only places.
+- (void)setRnScrollOffsetX:(CGFloat)x y:(CGFloat)y;
+- (NSPoint)rnScrollOffset;
 
 - (NSString *)describeTree;
 

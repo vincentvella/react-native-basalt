@@ -4,6 +4,7 @@
 
 #include "ComponentRegistry.h"
 
+#include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -33,6 +34,9 @@ using facebook::react::ShadowView;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
 using facebook::react::ViewProps;
+
+AppKitMountingManager::AppKitMountingManager()
+    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
 
 AppKitMountingManager::~AppKitMountingManager() noexcept {
   // MountingWalk cannot do this itself: by the time a base destructor runs, the
@@ -84,16 +88,45 @@ void AppKitMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransa
   applyMutations(transaction.getMutations());
 }
 
+namespace {
+
+// The same trip an executeMount takes, for the same reason: this arrives on the
+// JS thread, inside the event loop's rendering update, so it may not touch a
+// view either.
+//
+// Queued on the same queue as a mount, so it stays behind the transaction that
+// created the view it names -- the main queue is FIFO, and a scrollTo that
+// arrived before its ScrollView was mounted would find no entry and be dropped.
+struct PendingCommand {
+  AppKitMountingManager *manager;
+  Tag tag;
+  std::string name;
+  folly::dynamic args;
+};
+
+void applyPendingCommand(void *data) {
+  std::unique_ptr<PendingCommand> pending{static_cast<PendingCommand *>(data)};
+  pending->manager->applyCommand(pending->tag, pending->name, pending->args);
+}
+
+} // namespace
+
 void AppKitMountingManager::dispatchCommand(const ShadowView &shadowView,
+                                            const std::string &commandName,
+                                            const folly::dynamic &args) {
+  auto *pending = new PendingCommand{this, shadowView.tag, commandName, args};
+  dispatch_async_f(dispatch_get_main_queue(), pending, applyPendingCommand);
+}
+
+void AppKitMountingManager::applyCommand(Tag tag,
                                          const std::string &commandName,
                                          const folly::dynamic &args) {
-  (void)args;
-  // Nothing on this platform takes a command yet: the components that do --
-  // ScrollView's scrollTo, TextInput's focus and blur -- have no AppKit peer.
-  // When they arrive this needs the same marshalling executeMount does, for the
-  // same reason and then some: `focus` reaches the input method, which is where
-  // AppKit's main-thread assertion bites hardest.
-  LOG(INFO) << "dispatchCommand '" << commandName << "' on tag " << shadowView.tag
+  assert(onMainThread() && "applyCommand must run on the main thread");
+
+  if (scrollViews_.dispatchCommand(tag, commandName, args)) {
+    return;
+  }
+  LOG(INFO) << "dispatchCommand '" << commandName << "' on tag " << tag
             << " is not implemented on macOS";
 }
 
@@ -109,10 +142,13 @@ bool AppKitMountingManager::hasComponent(const std::string &name) {
   // Paragraph is the mountable half of <Text>; Text and RawText exist only in
   // the shadow tree, folded into the Paragraph's AttributedString.
   //
-  // Image, ScrollView and TextInput are still missing, and each is its own
-  // piece of work -- an image loader, a clipping scroller and an NSTextField
-  // peer respectively. See plan/23-core-text.md.
-  return name == "View" || name == "RootView" || name == "Paragraph";
+  // ScrollView's content child arrives as "ScrollContentView", which the
+  // registry rewrites to "View" before it reaches here, so it needs no entry.
+  //
+  // Image and TextInput are still missing -- an image loader and an NSTextField
+  // peer respectively. See plan/25-macos-scrollview.md.
+  return name == "View" || name == "RootView" || name == "Paragraph" ||
+      name == "ScrollView";
 }
 
 // ---------------------------------------------------------------------------
@@ -145,15 +181,25 @@ void AppKitMountingManager::removeChild(RnAppKitView *parent, RnAppKitView *chil
 }
 
 void AppKitMountingManager::forgetTag(Tag tag) {
-  // No per-tag side tables yet. GTK has three -- image URIs, scroll views and
-  // text inputs -- and each arrives here with the component it belongs to.
-  (void)tag;
+  scrollViews_.remove(tag);
 }
 
 void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyLayoutMetrics(view, shadowView);
+  // Last: the scroll manager clamps its offset against the frame it was just
+  // given, and iOS documents the same ordering requirement -- layout before
+  // state, or the offset is clamped against a stale size.
+  applyScrollView(view, shadowView);
+}
+
+void AppKitMountingManager::applyScrollView(RnAppKitView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr ||
+      std::string_view(shadowView.componentName) != "ScrollView") {
+    return;
+  }
+  scrollViews_.update(view, shadowView);
 }
 
 // ---------------------------------------------------------------------------

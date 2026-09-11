@@ -46,7 +46,7 @@ NSInteger tagOfSubview(RnAppKitView *parent, NSUInteger index) {
 
 } // namespace
 
-TEST(mac_view_stores_its_tag_and_frame) {
+TEST(appkit_view_stores_its_tag_and_frame) {
   @autoreleasepool {
     RnAppKitView *view = box(7, 1.5, 2.5, 30, 40);
 
@@ -61,7 +61,7 @@ TEST(mac_view_stores_its_tag_and_frame) {
 // The reason the view exists at all. AppKit's origin is bottom-left; every
 // frame Fabric produces assumes top-left, so a child at y=32 in a 420-tall
 // parent must sit 32 from the top and not 32 from the bottom.
-TEST(mac_view_is_flipped_so_frames_are_top_left) {
+TEST(appkit_view_is_flipped_so_frames_are_top_left) {
   @autoreleasepool {
     RnAppKitView *parent = box(1, 0, 0, 640, 420);
     RnAppKitView *child = box(2, 32, 32, 240, 160);
@@ -77,7 +77,7 @@ TEST(mac_view_is_flipped_so_frames_are_top_left) {
   }
 }
 
-TEST(mac_view_children_insert_at_the_requested_index) {
+TEST(appkit_view_children_insert_at_the_requested_index) {
   @autoreleasepool {
     RnAppKitView *parent = box(1, 0, 0, 100, 100);
     RnAppKitView *a = box(10, 0, 0, 10, 10);
@@ -109,7 +109,7 @@ TEST(mac_view_children_insert_at_the_requested_index) {
 }
 
 // Removing a view that is not ours must not detach it from whoever owns it.
-TEST(mac_view_removes_only_its_own_child) {
+TEST(appkit_view_removes_only_its_own_child) {
   @autoreleasepool {
     RnAppKitView *owner = box(1, 0, 0, 100, 100);
     RnAppKitView *stranger = box(2, 0, 0, 100, 100);
@@ -123,7 +123,7 @@ TEST(mac_view_removes_only_its_own_child) {
   }
 }
 
-TEST(mac_view_background_reaches_the_layer) {
+TEST(appkit_view_background_reaches_the_layer) {
   @autoreleasepool {
     RnAppKitView *view = box(1, 0, 0, 10, 10);
     EXPECT(!backgroundOf(view).present);
@@ -153,7 +153,7 @@ TEST(mac_view_background_reaches_the_layer) {
   }
 }
 
-TEST(mac_view_opacity_clipping_and_radius_reach_the_layer) {
+TEST(appkit_view_opacity_clipping_and_radius_reach_the_layer) {
   @autoreleasepool {
     RnAppKitView *view = box(1, 0, 0, 10, 10);
 
@@ -171,9 +171,50 @@ TEST(mac_view_opacity_clipping_and_radius_reach_the_layer) {
   }
 }
 
+// A scroll offset moves the children and leaves their frames alone. Through
+// bounds.origin, so AppKit shifts drawing, clipping and hit testing together --
+// an implementation that moved each child instead would have to undo it on
+// every mutation, and would fight the frames Yoga produced.
+TEST(appkit_scroll_offset_moves_children_without_moving_their_frames) {
+  @autoreleasepool {
+    RnAppKitView *page = box(99, 0, 0, 400, 400);
+    RnAppKitView *scroller = box(1, 0, 0, 200, 100);
+    RnAppKitView *content = box(2, 0, 0, 200, 600);
+    [page insertRnChild:scroller atIndex:0];
+    [scroller insertRnChild:content atIndex:0];
+
+    // Measured against the *page*, not the scroller. A view's own coordinate
+    // system is its bounds space, so converting into the scroller would report
+    // the frame back unchanged however far it had scrolled -- which is exactly
+    // the wrong question, and the first version of this test asked it.
+    EXPECT_NEAR(scroller.rnScrollOffset.y, 0.0, 0.001);
+    EXPECT_NEAR([content convertPoint:NSZeroPoint toView:page].y, 0.0, 0.001);
+
+    [scroller setRnScrollOffsetX:0 y:150];
+
+    EXPECT_NEAR(scroller.rnScrollOffset.y, 150.0, 0.001);
+    // The frame is untouched: it is still what the shadow tree assigned.
+    EXPECT_NEAR(content.frame.origin.y, 0.0, 0.001);
+    // But it now sits 150 above the scroller's visible top.
+    EXPECT_NEAR([content convertPoint:NSZeroPoint toView:page].y, -150.0, 0.001);
+  }
+}
+
+TEST(appkit_scroll_offset_is_reported_in_the_tree) {
+  @autoreleasepool {
+    RnAppKitView *scroller = box(1, 0, 0, 200, 100);
+    [scroller setRnScrollOffsetX:0 y:40];
+
+    const std::string described = [scroller describeTree].UTF8String;
+    // The same `scroll=(x,y)` the GTK side emits, so a scrolled list shows up
+    // in the cross-platform diff.
+    EXPECT(described.find("scroll=(0,40)") != std::string::npos);
+  }
+}
+
 // The same format the GTK side emits, character for character, so the two
 // platforms can be compared without reading two renderers.
-TEST(mac_view_describes_its_tree_like_the_gtk_one) {
+TEST(appkit_view_describes_its_tree_like_the_gtk_one) {
   @autoreleasepool {
     RnAppKitView *root = box(1, 0, 0, 640, 420);
     [root setRnBackgroundColorRed:0.12 green:0.13 blue:0.16 alpha:1.0 hasColor:YES];

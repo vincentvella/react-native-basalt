@@ -1,9 +1,9 @@
 // The component registry for the macOS platform. See core/ComponentRegistry.h
 // for why this is per-platform rather than shared.
 //
-// `<View>` and `<Text>`, and the shortness is still the honest part. Every
-// descriptor left out is a piece of work with a name: Image needs an image
-// loader, ScrollView a clipping scroller, TextInput an NSTextField peer.
+// `<View>`, `<Text>` and `<ScrollView>`, and the shortness is still the honest
+// part. Every descriptor left out is a piece of work with a name: Image needs
+// an image loader, TextInput an NSTextField peer.
 //
 // Paragraph arrived with CoreTextLayoutManager.mm, and could not have arrived
 // before it: registering it constructs a `TextLayoutManager`, whose stub this
@@ -19,6 +19,7 @@
 #include "ComponentRegistry.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
@@ -38,6 +39,12 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       registry->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
       registry->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
       registry->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
+      // Unlike Image's, ScrollView's descriptor is a bare alias for
+      // ConcreteComponentDescriptor -- no manager, no ContextContainer entry.
+      // Leaving it out does not fail loudly: the registry silently substitutes
+      // UnimplementedNativeView, which has no ScrollViewState, and the symptom
+      // is a ScrollView that renders but never scrolls.
+      registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(
