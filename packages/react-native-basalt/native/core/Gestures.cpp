@@ -152,6 +152,21 @@ void GestureRegistry::drop(int handlerTag) {
   tracking_.erase(std::remove(tracking_.begin(), tracking_.end(), handlerTag), tracking_.end());
 }
 
+void GestureRegistry::setStateFromWorklet(int handlerTag, int state) {
+  Handler *handler = find(handlerTag);
+  if (handler == nullptr || !handler->tracking) {
+    return;
+  }
+  const auto next = static_cast<GestureState>(state);
+  if (next == GestureState::Active) {
+    // Through the same path a recogniser takes, so that the handlers it
+    // competes with are cancelled the way they would be otherwise.
+    tryActivate(*handler, handler->lastX, handler->lastY, handler->lastTime);
+    return;
+  }
+  setState(*handler, next, handler->lastX, handler->lastY, handler->lastTime);
+}
+
 bool GestureRegistry::empty() const {
   return handlers_.empty();
 }

@@ -230,6 +230,18 @@ The manual equivalents of each bootstrap step are documented below.
 Produces `librn_view.a`, `librn_mounting.a` and the `demo_layout_gtk` executable.
 Omit `-DRN_DIR` to build only the widget layer and the demo.
 
+To run an app that uses Expo modules, Reanimated or worklets, point the build at
+that app's copies of them. Each is optional and each is compiled from the app's
+own `node_modules`, so the versions can never drift from the JavaScript:
+
+    -DBASALT_EXPO_MODULES_CORE=<app>/node_modules/expo-modules-core
+    -DBASALT_WORKLETS=<app>/node_modules/react-native-worklets
+    -DBASALT_REANIMATED=<app>/node_modules/react-native-reanimated
+
+`-DBASALT_REANIMATED` needs `-DBASALT_WORKLETS`, because Reanimated 4 is built
+on worklets. Without them a plain React Native app is unaffected and an app that
+imports one fails at that import, which is what it did before.
+
 ### Dependencies
 
 System packages.
@@ -344,7 +356,7 @@ That is what this project exists to show. `plan/15-expo-runtime.md` is how, and
 
 Beyond the template, a real app's dependency set -- expo-image, expo-font,
 expo-constants, expo-clipboard, gesture-handler, Reanimated, react-navigation
-and the rest -- loads **fourteen of fifteen**, identically on both desktops.
+and the rest -- loads **fifteen of fifteen**, identically on both desktops.
 
 `expo-clipboard` really does write the system clipboard, `Constants.expoConfig`
 really is the app's `app.json`, and `Linking.createURL` produces the app's own
@@ -359,7 +371,15 @@ seam. **react-native-gesture-handler** works as well -- taps and pans through
 the real library, on both desktops -- which took writing its recognisers rather
 than compiling them, since it ships no portable C++ (phase 37).
 
-Reanimated is the one left. `plan/34-expo-dependencies.md` has the table.
+**Reanimated** works too, worklets and all: a pan gesture whose callbacks are
+worklets drives a shared value on the UI thread, `useAnimatedScrollHandler`
+divides a scroll offset, and neither causes a React re-render. Both packages
+ship portable C++, so that port was compiling their sources and supplying the
+four things they expect from a platform -- plus one gap in React Native's own
+cxx platform, which never calls `Scheduler::reportMount` and so leaves every
+mount hook inert (phase 38).
+
+`plan/34-expo-dependencies.md` has the table.
 
 ## Supported React Native versions
 

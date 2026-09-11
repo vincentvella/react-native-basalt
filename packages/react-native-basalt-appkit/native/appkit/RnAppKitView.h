@@ -90,6 +90,14 @@ RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x,
 
 - (void)setRnOpacity:(CGFloat)opacity;
 
+// React Native's transform, as sixteen floats in CSS `matrix3d` order -- which
+// is CATransform3D's field order too, so the two are the same sixteen numbers
+// in the same places. Null clears it.
+//
+// The anchor is the view's centre, which is what React Native means by an
+// untouched `transformOrigin` and what a layer-backed NSView already uses.
+- (void)setRnTransform:(nullable const float *)matrix;
+
 // How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
 // Repeat, which needs a tiled draw rather than one image draw.
 // Accessible states. Each is a tri-state: unset leaves AppKit's default alone,

@@ -107,6 +107,12 @@ if(DEFINED RN_DIR)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
+  # react-native-worklets, which Reanimated is built on. After ReactNativeCore
+  # rather than beside Expo: it needs Hermes and React Native's own headers,
+  # which that file is what sets up.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Worklets.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Reanimated.cmake)
+
   # ---------------------------------------------------------------------------
   # basalt_core — everything that is not about a particular toolkit.
   #
@@ -144,7 +150,10 @@ if(DEFINED RN_DIR)
     core/ImageBytes.cpp
     core/PlatformConstantsModule.cpp
     core/SourceCodeModule.cpp
-    core/StatusBarModule.cpp)
+    core/StatusBarModule.cpp
+    core/ReanimatedModule.cpp
+    core/UIManagerAccess.cpp
+    core/WorkletsModule.cpp)
   target_compile_options(basalt_core PRIVATE -Wall -Wextra)
   # The React Native version, for the version guards and PlatformConstants.
   #
@@ -173,6 +182,19 @@ if(DEFINED RN_DIR)
   if(TARGET expo_core)
     target_link_libraries(basalt_core PUBLIC expo_core)
     target_sources(basalt_core PUBLIC $<TARGET_OBJECTS:expo_core>)
+  endif()
+  if(TARGET reanimated_core)
+    target_link_libraries(basalt_core PUBLIC reanimated_core)
+    target_sources(basalt_core PUBLIC $<TARGET_OBJECTS:reanimated_core>)
+    target_compile_definitions(basalt_core PUBLIC BASALT_HAS_REANIMATED=1)
+  endif()
+  if(TARGET worklets_core)
+    target_link_libraries(basalt_core PUBLIC worklets_core)
+    target_sources(basalt_core PUBLIC $<TARGET_OBJECTS:worklets_core>)
+    # PUBLIC, so the hosts get it too: they are sibling directories now, and a
+    # directory-scoped definition would leave them compiling the provider
+    # without its worklets branch and quietly not offering the module.
+    target_compile_definitions(basalt_core PUBLIC BASALT_HAS_WORKLETS=1)
   endif()
 
   # Links the core and no toolkit. See core/portability_probe.cpp: what it

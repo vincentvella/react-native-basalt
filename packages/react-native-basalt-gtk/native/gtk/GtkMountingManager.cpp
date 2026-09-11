@@ -2,6 +2,7 @@
 
 #include "ComponentRegistry.h"
 #include "ExpoImageComponent.h"
+#include "UIManagerAccess.h"
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/image/ImageEventEmitter.h>
@@ -161,8 +162,20 @@ void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransacti
   // The walk itself is in core/MountingWalk.h and is shared with every other
   // desktop platform; what is GTK about mounting is below, in the handful of
   // operations it calls back into.
-  (void)surfaceId;
   applyMutations(transaction.getMutations());
+
+  // Tell the UIManager the transaction is on screen. Anything registered as a
+  // mount hook -- Reanimated's is the one that matters here -- is waiting for
+  // this, and without it an animated style is computed every frame, committed
+  // to the shadow tree and never resumed, so nothing moves.
+  //
+  // iOS does this from RCTSurfacePresenter and Android from its mounting
+  // manager. ReactCxxPlatform does it nowhere, which is a gap in the shared
+  // platform rather than in either host: nothing in it had a mount hook until
+  // a third-party library brought one.
+  if (auto uiManager = sharedUIManager()) {
+    uiManager->reportMount(surfaceId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +273,10 @@ void GtkMountingManager::applyCommand(Tag tag,
   g_debug("dispatchCommand '%s' on tag %d is not implemented",
           commandName.c_str(),
           static_cast<int>(tag));
+}
+
+void GtkMountingManager::setUIManager(std::weak_ptr<facebook::react::UIManager> uiManager) noexcept {
+  setSharedUIManager(std::move(uiManager));
 }
 
 ComponentRegistryFactory GtkMountingManager::getComponentRegistryFactory() {

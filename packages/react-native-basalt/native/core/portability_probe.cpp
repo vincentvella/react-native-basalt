@@ -21,7 +21,9 @@
 #include "FontRegistry.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
+#include "PlatformServices.h"
 #include "StatusBarModule.h"
+#include "WorkletsModule.h"
 
 #include <cstdio>
 #include <string>
@@ -68,6 +70,14 @@ bool openUrl(const std::string &) {
   return false;
 }
 void showAlert(const AlertRequest &, AlertCallback) {}
+// Added when the gesture recognisers arrived: "run this on the UI thread", now
+// and later. A platform with a run loop has both already; this one has neither
+// and says so.
+void postDelayed(double, std::function<void()>) {}
+void postToUiThread(std::function<void()>) {}
+bool isUiThread() {
+  return false;
+}
 } // namespace basalt
 
 int main() {
@@ -84,6 +94,7 @@ int main() {
   // Each of these is a symbol the linker must find in the core alone.
   const std::string url = basalt::scriptURLFor("bundle.js", false, "localhost", 8081, "index");
   const bool expo = basalt::hasExpoRuntime();
+  const bool worklets = basalt::hasWorklets();
 
   // The seams: declared by the core, implemented by a platform. On a platform
   // that has not implemented them, the link fails here and names them.
@@ -107,6 +118,7 @@ int main() {
               std::string(DesktopAccessibilityInfoModule::kModuleName).c_str());
   std::printf("  scriptURLFor      %s\n", url.c_str());
   std::printf("  expo runtime      %s\n", expo ? "compiled in" : "not compiled in");
+  std::printf("  worklets          %s\n", worklets ? "compiled in" : "not compiled in");
   std::printf("  font seam         isFontRegistered=%d generation=%lu\n",
               registered ? 1 : 0,
               generation);

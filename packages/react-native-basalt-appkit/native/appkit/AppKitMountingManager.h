@@ -47,6 +47,11 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
 
   bool hasComponent(const std::string &name) override;
 
+  // ReactCxxPlatform hands the UIManager to the mounting manager and to nothing
+  // else. Reanimated needs it, and is constructed from JavaScript where no host
+  // object is in reach, so this passes it on. See core/UIManagerAccess.h.
+  void setUIManager(std::weak_ptr<facebook::react::UIManager> uiManager) noexcept override;
+
   // --- Host-facing ----------------------------------------------------------
   //
   // createSurfaceRoot, destroySurfaceRoot, getSurfaceRoot, viewForTag and

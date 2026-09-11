@@ -97,6 +97,13 @@ class GestureRegistry {
   void pointerUp(double x, double y, double timestampMs);
   void pointerCancel();
 
+  // Forces a handler into a state, which is what RNGH's `GestureStateManager`
+  // does from a worklet: `manager.activate()` inside `onTouchesMove` is a
+  // gesture claiming itself rather than waiting for a recogniser to decide.
+  // Reanimated is the only caller -- the manager needs a worklet runtime to run
+  // in -- so this does nothing useful until phase 38.
+  void setStateFromWorklet(int handlerTag, int state);
+
   // True once a handler has activated during the current gesture. A touch
   // dispatcher reads this to cancel React Native's own touch, which is what
   // `setJSResponder` does on the platforms RNGH was written for: without it a

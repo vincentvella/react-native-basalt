@@ -192,4 +192,11 @@ void postToUiThread(std::function<void()> work) {
       [](gpointer data) { delete static_cast<std::function<void()> *>(data); });
 }
 
+bool isUiThread() {
+  // The thread running the default main context is the one GTK draws from, and
+  // asking that rather than remembering a thread id keeps this true in a test
+  // binary that never starts a loop -- where the honest answer is "no".
+  return g_main_context_is_owner(g_main_context_default()) != 0;
+}
+
 } // namespace basalt

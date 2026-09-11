@@ -142,4 +142,8 @@ void postToUiThread(std::function<void()> work) {
   });
 }
 
+bool isUiThread() {
+  return [NSThread isMainThread];
+}
+
 } // namespace basalt

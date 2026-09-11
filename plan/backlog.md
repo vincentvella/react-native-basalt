@@ -238,10 +238,17 @@ Measured in phase 34 against a real dependency set, on both desktops.
 - **The clipboard's image and URL types**, which are separate pasteboard types
   on each platform. Absent rather than stubbed, so expo-clipboard reports them
   as unavailable by name.
-- **Reanimated** is the last of the fifteen: a native library in its own right,
-  wanting a worklet runtime, nothing to do with Expo's module system. Unlike
-  gesture-handler it does ship portable C++, so the shape of that port is
-  compiling somebody else's sources rather than writing new ones.
+- **A frame source the animation systems can share.** Worklets and Reanimated
+  both run on a sixteen-millisecond timer, because each platform's display link
+  belongs to React Native's `AnimationChoreographer` and pauses whenever React
+  Native has no animation of its own.
+- **`core/ReanimatedCompat.h` has never been compiled.** It exists for a
+  platform that is neither Android nor Apple; the Linux host here is built on
+  macOS. The first real Linux build is its first test.
+- **Reanimated's layout animations and shared element transitions** compile and
+  have never been run.
+- **`synchronouslyUpdateUIProps`**, Reanimated's direct-to-view path, is a
+  no-op: the mounting managers accept mutations only from a Fabric transaction.
 - **The gestures a cursor cannot make**: pinch, rotation and force touch begin
   and fail, because there is no second finger and no pressure. Two-finger
   trackpad gestures exist on both desktops and are not wired to anything.

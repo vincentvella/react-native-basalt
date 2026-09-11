@@ -56,6 +56,8 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   CGFloat _opacity;
   BOOL _clipsChildren;
   CGFloat _cornerRadius;
+  CATransform3D _transform;
+  BOOL _hasTransform;
 }
 
 + (instancetype)viewWithTag:(NSInteger)tag {
@@ -73,6 +75,7 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   if (self != nil) {
     _opacity = 1.0;
     _imageFit = RnAppKitImageFitCover;
+    _transform = CATransform3DIdentity;
     // Layer-backed from the start rather than on demand: a view that acquires a
     // layer later loses whatever was set on it before, and the props arrive in
     // whatever order the mutation stream happens to carry them.
@@ -383,6 +386,28 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   self.layer.opacity = (float)opacity;
 }
 
+- (void)setRnTransform:(nullable const float *)matrix {
+  if (matrix == nullptr) {
+    _hasTransform = NO;
+    _transform = CATransform3DIdentity;
+    self.layer.transform = CATransform3DIdentity;
+    return;
+  }
+
+  // Field by field rather than a memcpy: CATransform3D's members are CGFloat,
+  // which is not guaranteed to be double, and the layout is only documented as
+  // "m11 through m44 in this order".
+  CATransform3D transform;
+  CGFloat *fields = (CGFloat *)&transform;
+  for (int index = 0; index < 16; index++) {
+    fields[index] = (CGFloat)matrix[index];
+  }
+
+  _transform = transform;
+  _hasTransform = !CATransform3DIsIdentity(transform);
+  self.layer.transform = transform;
+}
+
 - (void)setRnClipsChildren:(BOOL)clips {
   _clipsChildren = clips;
   self.layer.masksToBounds = clips;
@@ -437,6 +462,21 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   }
   if (_clipsChildren) {
     [out appendString:@" clip"];
+  }
+  if (_hasTransform) {
+    // The 2D affine part, which is all either platform draws, in the order
+    // CSS writes a matrix(): a, b, c, d, tx, ty. The GTK side prints the same
+    // six from its own matrix, so a transform is comparable across the two --
+    // without which a view that is rotated on one desktop and not on the other
+    // looks identical in this dump. Which is exactly how the macOS host went
+    // this long without applying transforms at all.
+    [out appendFormat:@" transform=(%g,%g,%g,%g,%g,%g)",
+                      (double)_transform.m11,
+                      (double)_transform.m12,
+                      (double)_transform.m21,
+                      (double)_transform.m22,
+                      (double)_transform.m41,
+                      (double)_transform.m42];
   }
   const NSPoint scroll = self.bounds.origin;
   if (scroll.x != 0 || scroll.y != 0) {

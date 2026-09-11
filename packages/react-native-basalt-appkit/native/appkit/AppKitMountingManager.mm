@@ -4,6 +4,7 @@
 
 #include "ComponentRegistry.h"
 #include "ExpoImageComponent.h"
+#include "UIManagerAccess.h"
 
 #include <react/renderer/components/view/AccessibilityProps.h>
 #include <react/renderer/components/image/ImageEventEmitter.h>
@@ -92,8 +93,20 @@ void AppKitMountingManager::executeMount(SurfaceId surfaceId, MountingTransactio
 void AppKitMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransaction &&transaction) {
   // The walk itself is in core/MountingWalk.h and is shared with GTK; what is
   // AppKit about mounting is below, in the operations it calls back into.
-  (void)surfaceId;
   applyMutations(transaction.getMutations());
+
+  // Tell the UIManager the transaction is on screen. Anything registered as a
+  // mount hook -- Reanimated's is the one that matters here -- is waiting for
+  // this, and without it an animated style is computed every frame, committed
+  // to the shadow tree and never resumed, so nothing moves.
+  //
+  // iOS does this from RCTSurfacePresenter and Android from its mounting
+  // manager. ReactCxxPlatform does it nowhere, which is a gap in the shared
+  // platform rather than in either host: nothing in it had a mount hook until
+  // a third-party library brought one.
+  if (auto uiManager = sharedUIManager()) {
+    uiManager->reportMount(surfaceId);
+  }
 }
 
 namespace {
@@ -139,6 +152,10 @@ void AppKitMountingManager::applyCommand(Tag tag,
   }
   LOG(INFO) << "dispatchCommand '" << commandName << "' on tag " << tag
             << " is not implemented on macOS";
+}
+
+void AppKitMountingManager::setUIManager(std::weak_ptr<facebook::react::UIManager> uiManager) noexcept {
+  setSharedUIManager(std::move(uiManager));
 }
 
 ComponentRegistryFactory AppKitMountingManager::getComponentRegistryFactory() {
@@ -448,7 +465,17 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
   // snapshot node.
   [view setRnCornerRadius:borders.borderRadii.topLeft.horizontal];
 
-  // TODO(props): per-corner radii, borders, transform, zIndex, pointerEvents.
+  // resolveTransform folds in transformOrigin, but only when one was set: the
+  // default anchor is the view's centre, which is what a layer-backed NSView
+  // already uses.
+  const auto transform = props->resolveTransform(shadowView.layoutMetrics);
+  if (transform == facebook::react::Transform::Identity()) {
+    [view setRnTransform:nullptr];
+  } else {
+    [view setRnTransform:transform.matrix.data()];
+  }
+
+  // TODO(props): per-corner radii, borders, zIndex, pointerEvents.
   // The GTK side has all of these; none is hard, and each needs a test that
   // compares the result against what Linux produces rather than against what
   // looks plausible on a Mac.

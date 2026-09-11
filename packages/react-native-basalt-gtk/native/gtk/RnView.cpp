@@ -761,6 +761,21 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   if (self->clips_children) {
     g_string_append(out, " clip");
   }
+  if (self->has_transform) {
+    // The 2D affine part, in the order CSS writes a matrix(): a, b, c, d, tx,
+    // ty. The AppKit side prints the same six from its CATransform3D. See the
+    // comment there for why this is in the dump at all.
+    float values[16];
+    graphene_matrix_to_float(&self->transform, values);
+    g_string_append_printf(out,
+                           " transform=(%g,%g,%g,%g,%g,%g)",
+                           values[0],
+                           values[1],
+                           values[4],
+                           values[5],
+                           values[12],
+                           values[13]);
+  }
   if (self->scroll_x != 0.0 || self->scroll_y != 0.0) {
     g_string_append_printf(out, " scroll=(%g,%g)", self->scroll_x, self->scroll_y);
   }

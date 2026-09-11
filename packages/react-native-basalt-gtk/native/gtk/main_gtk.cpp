@@ -46,6 +46,9 @@
 #include "DevBundle.h"
 #include "ExpoModules.h"
 #include "GestureHandlerModule.h"
+#include "ReanimatedModule.h"
+#include "UIManagerAccess.h"
+#include "WorkletsModule.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -423,6 +426,18 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopGestureHandlerModule::kModuleName) {
           return std::make_shared<basalt::DesktopGestureHandlerModule>(jsInvoker);
         }
+#ifdef BASALT_HAS_WORKLETS
+        // react-native-worklets, when the build was pointed at one. Reanimated
+        // is built on it; see core/WorkletsModule.h.
+        if (name == basalt::DesktopWorkletsModule::kModuleName) {
+          return std::make_shared<basalt::DesktopWorkletsModule>(jsInvoker);
+        }
+#endif
+#ifdef BASALT_HAS_REANIMATED
+        if (name == basalt::DesktopReanimatedModule::kModuleName) {
+          return std::make_shared<basalt::DesktopReanimatedModule>(jsInvoker);
+        }
+#endif
         // Only outside dev mode. ReactCxxPlatform provides a real DevSettings
         // when a dev server exists, and this provider is consulted first -- so
         // offering ours unconditionally would shadow the one that works.
@@ -571,6 +586,19 @@ void onActivate(GtkApplication *app, gpointer data) {
   } catch (const std::exception &error) {
     g_error("could not construct ReactHost: %s", error.what());
   }
+
+  // How anything in the core reaches the scheduler, which only the host has.
+  // Reanimated is the one caller; see core/UIManagerAccess.h.
+  basalt::setEventListenerInstaller(
+      [host](std::shared_ptr<const facebook::react::EventListener> listener) {
+        if (host->reactHost == nullptr) {
+          return;
+        }
+        host->reactHost->runOnScheduler(
+            [listener = std::move(listener)](facebook::react::Scheduler &scheduler) {
+              scheduler.addEventListener(listener);
+            });
+      });
 
   // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
   // fails, which is right when nothing is listening and wrong when Metro

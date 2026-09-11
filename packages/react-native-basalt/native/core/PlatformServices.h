@@ -76,4 +76,12 @@ void postDelayed(double milliseconds, std::function<void()> work);
 // the same rule the mounting managers keep and assert.
 void postToUiThread(std::function<void()> work);
 
+// Whether this is the thread that draws.
+//
+// Fabric dispatches an event from whichever thread produced it -- a touch from
+// the UI thread, a layout event from the JavaScript thread -- and anything that
+// answers by touching a worklet runtime has to know which it is on. That is the
+// one caller today; see core/ReanimatedModule.cpp.
+bool isUiThread();
+
 } // namespace basalt
