@@ -429,10 +429,11 @@ Not yet done:
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
 - **No LogBox**, so a JavaScript error is a log line and a window that keeps
   sitting there.
-- **No dark mode.** `Appearance` is one of a set of core React Native modules
-  with no implementation anywhere in this stack, along with `Clipboard`,
-  `Linking`, `Alert`, `I18nManager` and `AccessibilityInfo`. Most of them fail
-  quietly, which is worse than failing loudly.
+- **Core modules still missing.** `Clipboard`, `Linking`, `Alert`,
+  `I18nManager`, `AccessibilityInfo` and `BlobModule` have no implementation
+  anywhere in this stack. Most fail quietly, which is worse than failing loudly.
+  `Appearance` was one of them until phase 30, and dark mode now works on both
+  desktops.
 - **Nothing desktop-shaped.** One window, no menus, no native file dialogs, no
   drag and drop, no tray. React Native has no cross-platform API for any of it,
   so each is a design decision before it is an implementation.

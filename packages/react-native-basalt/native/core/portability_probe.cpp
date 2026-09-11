@@ -13,6 +13,8 @@
 // It is not a test of behaviour. It never constructs a runtime and never
 // renders anything. It answers one question: what does a second platform owe?
 
+#include "AppearanceModule.h"
+#include "ColorScheme.h"
 #include "ComponentRegistry.h"
 #include "ExpoRuntime.h"
 #include "FontRegistry.h"
@@ -43,10 +45,19 @@ unsigned long fontGeneration() {
 std::string registeredFontNamesJoined(char) {
   return {};
 }
+
+// The colour-scheme seam, stubbed the same way. A real platform answers from
+// NSAppearance, GtkSettings or the Windows registry; one that has not yet gets
+// this far and no further.
+ColorScheme systemColorScheme() {
+  return ColorScheme::Light;
+}
+void startObservingColorScheme() {}
 } // namespace basalt
 
 int main() {
   using basalt::DesktopPlatformConstantsModule;
+  using basalt::DesktopAppearanceModule;
   using basalt::DesktopSourceCodeModule;
   using basalt::DesktopStatusBarModule;
 
@@ -58,17 +69,20 @@ int main() {
   // that has not implemented them, the link fails here and names them.
   const bool registered = basalt::isFontRegistered("nothing");
   const unsigned long generation = basalt::fontGeneration();
+  const char *scheme = basalt::colorSchemeName(basalt::effectiveColorScheme());
 
   // Named so the link has to find each module the core claims to provide.
   std::printf("core links.\n");
-  std::printf("  modules           %s, %s, %s\n",
+  std::printf("  modules           %s, %s, %s, %s\n",
               std::string(DesktopPlatformConstantsModule::kModuleName).c_str(),
               std::string(DesktopSourceCodeModule::kModuleName).c_str(),
-              std::string(DesktopStatusBarModule::kModuleName).c_str());
+              std::string(DesktopStatusBarModule::kModuleName).c_str(),
+              std::string(DesktopAppearanceModule::kModuleName).c_str());
   std::printf("  scriptURLFor      %s\n", url.c_str());
   std::printf("  expo runtime      %s\n", expo ? "compiled in" : "not compiled in");
   std::printf("  font seam         isFontRegistered=%d generation=%lu\n",
               registered ? 1 : 0,
               generation);
+  std::printf("  colour scheme     %s\n", scheme);
   return 0;
 }

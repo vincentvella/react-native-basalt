@@ -39,6 +39,8 @@
 
 #include <cstdlib>
 #include <exception>
+#include "AppearanceModule.h"
+#include "ColorScheme.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -335,6 +337,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
           return std::make_shared<basalt::DesktopPlatformConstantsModule>(jsInvoker);
         }
+        if (name == basalt::DesktopAppearanceModule::kModuleName) {
+          return std::make_shared<basalt::DesktopAppearanceModule>(jsInvoker);
+        }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
         }
@@ -391,6 +396,11 @@ void onActivate(GtkApplication *app, gpointer data) {
 
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<basalt::GtkAnimationChoreographer>();
+
+  // Light or dark, and any change to it. Before ReactHost, so the module can
+  // answer the first `Appearance.getColorScheme()` a bundle makes, which for an
+  // Expo app is during its first import.
+  basalt::startObservingColorScheme();
 
   // Before ReactHost, so the beat is being induced from the first event on.
   host->runLoopObserver = basalt::installRunLoopObserver(host->runLoopObserverManager);

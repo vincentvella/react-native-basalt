@@ -34,6 +34,8 @@
 #import "AppKitSnapshot.h"
 #import "RnAppKitView.h"
 
+#include "AppearanceModule.h"
+#include "ColorScheme.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -204,6 +206,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
           return std::make_shared<basalt::DesktopPlatformConstantsModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopAppearanceModule::kModuleName) {
+          return std::make_shared<basalt::DesktopAppearanceModule>(jsInvoker);
         }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
@@ -398,6 +403,11 @@ int main(int argc, const char *argv[]) {
 
     gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
     gHost.choreographer = std::make_shared<basalt::AppKitAnimationChoreographer>();
+
+    // Light or dark, and any change to it. Before ReactHost, so the module can
+    // answer the first `Appearance.getColorScheme()` a bundle makes, which for an
+    // Expo app is during its first import.
+    basalt::startObservingColorScheme();
 
     // Before ReactHost, so the beat is being induced from the first event on.
     gHost.runLoopObserver = basalt::installRunLoopObserver(gHost.runLoopObserverManager);

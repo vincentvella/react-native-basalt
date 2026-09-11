@@ -95,6 +95,8 @@ if(TARGET basalt_core)
     gtk/GtkTextInput.cpp
     # Linux's implementation of core/FontRegistry.h.
     gtk/FontRegistryFontconfig.cpp
+    # ...and of core/ColorScheme.h.
+    gtk/ColorSchemeGtk.cpp
     gtk/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     gtk/PangoTextLayoutManager.cpp)
@@ -166,6 +168,7 @@ target_link_libraries(basalt_gtk_mounting PUBLIC hermes-engine::hermesvm)
   # ---------------------------------------------------------------------------
   add_executable(basalt_gtk_tests
     ${BASALT_TEST_HARNESS}
+    ${BASALT_CORE_TESTS}
     tests/TestMainGtk.cpp
     tests/test_mounting.cpp
     tests/test_view.cpp

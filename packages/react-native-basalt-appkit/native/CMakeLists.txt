@@ -108,6 +108,8 @@ if(TARGET basalt_core)
     # Core links against whichever implementation the platform half provides,
     # so without this nothing that reaches expo-font links.
     appkit/FontRegistryCoreText.mm
+    # ...and of core/ColorScheme.h.
+    appkit/ColorSchemeAppKit.mm
     # AttributedString -> Core Text. Shared by measurement and painting, so they
     # agree, which is the whole reason it is one file.
     appkit/CoreTextLayout.mm
@@ -146,6 +148,7 @@ if(TARGET basalt_core)
   target_link_libraries(mount_harness_appkit PRIVATE basalt_appkit_mounting)
 
   list(APPEND BASALT_APPKIT_TEST_SOURCES
+    ${BASALT_CORE_TESTS}
     tests/test_appkit_mounting.mm
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.

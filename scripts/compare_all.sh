@@ -27,6 +27,7 @@ APPS=(
   "text:BasaltText"
   "a11y:BasaltA11y"
   "input:BasaltInput"
+  "appearance:BasaltAppearance"
   # The real demo, last: the richest app there is, and the one whose tree
   # agreeing means the most.
   "index:BasaltDemo"

@@ -41,6 +41,15 @@ set(BASALT_TEST_HARNESS ${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHarness.cpp
 set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
     CACHE INTERNAL "where TestHarness.h lives")
 
+# Tests for core's own behaviour, compiled into every platform's suite.
+#
+# They belong to neither platform, so asserting them in one would leave the
+# other unchecked and asserting them in both would be the same file twice. The
+# seam they sit on top of -- what the system is actually set to -- is never
+# asked about, because it differs by machine.
+set(BASALT_CORE_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
+    CACHE INTERNAL "core's own tests")
+
 # ---------------------------------------------------------------------------
 # React Native's C++ core, and the half of this project that is not a toolkit.
 #
@@ -110,6 +119,9 @@ if(DEFINED RN_DIR)
   # build rather than quietly making core unshareable.
   # ---------------------------------------------------------------------------
   add_library(basalt_core STATIC
+    # `Appearance`, and the portable half of light-vs-dark.
+    core/AppearanceModule.cpp
+    core/ColorScheme.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp
     # The bytes behind an <Image>, which is the half of image loading that is

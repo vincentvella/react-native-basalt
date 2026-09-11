@@ -189,11 +189,14 @@ falls back or silently does nothing -- the API appears to work and simply has no
 effect. `Clipboard` and `Vibration` use `getEnforcing`, which throws at import,
 so anything importing them dies at startup.
 
-- **`Appearance`** (soft). Dark mode. `useColorScheme()` returns null, so an app
-  that themes itself gets the light theme on a dark desktop. This is the one a
-  Linux user notices in the first five seconds. GTK reports it through
-  `GtkSettings:gtk-application-prefer-dark-theme` and the freedesktop appearance
-  portal.
+- ~~**`Appearance`**~~ **done in phase 30**, on both desktops. What is left of
+  it: live system switching is subscribed to and has never been watched firing,
+  there is no `AppearanceProvider` or per-view override, and nothing native
+  repaints on the switch because neither platform has a `PlatformColor` or a
+  system control to repaint.
+- **`BlobModule`** (soft). Backs `Blob`, `File` and `FileReader`. The one
+  remaining module a stock Expo app asks for and misses; see
+  `plan/29-expo-on-macos.md`.
 - **`Clipboard`** (throws on import). GTK has `GdkClipboard`; the work is the
   module, not the mechanism.
 - **`Vibration`** (throws on import). Meaningless on a desktop, but it has to
