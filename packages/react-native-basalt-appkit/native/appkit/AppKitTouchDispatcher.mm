@@ -1,5 +1,7 @@
 #import "AppKitTouchDispatcher.h"
 
+#include "Gestures.h"
+
 #include <react/renderer/components/view/TouchEvent.h>
 
 // The bridge between AppKit's protocol and the C++ dispatcher. A C++ object
@@ -70,6 +72,16 @@ void AppKitTouchDispatcher::synthesiseTap(double x, double y) {
   dispatchTouchEnd(x, y);
 }
 
+void AppKitTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps) {
+  dispatchTouchStart(fromX, fromY);
+  const int count = steps < 1 ? 1 : steps;
+  for (int step = 1; step <= count; step++) {
+    const double progress = static_cast<double>(step) / count;
+    dispatchTouchMove(fromX + (toX - fromX) * progress, fromY + (toY - fromY) * progress);
+  }
+  dispatchTouchEnd(toX, toY);
+}
+
 // ---------------------------------------------------------------------------
 // Hit testing
 // ---------------------------------------------------------------------------
@@ -79,11 +91,48 @@ Tag hitTestTag(RnAppKitView *root, double x, double y) {
   return hit == nil ? 0 : static_cast<Tag>(hit.rnTag);
 }
 
+namespace {
+
+// The React Native views under a point, innermost first, each with its origin
+// in the root's coordinates. That is what a gesture recogniser needs and a
+// touch does not: a touch is reported against one target, while a gesture may
+// be attached to any ancestor of the view that was hit.
+//
+// Built only when something is attached; see core/Gestures.h.
+std::vector<basalt::HitView> hitChain(RnAppKitView *root, double x, double y) {
+  std::vector<basalt::HitView> chain;
+  RnAppKitView *hit = RnAppKitHitTest(root, x, y);
+
+  for (NSView *view = hit; view != nil; view = view.superview) {
+    if (![view isKindOfClass:[RnAppKitView class]]) {
+      continue;
+    }
+    // The view's own origin in root coordinates. Conversion rather than summed
+    // frames, because a scrolled ancestor's bounds origin has to count and
+    // AppKit already knows how.
+    const NSPoint origin = [view convertPoint:NSZeroPoint toView:root];
+    chain.push_back(basalt::HitView{.tag = static_cast<int>(((RnAppKitView *)view).rnTag),
+                                    .originX = origin.x,
+                                    .originY = origin.y});
+    if (view == root) {
+      break;
+    }
+  }
+  return chain;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
 void AppKitTouchDispatcher::dispatchTouchStart(double x, double y) {
+  if (!basalt::gestures().empty()) {
+    basalt::gestures().pointerDown(
+        hitChain(surfaceRoot_, x, y), x, y, basalt::monotonicMilliseconds());
+  }
+
   const Tag target = hitTestTag(surfaceRoot_, x, y);
   if (target == 0) {
     return;
@@ -91,19 +140,34 @@ void AppKitTouchDispatcher::dispatchTouchStart(double x, double y) {
   activeTarget_ = target;
   isDown_ = true;
   emit(TouchKind::Start, target, x, y);
+
+  // A gesture that claimed the pointer on contact -- a native handler -- takes
+  // it away from React Native's responder system immediately.
+  yieldToGesture(x, y);
 }
 
 void AppKitTouchDispatcher::dispatchTouchMove(double x, double y) {
+  if (!basalt::gestures().empty()) {
+    basalt::gestures().pointerMove(x, y, basalt::monotonicMilliseconds());
+  }
+
   // Motion with no button down is hover, which the touch model has no place
   // for. Reporting it would look to the responder system like a finger dragging
   // across the screen at all times.
   if (!isDown_ || activeTarget_ == 0) {
     return;
   }
+  if (yieldToGesture(x, y)) {
+    return;
+  }
   emit(TouchKind::Move, activeTarget_, x, y);
 }
 
 void AppKitTouchDispatcher::dispatchTouchEnd(double x, double y) {
+  if (!basalt::gestures().empty()) {
+    basalt::gestures().pointerUp(x, y, basalt::monotonicMilliseconds());
+  }
+
   if (!isDown_ || activeTarget_ == 0) {
     return;
   }
@@ -114,6 +178,10 @@ void AppKitTouchDispatcher::dispatchTouchEnd(double x, double y) {
 }
 
 void AppKitTouchDispatcher::dispatchTouchCancel() {
+  if (!basalt::gestures().empty()) {
+    basalt::gestures().pointerCancel();
+  }
+
   if (!isDown_ || activeTarget_ == 0) {
     return;
   }
@@ -121,6 +189,22 @@ void AppKitTouchDispatcher::dispatchTouchCancel() {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::Cancel, target, 0, 0);
+}
+
+// A gesture recogniser that has activated owns the pointer, and React Native's
+// responder system must be told the touch it was following is gone -- otherwise
+// panning across a <Pressable> pans *and* presses it. This is what RNGH's
+// `setJSResponder` does on the platforms it was written for; here both sides
+// are fed from this one place, so it is a cancel rather than a negotiation.
+bool AppKitTouchDispatcher::yieldToGesture(double x, double y) {
+  if (!isDown_ || activeTarget_ == 0 || !basalt::gestures().hasActiveHandler()) {
+    return false;
+  }
+  const Tag target = activeTarget_;
+  isDown_ = false;
+  activeTarget_ = 0;
+  emit(TouchKind::Cancel, target, x, y);
+  return true;
 }
 
 void AppKitTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) {

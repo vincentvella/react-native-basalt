@@ -238,9 +238,15 @@ Measured in phase 34 against a real dependency set, on both desktops.
 - **The clipboard's image and URL types**, which are separate pasteboard types
   on each platform. Absent rather than stubbed, so expo-clipboard reports them
   as unavailable by name.
-- **Reanimated and gesture-handler** are a different shape: native libraries in
-  their own right, wanting a worklet runtime, nothing to do with Expo's module
-  system.
+- **Reanimated** is the last of the fifteen: a native library in its own right,
+  wanting a worklet runtime, nothing to do with Expo's module system. Unlike
+  gesture-handler it does ship portable C++, so the shape of that port is
+  compiling somebody else's sources rather than writing new ones.
+- **The gestures a cursor cannot make**: pinch, rotation and force touch begin
+  and fail, because there is no second finger and no pressure. Two-finger
+  trackpad gestures exist on both desktops and are not wired to anything.
+- **The rest of RNGH's relation graph**: `blocksHandlers`, and a `waitFor` that
+  resolves across detectors rather than within one gesture.
 - **A visible error when the bundle throws.** Today the window stays empty and
   the only evidence is a line in the host's log. Every failure above, and every
   future one, is invisible to whoever is running the app.

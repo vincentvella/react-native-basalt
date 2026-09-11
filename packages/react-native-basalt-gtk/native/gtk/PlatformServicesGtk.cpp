@@ -165,4 +165,31 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   g_idle_add_full(G_PRIORITY_DEFAULT, showAlertOnMainThread, pending, nullptr);
 }
 
+void postDelayed(double milliseconds, std::function<void()> work) {
+  // Heap-allocated because g_timeout_add takes a void*, and freed by the
+  // destroy notify whether the callback ran or the source was removed.
+  auto *held = new std::function<void()>(std::move(work));
+  g_timeout_add_full(
+      G_PRIORITY_DEFAULT,
+      static_cast<guint>(milliseconds),
+      [](gpointer data) -> gboolean {
+        (*static_cast<std::function<void()> *>(data))();
+        return G_SOURCE_REMOVE;
+      },
+      held,
+      [](gpointer data) { delete static_cast<std::function<void()> *>(data); });
+}
+
+void postToUiThread(std::function<void()> work) {
+  auto *held = new std::function<void()>(std::move(work));
+  g_idle_add_full(
+      G_PRIORITY_DEFAULT,
+      [](gpointer data) -> gboolean {
+        (*static_cast<std::function<void()> *>(data))();
+        return G_SOURCE_REMOVE;
+      },
+      held,
+      [](gpointer data) { delete static_cast<std::function<void()> *>(data); });
+}
+
 } // namespace basalt

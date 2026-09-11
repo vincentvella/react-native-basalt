@@ -129,4 +129,17 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   });
 }
 
+void postDelayed(double milliseconds, std::function<void()> work) {
+  const auto when = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(milliseconds * NSEC_PER_MSEC));
+  dispatch_after(when, dispatch_get_main_queue(), ^{
+    work();
+  });
+}
+
+void postToUiThread(std::function<void()> work) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    work();
+  });
+}
+
 } // namespace basalt

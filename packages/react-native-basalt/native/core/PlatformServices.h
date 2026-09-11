@@ -55,4 +55,25 @@ struct AlertRequest {
 using AlertCallback = std::function<void(int buttonIndex, const std::string &text)>;
 void showAlert(const AlertRequest &request, AlertCallback onButton);
 
+// Runs `work` on the UI thread after `milliseconds`, once.
+//
+// Every gesture recogniser needs this and nothing else does yet: a long press
+// activates because nothing happened for half a second, and a double tap fails
+// because a second tap did not arrive. Both are "wake me if this is still true
+// later", which cannot be expressed by reacting to input alone.
+//
+// The callback runs on the thread that draws -- the same one input arrives on
+// -- so what it touches needs no lock. There is no way to cancel: a recogniser
+// that has moved on checks its own state when it wakes, which is simpler than
+// owning a handle and correct even when the work has already started.
+void postDelayed(double milliseconds, std::function<void()> work);
+
+// Runs `work` on the UI thread, soon, in the order posted.
+//
+// The gesture registry is UI-thread state -- input arrives there and the
+// recognisers run there -- but the module that configures it is called from
+// JavaScript. Rather than lock the registry, its callers hop threads, which is
+// the same rule the mounting managers keep and assert.
+void postToUiThread(std::function<void()> work);
+
 } // namespace basalt

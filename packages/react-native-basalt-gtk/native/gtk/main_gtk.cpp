@@ -45,6 +45,7 @@
 #include "ColorScheme.h"
 #include "DevBundle.h"
 #include "ExpoModules.h"
+#include "GestureHandlerModule.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -254,6 +255,44 @@ guint scheduleTestTaps(Host *host, const char *spec) {
   return delayMs;
 }
 
+// BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release, for
+// the gestures a tap cannot reach. See GtkTouchDispatcher::synthesiseDrag.
+struct PendingDrag {
+  Host *host;
+  double fromX;
+  double fromY;
+  double toX;
+  double toY;
+};
+
+gboolean fireTestDrag(gpointer data) {
+  std::unique_ptr<PendingDrag> drag{static_cast<PendingDrag *>(data)};
+  g_message("BASALT_TEST_DRAG: (%.0f, %.0f) -> (%.0f, %.0f)",
+            drag->fromX,
+            drag->fromY,
+            drag->toX,
+            drag->toY);
+  if (drag->host->touchDispatcher != nullptr) {
+    drag->host->touchDispatcher->synthesiseDrag(
+        drag->fromX, drag->fromY, drag->toX, drag->toY, 20);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void scheduleTestDrag(Host *host, const char *spec, guint delayMs) {
+  char **parts = g_strsplit(spec, ",", 4);
+  if (g_strv_length(parts) == 4) {
+    g_timeout_add(delayMs,
+                  fireTestDrag,
+                  new PendingDrag{host,
+                                  g_ascii_strtod(parts[0], nullptr),
+                                  g_ascii_strtod(parts[1], nullptr),
+                                  g_ascii_strtod(parts[2], nullptr),
+                                  g_ascii_strtod(parts[3], nullptr)});
+  }
+  g_strfreev(parts);
+}
+
 // BASALT_TEST_TYPE: text to insert into whatever field has focus, for the
 // same reason BASALT_TEST_TAP exists -- macOS cannot synthesise a real key
 // event without accessibility permission an automated run does not have.
@@ -377,6 +416,12 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopToastModule::kModuleName) {
           return std::make_shared<basalt::DesktopToastModule>(jsInvoker);
+        }
+        // react-native-gesture-handler's module. Offered whether or not the app
+        // has the library: it costs a name comparison, and the alternative is a
+        // host that has to be rebuilt to run an app that uses gestures.
+        if (name == basalt::DesktopGestureHandlerModule::kModuleName) {
+          return std::make_shared<basalt::DesktopGestureHandlerModule>(jsInvoker);
         }
         // Only outside dev mode. ReactCxxPlatform provides a real DevSettings
         // when a dev server exists, and this provider is consulted first -- so
@@ -583,6 +628,10 @@ void onActivate(GtkApplication *app, gpointer data) {
   guint scriptedDelayMs = 1500;
   if (const char *taps = g_getenv("BASALT_TEST_TAP")) {
     scriptedDelayMs = scheduleTestTaps(host, taps);
+  }
+  if (const char *drag = g_getenv("BASALT_TEST_DRAG")) {
+    scheduleTestDrag(host, drag, scriptedDelayMs);
+    scriptedDelayMs += 1000;
   }
   if (const char *text = g_getenv("BASALT_TEST_TYPE")) {
     g_timeout_add(scriptedDelayMs, fireTestType, new PendingType{host, text});

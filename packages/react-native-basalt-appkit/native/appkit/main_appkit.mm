@@ -40,6 +40,7 @@
 #include "ColorScheme.h"
 #include "DevBundle.h"
 #include "ExpoModules.h"
+#include "GestureHandlerModule.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
@@ -244,6 +245,12 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopToastModule::kModuleName) {
           return std::make_shared<basalt::DesktopToastModule>(jsInvoker);
+        }
+        // react-native-gesture-handler's module. Offered whether or not the app
+        // has the library: it costs a name comparison, and the alternative is a
+        // host that has to be rebuilt to run an app that uses gestures.
+        if (name == basalt::DesktopGestureHandlerModule::kModuleName) {
+          return std::make_shared<basalt::DesktopGestureHandlerModule>(jsInvoker);
         }
         // Only outside dev mode. ReactCxxPlatform provides a real DevSettings
         // when a dev server exists, and this provider is consulted first -- so
@@ -600,6 +607,31 @@ int main(int argc, const char *argv[]) {
                          }
                        });
         delayMs += 1000;
+      }
+    }
+
+    // BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release,
+    // for the gestures a tap cannot reach. See synthesiseDrag.
+    if (const char *drag = getenv("BASALT_TEST_DRAG")) {
+      NSArray<NSString *> *parts =
+          [[NSString stringWithUTF8String:drag] componentsSeparatedByString:@","];
+      if (parts.count == 4) {
+        const double fromX = parts[0].doubleValue;
+        const double fromY = parts[1].doubleValue;
+        const double toX = parts[2].doubleValue;
+        const double toY = parts[3].doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1500 * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_DRAG: (%.0f, %.0f) -> (%.0f, %.0f)",
+                               fromX,
+                               fromY,
+                               toX,
+                               toY);
+                         if (gHost.touchDispatcher != nullptr) {
+                           gHost.touchDispatcher->synthesiseDrag(fromX, fromY, toX, toY, 20);
+                         }
+                       });
       }
     }
 

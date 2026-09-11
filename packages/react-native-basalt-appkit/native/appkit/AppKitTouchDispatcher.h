@@ -50,6 +50,12 @@ class AppKitTouchDispatcher {
   // and event-beat delivery, but not that AppKit routes clicks here.
   void synthesiseTap(double x, double y);
 
+  // A press, a run of moves, and a release. The same reason as synthesiseTap,
+  // one step further: a gesture recogniser cannot be exercised by a tap at all
+  // -- a pan is defined by the movement between the two -- so a drag has to be
+  // injectable for anything about it to be provable outside a person's hand.
+  void synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps);
+
   // The main-thread half, called by the view that received the mouse event.
   // Public because the Objective-C trampoline has to reach them.
   void dispatchTouchStart(double x, double y);
@@ -59,6 +65,11 @@ class AppKitTouchDispatcher {
 
  private:
   enum class TouchKind { Start, Move, End, Cancel };
+
+  // Hands the pointer to a gesture recogniser that has activated, cancelling
+  // React Native's touch. True when that happened, which means the caller has
+  // nothing left to report.
+  bool yieldToGesture(double x, double y);
 
   // Builds the TouchEvent for the current gesture. React Native wants three
   // lists -- all touches, the ones that changed, and the ones that started on

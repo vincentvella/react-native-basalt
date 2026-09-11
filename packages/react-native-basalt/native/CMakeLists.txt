@@ -51,6 +51,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_devbundle.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
@@ -133,6 +134,8 @@ if(DEFINED RN_DIR)
     core/CoreModules.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
+    core/GestureHandlerModule.cpp
+    core/Gestures.cpp
     core/ExpoModules.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp
