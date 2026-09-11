@@ -4,6 +4,38 @@
 
 #import <QuartzCore/QuartzCore.h>
 
+// Topmost first: AppKit's subviews array is back to front, and a hit test wants
+// the view that is drawn on top of the others.
+//
+// A child is only entered when the point is inside its frame, which means a
+// child that overflows a parent -- React Native's default, since `overflow` is
+// `visible` -- is not reachable through that parent. In practice Fabric's view
+// flattening hoists most such children out to an ancestor that does contain
+// them, so this matters less than it reads; the GTK side has the same limit for
+// the same reason.
+RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
+  if (root == nil || root.hidden) {
+    return nil;
+  }
+  if (!NSPointInRect(NSMakePoint(x, y), root.bounds)) {
+    return nil;
+  }
+
+  for (NSView *child in root.subviews.reverseObjectEnumerator) {
+    if (![child isKindOfClass:[RnAppKitView class]]) {
+      continue;
+    }
+    const NSRect frame = child.frame;
+    RnAppKitView *hit = RnAppKitHitTest((RnAppKitView *)child,
+                                        x - frame.origin.x,
+                                        y - frame.origin.y);
+    if (hit != nil) {
+      return hit;
+    }
+  }
+  return root;
+}
+
 @implementation RnAppKitView {
   RnTextLayout *_textLayout;
   BOOL _hasBackgroundColor;
@@ -175,6 +207,74 @@
       [(RnAppKitView *)child describeInto:out depth:depth + 1];
     }
   }
+}
+
+// --- Input ----------------------------------------------------------------
+//
+// AppKit delivers a mouse event to the view its own hit testing picked, which
+// is some view in this tree; React Native wants it against the surface root,
+// hit-tested React Native's way. So every view forwards, and the root is where
+// the forwarding stops.
+//
+// Not overriding hitTest: to make the root swallow everything instead: that
+// would also swallow the cursor rectangles, tooltips and tracking areas any
+// later component needs, and AppKit's own hit testing is doing no harm here.
+
+- (nullable id<RnAppKitInputHandler>)rnHandler:(NSView **)outRoot {
+  NSView *view = self;
+  while (view != nil) {
+    if ([view isKindOfClass:[RnAppKitView class]]) {
+      id<RnAppKitInputHandler> handler = ((RnAppKitView *)view).rnInputHandler;
+      if (handler != nil) {
+        *outRoot = view;
+        return handler;
+      }
+    }
+    view = view.superview;
+  }
+  return nil;
+}
+
+- (void)forwardMouse:(NSEvent *)event kind:(char)kind {
+  NSView *root = nil;
+  id<RnAppKitInputHandler> handler = [self rnHandler:&root];
+  if (handler == nil) {
+    return;
+  }
+  const NSPoint point = [root convertPoint:event.locationInWindow fromView:nil];
+  switch (kind) {
+    case 'd': [handler rnMouseDownAt:point]; break;
+    case 'm': [handler rnMouseDraggedTo:point]; break;
+    case 'u': [handler rnMouseUpAt:point]; break;
+    default: break;
+  }
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self forwardMouse:event kind:'d'];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  [self forwardMouse:event kind:'m'];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  [self forwardMouse:event kind:'u'];
+}
+
+// Every button, because React Native's touch model has no concept of which one
+// -- that belongs to pointer events. The same choice the GTK side makes by
+// setting its click gesture to button 0.
+- (void)rightMouseDown:(NSEvent *)event {
+  [self forwardMouse:event kind:'d'];
+}
+
+- (void)rightMouseDragged:(NSEvent *)event {
+  [self forwardMouse:event kind:'m'];
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+  [self forwardMouse:event kind:'u'];
 }
 
 - (NSString *)describeTree {

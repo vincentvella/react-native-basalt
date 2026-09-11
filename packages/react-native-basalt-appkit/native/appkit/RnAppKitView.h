@@ -29,6 +29,31 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class RnAppKitView;
+
+// Where a view sends the mouse.
+//
+// Set on the surface root only. A view that has no handler walks up to one that
+// does, which is how every view in the tree feeds a single dispatcher without
+// anything having to attach one per view -- the same arrangement the GTK side
+// gets by putting its controllers on the root.
+//
+// Points arrive in the handler's own coordinates, which is the surface root's,
+// which is what React Native calls the page.
+@protocol RnAppKitInputHandler <NSObject>
+- (void)rnMouseDownAt:(NSPoint)point;
+- (void)rnMouseDraggedTo:(NSPoint)point;
+- (void)rnMouseUpAt:(NSPoint)point;
+@end
+
+// The deepest view at a point, in `root`'s coordinates, or nil for a miss.
+//
+// A free function because it is a pure function of the view tree and nothing
+// else, which is also what makes it testable: hit testing is the part of input
+// most likely to be quietly wrong, and it needs no mouse to exercise. It lives
+// here rather than with the dispatcher so that testing it needs no React Native.
+RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x, CGFloat y);
+
 @interface RnAppKitView : NSView
 
 // Fabric's tag for this view. Set once, at creation.
@@ -70,6 +95,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 // The same one-line-per-view format the GTK side produces, so the two can be
 // compared and eventually asserted on by the same tests.
+// Set on the surface root. See RnAppKitInputHandler.
+@property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
+
 - (NSString *)describeTree;
 
 @end

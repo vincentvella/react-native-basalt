@@ -11,8 +11,8 @@ separately. Nothing is forked, which is why this can track the current Expo
 instead of trailing a rebase.
 
 Today: Linux runs real Expo apps -- text, images, scrolling, text input,
-accessibility, fonts, assets. macOS mounts `<View>` and `<Text>`, and is
-catching up. Both hosts produce a byte-identical view tree from the same
+accessibility, fonts, assets. macOS mounts `<View>` and `<Text>` and responds to
+a press, and is catching up. Both hosts produce a byte-identical view tree from the same
 JavaScript, which `scripts/compare_hosts.sh` checks. Windows is a name in a
 list.
 
@@ -115,6 +115,8 @@ Inside the shared package, under `native/`:
                                 so.
     appkit/ComponentRegistryAppKit.mm  What macOS claims: View, Paragraph, Text,
                                 RawText. See core/ComponentRegistry.h.
+    appkit/AppKitTouchDispatcher.*  Mouse -> RN touch events. Hit testing is in
+                                the view layer, so it tests without RN.
     appkit/AppKitRunLoopObserver.*  The event beat, on a CFRunLoopObserver.
     appkit/AppKitAnimationChoreographer.*  Animation frames, on a CADisplayLink.
     appkit/FontRegistryCoreText.mm  macOS's half of the font seam.
@@ -135,6 +137,7 @@ And at the repository root:
     js/views.js                 A React app made only of <View>. What
                                 compare_hosts.sh runs by default.
     js/text.js                  A React app that is mostly <Text>.
+    js/press.js                 A <Pressable> that counts presses as boxes.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.

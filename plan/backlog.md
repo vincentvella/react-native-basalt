@@ -15,8 +15,14 @@ Not scheduled. Roughly by value.
 - **Fonts loaded at runtime are untested.** `resolveFontFamily` is wired into
   the Core Text font lookup, and `expo-font` on macOS has never been run end to
   end.
-- **No `<Image>`, `<ScrollView>` or `<TextInput>`**, and no input of any kind --
-  the event beat runs with nothing to deliver.
+- **No `<Image>`, `<ScrollView>` or `<TextInput>`.**
+- **No keyboard and no focus.** Nothing is reachable by Tab and no key event
+  reaches JavaScript. Arrives with `<TextInput>`, which needs the focus model
+  anyway. Pointer input works as of phase 24.
+- **No gesture cancellation from the platform.** `dispatchTouchCancel` exists
+  and nothing calls it: AppKit has no equivalent of GTK's gesture `cancel`, and
+  the case it covers -- a press interrupted by the window losing focus -- has no
+  handler yet.
 - Within `<View>`: per-corner radii, borders, transform, z-index and
   pointer-events are unmapped. The GTK side has all of them.
 

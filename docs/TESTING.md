@@ -44,14 +44,22 @@ Hermes: mutations are hand-built, the way `mount_harness_gtk` builds them.
 
 Two files, sixteen tests, no window and no toolkit initialisation.
 
-`native/mac/test_appkit_view.mm` is against `RnAppKitView` alone, with no Fabric and no
+`native/tests/test_appkit_view.mm` is against `RnAppKitView` alone, with no Fabric and no
 React Native in it. It pins the tag and frame, the child order including
 insertion into the middle, that removing a view that is not yours is a no-op,
 that background colour, opacity, clipping and corner radius reach the CALayer,
 that the background is in sRGB rather than the display's space, and that
 `describeTree` emits the same text the GTK side does.
 
-`native/mac/test_appkit_mounting.mm` is against `AppKitMountingManager`, and is
+`native/tests/test_appkit_input.mm` is hit testing and the touch state machine.
+Hit testing is a pure function of the view tree, so it needs no mouse, no window
+server, and no permission to synthesise an event -- which matters, because a
+real click on macOS means `CGEvent` and accessibility permission an automated
+run does not have. Unlike the GTK equivalent none of it needs a window:
+`gtk_widget_pick` skips unmapped widgets, so those tests show a window and pump
+the frame clock, and `RnAppKitHitTest` walks frames and answers straight away.
+
+`native/tests/test_appkit_mounting.mm` is against `AppKitMountingManager`, and is
 deliberately the same questions `native/tests/test_mounting.cpp` asks of GTK, in
 the same order, with the same tags and frames. Since both managers now share
 their mutation walk, most of what these test is whether that sharing still holds.
@@ -63,7 +71,7 @@ origin is bottom-left and every frame Fabric produces is top-left, so a child at
 y=32 in a 420-tall parent belongs 32 from the top; unflipped it would sit at 228
 and the layout would look plausible and be wrong.
 
-`native/mac/mount_harness_appkit.mm` is the mounting equivalent: the same two
+`native/appkit/mount_harness_appkit.mm` is the mounting equivalent: the same two
 transactions `gtk/mount_harness_gtk.cpp` runs, driven through the real mounting
 manager with no JavaScript anywhere. `BASALT_SNAPSHOT_DIR=/tmp/out
 ./build/mount_harness_appkit` writes `mount-1.png` and `mount-2.png` and prints the
@@ -86,6 +94,17 @@ scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
 scripts/compare_hosts.sh
 ```
 
+`BASALT_COMPARE_TAP="x,y;x,y"` forwards taps to both hosts -- they read the same
+variable -- so the input path is compared too, not just the initial render.
+`js/press.js` is the app for that, and needs a longer quit than the default
+since the first tap is at 1500ms:
+
+```bash
+BASALT_COMPARE_TAP="400,100;400,100;400,100" BASALT_COMPARE_QUIT_AFTER_MS=5000 \
+  scripts/compare_hosts.sh \
+  build/press.linux.jsbundle.js build/press.macos.jsbundle.js BasaltPress
+```
+
 For `js/text.js`, frames have to be ignored:
 
 ```bash
@@ -106,7 +125,7 @@ As of phase 23 that comparison differs by exactly one thing -- GTK emits
 `role=label` on a paragraph and macOS emits nothing, because macOS has no
 accessibility yet.
 
-`native/mac/demo_layout_appkit.mm` is the visual half of the view layer. It carries the same boxes at
+`native/appkit/demo_layout_appkit.mm` is the visual half of the view layer. It carries the same boxes at
 the same coordinates as the GTK `demo_layout_gtk`, so the two can be compared
 directly, and `BASALT_SNAPSHOT=out.png ./build/demo_layout_appkit` renders them
 offscreen to a PNG. `BASALT_DUMP_TREE=1` prints the tree instead — useful, but

@@ -45,6 +45,12 @@ mac_bundle="${2:-build/views.macos.jsbundle.js}"
 module="${3-BasaltViews}"
 quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-4000}"
 
+# Taps, in surface-root coordinates, forwarded to both hosts. They read the same
+# variable, which is one of the things one env-var prefix bought. Each tap is a
+# second apart and the first is at 1500ms, so a run with taps needs a longer
+# quit than the default.
+taps="${BASALT_COMPARE_TAP:-}"
+
 for host in build/basalt_gtk build/basalt_appkit; do
   if [[ ! -x "$host" ]]; then
     echo "missing $host -- build both hosts first:" >&2
@@ -65,11 +71,11 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
 echo "running the GTK host..."
-BASALT_DUMP_TREE="$out/linux.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
+BASALT_TEST_TAP="$taps" BASALT_DUMP_TREE="$out/linux.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
   build/basalt_gtk "$linux_bundle" "$module" >"$out/linux.log" 2>&1 || true
 
 echo "running the macOS host..."
-BASALT_DUMP_TREE="$out/macos.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
+BASALT_TEST_TAP="$taps" BASALT_DUMP_TREE="$out/macos.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
   build/basalt_appkit "$mac_bundle" "$module" >"$out/macos.log" 2>&1 || true
 
 status=0

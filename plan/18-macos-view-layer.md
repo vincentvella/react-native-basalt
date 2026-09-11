@@ -14,7 +14,7 @@ machine. Windows is the same shape and cannot be verified here.
 
 ## What it is
 
-`native/mac/RnAppKitView.{h,mm}`, deliberately the same shape as `gtk/RnView`: a
+`native/appkit/RnAppKitView.{h,mm}`, deliberately the same shape as `gtk/RnView`: a
 view owns a tag and an absolute frame, does no layout of its own, and places
 children at the rects the shadow tree already resolved. Yoga has run by the time
 a mutation arrives; a second layout system underneath it is the thing to avoid.

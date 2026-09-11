@@ -119,7 +119,8 @@ if(TARGET basalt_core)
   add_executable(basalt_appkit
     appkit/main_appkit.mm
     appkit/AppKitRunLoopObserver.mm
-    appkit/AppKitAnimationChoreographer.mm)
+    appkit/AppKitAnimationChoreographer.mm
+    appkit/AppKitTouchDispatcher.mm)
   target_compile_options(basalt_appkit PRIVATE -Wall -Wextra -fobjc-arc)
   target_link_libraries(basalt_appkit PRIVATE basalt_appkit_mounting)
 
@@ -131,7 +132,12 @@ if(TARGET basalt_core)
   target_compile_options(mount_harness_appkit PRIVATE -Wall -Wextra -fobjc-arc)
   target_link_libraries(mount_harness_appkit PRIVATE basalt_appkit_mounting)
 
-  list(APPEND BASALT_APPKIT_TEST_SOURCES tests/test_appkit_mounting.mm)
+  list(APPEND BASALT_APPKIT_TEST_SOURCES
+    tests/test_appkit_mounting.mm
+    # Hit testing lives with the touch dispatcher, which the host builds; the
+    # tests need it too, and it pulls in nothing else.
+    appkit/AppKitTouchDispatcher.mm
+    tests/test_appkit_input.mm)
 endif()
 
 add_executable(basalt_appkit_tests ${BASALT_APPKIT_TEST_SOURCES})

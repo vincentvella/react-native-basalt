@@ -9,6 +9,7 @@
 // a host has to supply, and where each comes from:
 //
 //   IMountingManager         AppKitMountingManager        (this repo)
+//   Input                    AppKitTouchDispatcher        (this repo)
 //   RunLoopObserverManager   ReactCxxPlatform          (event beat)
 //   AnimationChoreographer   AppKitAnimationChoreographer (this repo, display link)
 //   ContextContainer         http + websocket client factories, below
@@ -29,6 +30,7 @@
 #import "AppKitAnimationChoreographer.h"
 #import "AppKitMountingManager.h"
 #import "AppKitRunLoopObserver.h"
+#import "AppKitTouchDispatcher.h"
 #import "AppKitSnapshot.h"
 #import "RnAppKitView.h"
 
@@ -87,6 +89,7 @@ struct Host {
   std::shared_ptr<basalt::AppKitMountingManager> mountingManager;
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::AppKitAnimationChoreographer> choreographer;
+  std::unique_ptr<basalt::AppKitTouchDispatcher> touchDispatcher;
   std::unique_ptr<ReactHost> reactHost;
 
   CFRunLoopObserverRef runLoopObserver{nullptr};
@@ -268,6 +271,7 @@ void shutdown() {
   basalt::removeRunLoopObserver(gHost.runLoopObserver);
   gHost.runLoopObserver = nullptr;
 
+  gHost.touchDispatcher.reset();
   if (gHost.reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
     gHost.reactHost->stopAllSurfaces();
@@ -388,6 +392,10 @@ int main(int argc, const char *argv[]) {
     [gHost.root setRnFrameX:0 y:0 width:kInitialWidth height:kInitialHeight];
     gHost.window.contentView = gHost.root;
 
+    // Input. Attached to the root, which is where hit testing starts.
+    gHost.touchDispatcher =
+        std::make_unique<basalt::AppKitTouchDispatcher>(gHost.mountingManager.get(), gHost.root);
+
     gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
     gHost.choreographer = std::make_shared<basalt::AppKitAnimationChoreographer>();
 
@@ -485,13 +493,99 @@ int main(int argc, const char *argv[]) {
                      });
     }
 
+    // BASALT_TEST_TAP: "x,y;x,y" -- synthesise taps a second apart, in
+    // surface-root coordinates. Enters where AppKit's mouse handler would, so
+    // it exercises hit testing and event delivery but not AppKit itself.
+    //
+    // It exists because the alternative is CGEvent, which needs accessibility
+    // permission an automated run does not have. The GTK host has the same
+    // escape hatch for the same reason, and the end-to-end suite on Linux uses
+    // xdotool instead where it can.
+    if (const char *taps = getenv("BASALT_TEST_TAP")) {
+      NSString *spec = [NSString stringWithUTF8String:taps];
+      int64_t delayMs = 1500;
+      for (NSString *point in [spec componentsSeparatedByString:@";"]) {
+        NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
+        if (parts.count != 2) {
+          continue;
+        }
+        const double x = parts[0].doubleValue;
+        const double y = parts[1].doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_TAP: tapping (%.0f, %.0f)", x, y);
+                         if (gHost.touchDispatcher != nullptr) {
+                           gHost.touchDispatcher->synthesiseTap(x, y);
+                         }
+                       });
+        delayMs += 1000;
+      }
+    }
+
+    // BASALT_TEST_CLICK: the same "x,y;x,y", but as real NSEvents posted to the
+    // window rather than as calls into the dispatcher.
+    //
+    // The difference from BASALT_TEST_TAP is the whole point: a synthesised tap
+    // proves hit testing and delivery to JavaScript, and proves nothing about
+    // whether AppKit routes a click to these views at all. This posts events
+    // through the application's own queue, which exercises NSView's hit
+    // testing, the responder chain and mouseDown:/mouseUp:.
+    //
+    // In-process, so it needs none of the accessibility permission CGEvent
+    // would -- which is what makes it usable in automation where a real click
+    // is not.
+    if (const char *clicks = getenv("BASALT_TEST_CLICK")) {
+      NSString *spec = [NSString stringWithUTF8String:clicks];
+      int64_t delayMs = 1500;
+      for (NSString *point in [spec componentsSeparatedByString:@";"]) {
+        NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
+        if (parts.count != 2) {
+          continue;
+        }
+        const CGFloat x = parts[0].doubleValue;
+        const CGFloat y = parts[1].doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_CLICK: clicking (%.0f, %.0f)", x, y);
+                         // Through the root, which converts out of the flipped
+                         // top-left space every coordinate here is in and into
+                         // the window's bottom-left one.
+                         const NSPoint inWindow = [gHost.root convertPoint:NSMakePoint(x, y)
+                                                                    toView:nil];
+                         for (NSEventType type :
+                              {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp}) {
+                           NSEvent *event =
+                               [NSEvent mouseEventWithType:type
+                                                  location:inWindow
+                                             modifierFlags:0
+                                                 timestamp:NSProcessInfo.processInfo.systemUptime
+                                              windowNumber:gHost.window.windowNumber
+                                                   context:nil
+                                               eventNumber:0
+                                                clickCount:1
+                                                  pressure:type == NSEventTypeLeftMouseDown ? 1 : 0];
+                           [NSApp postEvent:event atStart:NO];
+                         }
+                       });
+        delayMs += 1000;
+      }
+    }
+
     // BASALT_SNAPSHOT: render what is actually on screen to a PNG on the way
     // out. The tree dump above says what was mounted; this says what it looks
     // like, and the two fail differently -- a correct tree can still paint
     // nothing if the layer or the window is wrong.
     if (const char *snapshot = getenv("BASALT_SNAPSHOT")) {
       NSString *path = [NSString stringWithUTF8String:snapshot];
-      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+      // BASALT_SNAPSHOT_AFTER_MS: when to take it. A snapshot is only worth
+      // anything if it lands after whatever is being tested, and the taps above
+      // start at 1500ms, so the default would catch the app before its first
+      // press.
+      const char *after = getenv("BASALT_SNAPSHOT_AFTER_MS");
+      const int64_t delayMs = after != nullptr ? strtoll(after, nullptr, 10) : 1000;
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
                      dispatch_get_main_queue(),
                      ^{
                        if (RnAppKitWriteSnapshot(gHost.root, path)) {
