@@ -324,12 +324,24 @@ One bundle, its assets beside it, which is where React Native looks for them.
 this command, because `expo` does not know this platform and Metro's own `build`
 emits no assets.
 
-## A stock Expo app runs
+## A stock Expo app runs, on both
 
-`npx create-expo-app --template blank`, unmodified, renders on Linux. Expo
-57.0.21, React Native 0.86.3, both stock from npm, on a platform that forks
-neither. That is what this project exists to show; `plan/15-expo-runtime.md` is
-how, and what it does not yet cover, which is every actual Expo module.
+`npx create-expo-app --template blank`, unmodified, renders on Linux **and on
+macOS**, and produces the same view tree on each. Expo 57, React Native 0.86.3,
+both stock from npm, on a platform that forks neither.
+
+The whole change to the app is three lines of `metro.config.js`:
+
+```js
+const {getDefaultConfig} = require('expo/metro-config');
+const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
+
+module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
+```
+
+That is what this project exists to show. `plan/15-expo-runtime.md` is how, and
+`plan/29-expo-on-macos.md` is the second desktop getting it for free -- along
+with what neither covers, which is every actual Expo module.
 
 ## Supported React Native versions
 
