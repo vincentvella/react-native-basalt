@@ -26,7 +26,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
 # For fonts an app loads at runtime. Pango finds fonts through fontconfig, so
 # adding one to fontconfig is what makes it available to text this platform
-# renders. See src/LinuxFonts.cpp.
+# renders. See gtk/LinuxFonts.cpp.
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
 # pango_fc_font_map_config_changed lives here rather than in pango proper. It is
 # how Pango is told that the set of fonts changed underneath it.
@@ -38,18 +38,18 @@ pkg_check_modules(PANGOFT2 REQUIRED IMPORTED_TARGET pangoft2)
 # No React Native dependency, so it builds and runs on its own.
 # ---------------------------------------------------------------------------
 
-add_library(rn_view STATIC src/RnView.cpp)
+add_library(rn_view STATIC gtk/RnView.cpp)
 # This project's own sources are held to -Wall -Wextra. React Native's are not:
 # its targets set their own flags, and these are PRIVATE so they never reach it.
 target_compile_options(rn_view PRIVATE -Wall -Wextra)
-target_include_directories(rn_view PUBLIC src)
+target_include_directories(rn_view PUBLIC gtk)
 target_link_libraries(rn_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
 
 # ---------------------------------------------------------------------------
 # demo_layout — exercises the widget layer with hand-written frames.
 # ---------------------------------------------------------------------------
 
-add_executable(demo_layout src/demo_layout.cpp)
+add_executable(demo_layout gtk/demo_layout.cpp)
 target_link_libraries(demo_layout PRIVATE rn_view)
 
 # ---------------------------------------------------------------------------
@@ -140,20 +140,25 @@ if(DEFINED RN_DIR)
     target_sources(rn_desktop_core PUBLIC $<TARGET_OBJECTS:expo_core>)
   endif()
 
+  # Links the core and no toolkit. See core/portability_probe.cpp: what it
+  # cannot find is precisely what a new desktop platform has to provide.
+  add_executable(core_probe core/portability_probe.cpp)
+  target_link_libraries(core_probe PRIVATE rn_desktop_core)
+
   add_library(rn_mounting STATIC
-    src/GtkMountingManager.cpp
+    gtk/GtkMountingManager.cpp
     # The mounting manager loads <Image> pixels itself, so the loader lives
     # here rather than with the host: mount_harness links this too.
-    src/GtkImageLoader.cpp
-    src/GtkScrollView.cpp
-    src/GtkTextInput.cpp
+    gtk/GtkImageLoader.cpp
+    gtk/GtkScrollView.cpp
+    gtk/GtkTextInput.cpp
     # Linux's implementation of core/FontRegistry.h.
-    src/FontRegistryFontconfig.cpp
-    src/PangoTextLayout.cpp
+    gtk/FontRegistryFontconfig.cpp
+    gtk/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
-    src/PangoTextLayoutManager.cpp)
+    gtk/PangoTextLayoutManager.cpp)
 
-  target_include_directories(rn_mounting PUBLIC src)
+  target_include_directories(rn_mounting PUBLIC gtk)
   target_link_libraries(rn_mounting PUBLIC rn_desktop_core)
 
   # SYSTEM, so -Wall -Wextra on this project's own sources does not drown in
@@ -195,7 +200,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   # mount_harness — drives real ShadowViewMutations through the real mounting
   # manager into real GTK widgets, with no JS runtime involved.
   # ---------------------------------------------------------------------------
-  add_executable(mount_harness src/mount_harness.cpp)
+  add_executable(mount_harness gtk/mount_harness.cpp)
   target_link_libraries(mount_harness PRIVATE rn_mounting)
   target_compile_options(mount_harness PRIVATE -Wno-unknown-pragmas)
 
@@ -204,10 +209,10 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
   # the mutation stream coming from Fabric rather than from a harness.
   # ---------------------------------------------------------------------------
   add_executable(rn_linux_host
-    src/main.cpp
-    src/GtkAnimationChoreographer.cpp
-    src/GtkRunLoopObserver.cpp
-    src/GtkTouchDispatcher.cpp
+    gtk/main.cpp
+    gtk/GtkAnimationChoreographer.cpp
+    gtk/GtkRunLoopObserver.cpp
+    gtk/GtkTouchDispatcher.cpp
     core/HttpClient.cpp)
   target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
@@ -232,7 +237,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     tests/test_version.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
-    src/GtkTouchDispatcher.cpp)
+    gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(rn_tests PRIVATE rn_mounting)
   target_include_directories(rn_tests PRIVATE tests)
   target_compile_options(rn_tests PRIVATE -Wall -Wextra -Wno-unknown-pragmas)

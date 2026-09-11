@@ -1,7 +1,7 @@
 # Phase 17 — splitting the core from the toolkit
 
-> **Started, 2026-09-10.** `rn_desktop_core` builds without GTK on the include
-> path.
+> **Started, 2026-09-10.** The core builds and links with no toolkit, and owes
+> a new platform exactly one seam.
 
 The goal is the latest Expo on macOS, Windows and Linux. The existing desktop
 platforms cannot get there: React Native for macOS is at 0.81.9 and for Windows
@@ -46,6 +46,36 @@ registry's implementation, and the host's window.
 Roughly, the view layer is platform work and everything behind it is not. That
 matches the shape of React Native's own C++ platform, which is the reason this
 approach can be current at all.
+
+## What a second platform actually owes
+
+Compiling without a toolkit says nothing about linking without one: a header
+that is never included cannot betray you, and an undefined symbol at link time
+can. So `core/portability_probe.cpp` is a program that links the core and
+nothing else, and it is built on every build, which makes the claim an assertion
+rather than a description.
+
+Linked with no platform code at all it fails on two symbols, both the font
+registry. Stub those and it links and runs:
+
+```
+core links.
+  modules           PlatformConstants, SourceCode, StatusBarManager
+  scriptURLFor      file:///.../bundle.js
+  font seam         isFontRegistered=0 generation=0
+```
+
+So the debt is one seam. The Expo runtime, the three core modules, the http
+client and the component registry need no platform code whatsoever. Everything
+else a desktop platform must bring is the view layer, which was never in
+question.
+
+That is a better answer than expected, and it is worth being precise about why
+it is not the whole story: the core is currently small. It grows every time an
+Expo module is ported, and each port is a chance to introduce a second seam or,
+worse, a platform assumption that compiles everywhere and is wrong on two of
+them. The probe is what keeps that honest, and it only stays honest if new
+modules are added to it.
 
 ## What this does not yet do
 
