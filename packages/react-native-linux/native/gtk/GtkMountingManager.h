@@ -9,18 +9,22 @@
 #include "GtkImageLoader.h"
 #include "GtkScrollView.h"
 #include "GtkTextInput.h"
+#include "MountingWalk.h"
 #include "RnView.h"
 
-#include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/uimanager/IMountingManager.h>
 
 #include <memory>
-#include <thread>
 #include <unordered_map>
 
 namespace rnlinux {
 
-class GtkMountingManager final : public facebook::react::IMountingManager {
+// The mutation walk, the registry and the surface-root handling all live in
+// MountingWalk and are shared with every other desktop platform. What is left
+// here is the part that is genuinely GTK: making a widget, parenting it, and
+// turning a ShadowView into widget state.
+class GtkMountingManager final : public facebook::react::IMountingManager,
+                                 public MountingWalk<GtkMountingManager, RnView *> {
  public:
   GtkMountingManager();
   ~GtkMountingManager() noexcept override;
@@ -41,24 +45,11 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   bool hasComponent(const std::string &name) override;
 
   // --- Host-facing ----------------------------------------------------------
-
-  // Fabric does not emit a Create mutation for a surface's root: the root
-  // shadow node is the base of every diff, so it must already exist. The host
-  // calls this before ReactHost::startSurface and parents the returned widget
-  // into a GtkWindow. In Fabric a SurfaceId *is* the root node's tag, which is
-  // what lets the root participate in the registry like any other view.
-  RnView *createSurfaceRoot(facebook::react::SurfaceId surfaceId);
-  void destroySurfaceRoot(facebook::react::SurfaceId surfaceId);
-  RnView *getSurfaceRoot(facebook::react::SurfaceId surfaceId) const;
-
-  // The event emitter for a mounted view, or null if the tag is unknown.
-  // Callers cast to what they need: GtkTouchDispatcher to TouchEventEmitter,
-  // the image path to ImageEventEmitter.
   //
-  // Emitters are kept per tag rather than on the widget because RnView holds no
-  // React Native types, and because a view can be detached between a Remove and
-  // its Delete while still needing to deliver a cancel.
-  facebook::react::EventEmitter::Shared eventEmitterForTag(facebook::react::Tag tag) const;
+  // createSurfaceRoot, destroySurfaceRoot, getSurfaceRoot, viewForTag and
+  // eventEmitterForTag come from MountingWalk. Callers cast the emitter to what
+  // they need: GtkTouchDispatcher to TouchEventEmitter, the image path to
+  // ImageEventEmitter.
 
   // Applies a transaction to the widget tree. Invoked on the GTK main thread by
   // executeMount's marshalling -- not part of IMountingManager, and never to be
@@ -74,10 +65,18 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
                         facebook::react::MountingTransaction &&transaction);
 
  private:
-  RnView *viewForTag(facebook::react::Tag tag) const;
-  void rememberEventEmitter(const facebook::react::ShadowView &shadowView);
+  // --- What MountingWalk asks of a platform ---------------------------------
+  friend class MountingWalk<GtkMountingManager, RnView *>;
 
-  void applyShadowView(RnView *view, const facebook::react::ShadowView &shadowView);
+  RnView *createView(const facebook::react::ShadowView &shadowView);
+  RnView *createRootView(facebook::react::Tag tag);
+  void destroyView(RnView *view);
+  void insertChild(RnView *parent, RnView *child, int index);
+  void removeChild(RnView *parent, RnView *child);
+  void updateView(RnView *view, const facebook::react::ShadowView &shadowView);
+  void forgetTag(facebook::react::Tag tag);
+
+  // --- The GTK half of updateView -------------------------------------------
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyImage(RnView *view, const facebook::react::ShadowView &shadowView);
@@ -86,14 +85,6 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   void applyTextInput(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
-  // Views are held with a strong reference from Create until Delete. Between a
-  // Remove and its Delete a view has no parent, so the registry is the only
-  // thing keeping it alive.
-  std::unordered_map<facebook::react::Tag, RnView *> registry_;
-
-  // Parallel to registry_, and torn down with it on Delete.
-  std::unordered_map<facebook::react::Tag, facebook::react::EventEmitter::Shared> eventEmitters_;
-
   GtkImageLoader imageLoader_;
   GtkScrollViewManager scrollViews_;
   GtkTextInputManager textInputs_;
@@ -101,10 +92,6 @@ class GtkMountingManager final : public facebook::react::IMountingManager {
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load.
   std::unordered_map<facebook::react::Tag, std::string> imageUris_;
-
-  // The GTK main thread, recorded at construction. executeMount arrives on the
-  // JS thread and marshals here; applyTransaction asserts it got there.
-  std::thread::id mainThreadId_;
 };
 
 } // namespace rnlinux

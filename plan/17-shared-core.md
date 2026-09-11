@@ -65,7 +65,19 @@ core links.
   font seam         isFontRegistered=0 generation=0
 ```
 
-So the debt is one seam. The Expo runtime, the three core modules, the http
+So the debt is one seam.
+
+> **Correction, same day.** It is three. Linking an actual second platform in
+> phase 19 found two more that this probe cannot see: `TextLayoutManager`, whose
+> stub this build drops so Pango's can be the only definition, and the component
+> registry, which had been a shared inline function and turned out to be the
+> thing that pulls the first one in. Both are real seams and both are now
+> per-platform. The probe missed them because it links the core alone and nothing
+> in the core references either -- a seam is only discoverable this way once
+> something uses it. See `plan/19-macos-mounting.md`. The paragraph below, about
+> the core being small and the probe only staying honest if new modules are added
+> to it, was right about the risk and wrong about where it would come from.
+ The Expo runtime, the three core modules, the http
 client and the component registry need no platform code whatsoever. Everything
 else a desktop platform must bring is the view layer, which was never in
 question.
@@ -89,5 +101,12 @@ badly from a macOS build. Renaming it touches every file and proves nothing, so
 it waits for the package split.
 
 And none of this is evidence that a second view layer is cheap. It is evidence
-about the half that is *not* the view layer. The AppKit or Windows mounting
-manager is roughly the work the GTK one was, which was most of this project.
+about the half that is *not* the view layer.
+
+> **Correction, same day.** "The AppKit or Windows mounting manager is roughly
+> the work the GTK one was" is wrong, and phase 19 is the measurement. Most of
+> `GtkMountingManager` was the mutation walk, which is portable and now lives in
+> `core/MountingWalk.h`; the GTK suite still passes 60/60 with the walk moved out
+> and not a test changed. What a platform writes is seven operations and a props
+> translation. The view *layer* -- text shaping, input, scrolling, images -- is
+> still most of the work, and that part stands.

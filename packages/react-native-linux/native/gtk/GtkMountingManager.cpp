@@ -99,14 +99,12 @@ GdkRGBA toRgba(const ColorComponents &components) {
 
 GtkMountingManager::GtkMountingManager()
     : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
-      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }),
-      mainThreadId_(std::this_thread::get_id()) {}
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
 
 GtkMountingManager::~GtkMountingManager() noexcept {
-  for (auto &[tag, view] : registry_) {
-    g_object_unref(view);
-  }
-  registry_.clear();
+  // MountingWalk cannot do this itself: by the time a base destructor runs, the
+  // GTK half that knows how to release a widget is already gone.
+  releaseAllViews();
 }
 
 // ---------------------------------------------------------------------------
@@ -159,114 +157,67 @@ void GtkMountingManager::executeMount(SurfaceId surfaceId, MountingTransaction &
 }
 
 void GtkMountingManager::applyTransaction(SurfaceId surfaceId, MountingTransaction &&transaction) {
-  assert(std::this_thread::get_id() == mainThreadId_ &&
-         "applyTransaction must run on the GTK main thread");
+  // The walk itself is in core/MountingWalk.h and is shared with every other
+  // desktop platform; what is GTK about mounting is below, in the handful of
+  // operations it calls back into.
+  (void)surfaceId;
+  applyMutations(transaction.getMutations());
+}
 
-  for (const auto &mutation : transaction.getMutations()) {
-    switch (mutation.type) {
-      case ShadowViewMutation::Create: {
-        // Create allocates a view but does not attach it; an Insert follows.
-        const auto &shadowView = mutation.newChildShadowView;
+// ---------------------------------------------------------------------------
+// What MountingWalk asks of a platform
+// ---------------------------------------------------------------------------
 
-        // The accessible role has to be decided now: GTK4 makes it
-        // construct-only, and RnView is one class for every React Native view.
-        GtkAccessibleRole role = GTK_ACCESSIBLE_ROLE_GENERIC;
-        if (const auto accessibility =
-                std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props)) {
-          role = toAccessibleRole(accessibility->accessibilityRole);
-        }
-        if (role == GTK_ACCESSIBLE_ROLE_GENERIC && shadowView.componentName != nullptr) {
-          // No explicit role, so infer one from the component. A <Text> is a
-          // label and an <Image> is an image whether or not the app said so.
-          const std::string_view name(shadowView.componentName);
-          if (name == "Paragraph") {
-            role = GTK_ACCESSIBLE_ROLE_LABEL;
-          } else if (name == "Image") {
-            role = GTK_ACCESSIBLE_ROLE_IMG;
-          }
-        }
-
-        RnView *view = rn_view_new_with_role(static_cast<int>(shadowView.tag), role);
-
-        // A fresh GtkWidget carries a floating reference. Sinking it here makes
-        // the registry the owner, so the view survives the gap between a
-        // Remove and the Insert that re-parents it.
-        g_object_ref_sink(view);
-
-        applyShadowView(view, shadowView);
-        registry_[shadowView.tag] = view;
-        rememberEventEmitter(shadowView);
-        break;
-      }
-
-      case ShadowViewMutation::Delete: {
-        const Tag tag = mutation.oldChildShadowView.tag;
-        if (auto it = registry_.find(tag); it != registry_.end()) {
-          g_object_unref(it->second);
-          registry_.erase(it);
-          eventEmitters_.erase(tag);
-          imageUris_.erase(tag);
-          scrollViews_.remove(tag);
-          textInputs_.remove(tag);
-        } else {
-          g_warning("Delete for unknown tag %d", static_cast<int>(tag));
-        }
-        break;
-      }
-
-      case ShadowViewMutation::Insert: {
-        if (mutation.mutatedViewIsVirtual()) {
-          // Virtual views exist in the shadow tree only, to keep an
-          // EventEmitter alive. They have no widget to parent.
-          break;
-        }
-        RnView *parent = viewForTag(mutation.parentTag);
-        RnView *child = viewForTag(mutation.newChildShadowView.tag);
-        if (parent == nullptr || child == nullptr) {
-          g_warning("Insert with unknown tag (parent %d, child %d)",
-                    static_cast<int>(mutation.parentTag),
-                    static_cast<int>(mutation.newChildShadowView.tag));
-          break;
-        }
-        // Props can change in the same transaction that inserts the view.
-        applyShadowView(child, mutation.newChildShadowView);
-        rn_view_insert_child(parent, child, mutation.index);
-        break;
-      }
-
-      case ShadowViewMutation::Remove: {
-        if (mutation.mutatedViewIsVirtual()) {
-          break;
-        }
-        RnView *parent = viewForTag(mutation.parentTag);
-        RnView *child = viewForTag(mutation.oldChildShadowView.tag);
-        if (parent == nullptr || child == nullptr) {
-          g_warning("Remove with unknown tag (parent %d, child %d)",
-                    static_cast<int>(mutation.parentTag),
-                    static_cast<int>(mutation.oldChildShadowView.tag));
-          break;
-        }
-        rn_view_remove_child(parent, child);
-        break;
-      }
-
-      case ShadowViewMutation::Update: {
-        const auto &shadowView = mutation.newChildShadowView;
-        RnView *view = viewForTag(shadowView.tag);
-        if (view == nullptr) {
-          g_warning("Update for unknown tag %d", static_cast<int>(shadowView.tag));
-          break;
-        }
-        applyShadowView(view, shadowView);
-        // A clone carries a new emitter instance; keeping the old one would
-        // deliver touches to a stale target.
-        rememberEventEmitter(shadowView);
-        break;
-      }
+RnView *GtkMountingManager::createView(const ShadowView &shadowView) {
+  // The accessible role has to be decided now: GTK4 makes it construct-only,
+  // and RnView is one class for every React Native view. This is the reason
+  // createView is handed the whole ShadowView rather than just a tag.
+  GtkAccessibleRole role = GTK_ACCESSIBLE_ROLE_GENERIC;
+  if (const auto accessibility =
+          std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props)) {
+    role = toAccessibleRole(accessibility->accessibilityRole);
+  }
+  if (role == GTK_ACCESSIBLE_ROLE_GENERIC && shadowView.componentName != nullptr) {
+    // No explicit role, so infer one from the component. A <Text> is a label
+    // and an <Image> is an image whether or not the app said so.
+    const std::string_view name(shadowView.componentName);
+    if (name == "Paragraph") {
+      role = GTK_ACCESSIBLE_ROLE_LABEL;
+    } else if (name == "Image") {
+      role = GTK_ACCESSIBLE_ROLE_IMG;
     }
   }
 
-  (void)surfaceId;
+  RnView *view = rn_view_new_with_role(static_cast<int>(shadowView.tag), role);
+  // A fresh GtkWidget carries a floating reference. Sinking it here makes the
+  // registry the owner, so the view survives the gap between a Remove and the
+  // Insert that re-parents it.
+  g_object_ref_sink(view);
+  return view;
+}
+
+RnView *GtkMountingManager::createRootView(Tag tag) {
+  RnView *root = rn_view_new(static_cast<int>(tag));
+  g_object_ref_sink(root);
+  return root;
+}
+
+void GtkMountingManager::destroyView(RnView *view) {
+  g_object_unref(view);
+}
+
+void GtkMountingManager::insertChild(RnView *parent, RnView *child, int index) {
+  rn_view_insert_child(parent, child, index);
+}
+
+void GtkMountingManager::removeChild(RnView *parent, RnView *child) {
+  rn_view_remove_child(parent, child);
+}
+
+void GtkMountingManager::forgetTag(Tag tag) {
+  imageUris_.erase(tag);
+  scrollViews_.remove(tag);
+  textInputs_.remove(tag);
 }
 
 void GtkMountingManager::dispatchCommand(const ShadowView &shadowView,
@@ -288,8 +239,7 @@ void GtkMountingManager::dispatchCommand(const ShadowView &shadowView,
 void GtkMountingManager::applyCommand(Tag tag,
                                       const std::string &commandName,
                                       const folly::dynamic &args) {
-  assert(std::this_thread::get_id() == mainThreadId_ &&
-         "applyCommand must run on the GTK main thread");
+  assert(onMainThread() && "applyCommand must run on the GTK main thread");
 
   if (scrollViews_.dispatchCommand(tag, commandName, args)) {
     return;
@@ -487,55 +437,10 @@ bool GtkMountingManager::hasComponent(const std::string &name) {
 }
 
 // ---------------------------------------------------------------------------
-// Surface roots
-// ---------------------------------------------------------------------------
-
-RnView *GtkMountingManager::createSurfaceRoot(SurfaceId surfaceId) {
-  const Tag rootTag = static_cast<Tag>(surfaceId);
-
-  if (auto it = registry_.find(rootTag); it != registry_.end()) {
-    return it->second;
-  }
-
-  RnView *root = rn_view_new(static_cast<int>(rootTag));
-  g_object_ref_sink(root);
-  registry_[rootTag] = root;
-  return root;
-}
-
-void GtkMountingManager::destroySurfaceRoot(SurfaceId surfaceId) {
-  const Tag rootTag = static_cast<Tag>(surfaceId);
-  if (auto it = registry_.find(rootTag); it != registry_.end()) {
-    g_object_unref(it->second);
-    registry_.erase(it);
-  }
-}
-
-RnView *GtkMountingManager::getSurfaceRoot(SurfaceId surfaceId) const {
-  return viewForTag(static_cast<Tag>(surfaceId));
-}
-
-// ---------------------------------------------------------------------------
 // Applying a ShadowView to a widget
 // ---------------------------------------------------------------------------
 
-void GtkMountingManager::rememberEventEmitter(const ShadowView &shadowView) {
-  if (shadowView.eventEmitter != nullptr) {
-    eventEmitters_[shadowView.tag] = shadowView.eventEmitter;
-  }
-}
-
-facebook::react::EventEmitter::Shared GtkMountingManager::eventEmitterForTag(Tag tag) const {
-  const auto it = eventEmitters_.find(tag);
-  return it == eventEmitters_.end() ? nullptr : it->second;
-}
-
-RnView *GtkMountingManager::viewForTag(Tag tag) const {
-  const auto it = registry_.find(tag);
-  return it == registry_.end() ? nullptr : it->second;
-}
-
-void GtkMountingManager::applyShadowView(RnView *view, const ShadowView &shadowView) {
+void GtkMountingManager::updateView(RnView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyImage(view, shadowView);

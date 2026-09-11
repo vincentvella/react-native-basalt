@@ -39,21 +39,37 @@ Hermes: mutations are hand-built, the way `mount_harness` builds them.
 | `native/tests/test_image.cpp` | The image loader. Decoding, the cache answering synchronously, and the three ways a load can fail. |
 | `native/tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. |
 
-## `build/rn_mac_tests` — the macOS view layer
+## `build/rn_mac_tests` — the macOS suite
 
-`native/mac/test_mac_view.mm`, against `RnMacView` alone: no Fabric, no React
-Native, no toolkit initialisation. It pins the tag and frame, the child order
-including insertion into the middle, that removing a view that is not yours is a
-no-op, that background colour, opacity, clipping and corner radius reach the
-CALayer, that the background is in sRGB rather than the display's space, and
-that `describeTree` emits the same text the GTK side does.
+Two files, sixteen tests, no window and no toolkit initialisation.
+
+`native/mac/test_mac_view.mm` is against `RnMacView` alone, with no Fabric and no
+React Native in it. It pins the tag and frame, the child order including
+insertion into the middle, that removing a view that is not yours is a no-op,
+that background colour, opacity, clipping and corner radius reach the CALayer,
+that the background is in sRGB rather than the display's space, and that
+`describeTree` emits the same text the GTK side does.
+
+`native/mac/test_mac_mounting.mm` is against `MacMountingManager`, and is
+deliberately the same questions `native/tests/test_mounting.cpp` asks of GTK, in
+the same order, with the same tags and frames. Since both managers now share
+their mutation walk, most of what these test is whether that sharing still holds.
+Built only when the build was pointed at a React Native; without one the view
+tests still run.
 
 The one worth naming is `mac_view_is_flipped_so_frames_are_top_left`. AppKit's
 origin is bottom-left and every frame Fabric produces is top-left, so a child at
 y=32 in a 420-tall parent belongs 32 from the top; unflipped it would sit at 228
 and the layout would look plausible and be wrong.
 
-`native/mac/demo_layout_mac.mm` is the visual half. It carries the same boxes at
+`native/mac/mount_harness_mac.mm` is the mounting equivalent: the same two
+transactions `gtk/mount_harness.cpp` runs, driven through the real mounting
+manager with no JavaScript anywhere. `RN_MAC_SNAPSHOT_DIR=/tmp/out
+./build/mount_harness_mac` writes `mount-1.png` and `mount-2.png` and prints the
+tree after each; with no directory set it opens a window and applies the second
+transaction two seconds in, the way the GTK harness does.
+
+`native/mac/demo_layout_mac.mm` is the visual half of the view layer. It carries the same boxes at
 the same coordinates as the GTK `demo_layout`, so the two can be compared
 directly, and `RN_MAC_SNAPSHOT=out.png ./build/demo_layout_mac` renders them
 offscreen to a PNG. `RN_MAC_DUMP_TREE=1` prints the tree instead — useful, but

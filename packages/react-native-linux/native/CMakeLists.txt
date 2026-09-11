@@ -43,74 +43,16 @@ pkg_check_modules(FONTCONFIG ${RN_DESKTOP_GTK_REQUIREMENT} IMPORTED_TARGET fontc
 pkg_check_modules(PANGOFT2 ${RN_DESKTOP_GTK_REQUIREMENT} IMPORTED_TARGET pangoft2)
 
 # ---------------------------------------------------------------------------
-# The macOS view layer.
+# React Native's C++ core, and the half of this project that is not a toolkit.
 #
-# Built only where it can be: an AppKit view compiles on a Mac and nowhere else,
-# and the GTK half is in the same position on the other side. Both sit beside
-# the shared core rather than underneath each other, which is the arrangement
-# the whole split exists to make possible.
-#
-# Objective-C++ is enabled here rather than at the top of the file so that a
-# Linux build never asks for a compiler it has no reason to have.
-# ---------------------------------------------------------------------------
-if(APPLE)
-  enable_language(OBJCXX)
-
-  add_library(rn_mac_view STATIC mac/RnMacView.mm)
-  target_compile_options(rn_mac_view PRIVATE -Wall -Wextra -fobjc-arc)
-  target_include_directories(rn_mac_view PUBLIC mac)
-  target_link_libraries(rn_mac_view PUBLIC "-framework Cocoa" "-framework QuartzCore")
-
-  add_executable(demo_layout_mac mac/demo_layout_mac.mm)
-  target_compile_options(demo_layout_mac PRIVATE -Wall -Wextra -fobjc-arc)
-  target_link_libraries(demo_layout_mac PRIVATE rn_mac_view)
-
-  # The same harness the GTK tests use. It has no toolkit dependency, which is
-  # the point: the test infrastructure is shared even though the views are not.
-  add_executable(rn_mac_tests tests/TestHarness.cpp mac/test_mac_view.mm)
-  target_compile_options(rn_mac_tests PRIVATE -Wall -Wextra -fobjc-arc)
-  target_include_directories(rn_mac_tests PRIVATE tests)
-  target_link_libraries(rn_mac_tests PRIVATE rn_mac_view)
-endif()
-
-# Everything past this point is GTK, and on a Mac without it there is nothing
-# further to configure. Stopping here rather than wrapping four hundred lines in
-# a condition, and deliberately not a fatal error: the macOS targets above are a
-# complete, useful build on their own.
-if(NOT GTK4_FOUND)
-  message(STATUS "gtk4 not found; building the macOS view layer only")
-  return()
-endif()
-
-# ---------------------------------------------------------------------------
-# rn_view — the GTK4 widget layer.
-#
-# No React Native dependency, so it builds and runs on its own.
-# ---------------------------------------------------------------------------
-
-add_library(rn_view STATIC gtk/RnView.cpp)
-# This project's own sources are held to -Wall -Wextra. React Native's are not:
-# its targets set their own flags, and these are PRIVATE so they never reach it.
-target_compile_options(rn_view PRIVATE -Wall -Wextra)
-target_include_directories(rn_view PUBLIC gtk)
-target_link_libraries(rn_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
-
-# ---------------------------------------------------------------------------
-# demo_layout — exercises the widget layer with hand-written frames.
-# ---------------------------------------------------------------------------
-
-add_executable(demo_layout gtk/demo_layout.cpp)
-target_link_libraries(demo_layout PRIVATE rn_view)
-
-# ---------------------------------------------------------------------------
-# rn_mounting — the Fabric mounting manager.
-#
-# Needs React Native's C++ core and its third-party dependencies (folly, glog,
-# boost, fmt, double-conversion). Enable with:
+# Everything from here to the end of the block is platform-independent, which is
+# why it comes before either view layer rather than inside one. Needs React
+# Native's C++ core and its third-party dependencies (folly, glog, boost, fmt,
+# double-conversion). Enable with:
 #
 #   cmake -B build -DRN_DIR=/path/to/react-native/packages/react-native
 #
-# See README.md for the current state of this target.
+# See README.md for the current state of these targets.
 # ---------------------------------------------------------------------------
 
 if(DEFINED RN_DIR)
@@ -195,8 +137,111 @@ if(DEFINED RN_DIR)
   add_executable(core_probe core/portability_probe.cpp)
   target_link_libraries(core_probe PRIVATE rn_desktop_core)
 
+endif()
+
+# ---------------------------------------------------------------------------
+# The macOS view layer.
+#
+# Built only where it can be: an AppKit view compiles on a Mac and nowhere else,
+# and the GTK half is in the same position on the other side. Both sit beside
+# the shared core rather than underneath each other, which is the arrangement
+# the whole split exists to make possible.
+#
+# Objective-C++ is enabled here rather than at the top of the file so that a
+# Linux build never asks for a compiler it has no reason to have.
+# ---------------------------------------------------------------------------
+if(APPLE)
+  enable_language(OBJCXX)
+
+  add_library(rn_mac_view STATIC mac/RnMacView.mm mac/MacSnapshot.mm)
+  target_compile_options(rn_mac_view PRIVATE -Wall -Wextra -fobjc-arc)
+  target_include_directories(rn_mac_view PUBLIC mac)
+  target_link_libraries(rn_mac_view PUBLIC "-framework Cocoa" "-framework QuartzCore")
+
+  add_executable(demo_layout_mac mac/demo_layout_mac.mm)
+  target_compile_options(demo_layout_mac PRIVATE -Wall -Wextra -fobjc-arc)
+  target_link_libraries(demo_layout_mac PRIVATE rn_mac_view)
+
+  # The same harness the GTK tests use. It has no toolkit dependency, which is
+  # the point: the test infrastructure is shared even though the views are not.
+  set(RN_MAC_TEST_SOURCES tests/TestHarness.cpp mac/test_mac_view.mm)
+
+  # The mounting manager, which unlike the view layer needs React Native's C++
+  # core. Skipped when this build was not pointed at a React Native, so the view
+  # layer above still builds and tests on its own.
+  if(TARGET rn_desktop_core)
+    add_library(rn_mac_mounting STATIC
+      mac/MacMountingManager.mm
+      # Which components this platform claims. See core/ComponentRegistry.h.
+      mac/ComponentRegistryMac.mm)
+    target_compile_options(rn_mac_mounting PRIVATE -Wall -Wextra -fobjc-arc)
+    target_include_directories(rn_mac_mounting PUBLIC mac)
+    target_link_libraries(rn_mac_mounting PUBLIC rn_mac_view rn_desktop_core)
+
+    # Real mutations into real views, with no JavaScript anywhere. The
+    # checkpoint between "the mounting manager compiles" and "React Native
+    # runs": a mistake in the Create/Insert/Update/Remove/Delete handling shows
+    # up in a picture rather than in review.
+    add_executable(mount_harness_mac mac/mount_harness_mac.mm)
+    target_compile_options(mount_harness_mac PRIVATE -Wall -Wextra -fobjc-arc)
+    target_link_libraries(mount_harness_mac PRIVATE rn_mac_mounting)
+
+    list(APPEND RN_MAC_TEST_SOURCES mac/test_mac_mounting.mm)
+  endif()
+
+  add_executable(rn_mac_tests ${RN_MAC_TEST_SOURCES})
+  target_compile_options(rn_mac_tests PRIVATE -Wall -Wextra -fobjc-arc)
+  target_include_directories(rn_mac_tests PRIVATE tests)
+  # rn_mac_mounting already carries rn_mac_view; naming both makes the linker
+  # warn about a duplicate library rather than doing anything useful.
+  if(TARGET rn_mac_mounting)
+    target_link_libraries(rn_mac_tests PRIVATE rn_mac_mounting)
+  else()
+    target_link_libraries(rn_mac_tests PRIVATE rn_mac_view)
+  endif()
+endif()
+
+# Everything past this point is GTK, and on a Mac without it there is nothing
+# further to configure. Stopping here rather than wrapping four hundred lines in
+# a condition, and deliberately not a fatal error: the macOS targets above are a
+# complete, useful build on their own.
+if(NOT GTK4_FOUND)
+  message(STATUS "gtk4 not found; building the macOS view layer only")
+  return()
+endif()
+
+# ---------------------------------------------------------------------------
+# rn_view — the GTK4 widget layer.
+#
+# No React Native dependency, so it builds and runs on its own.
+# ---------------------------------------------------------------------------
+
+add_library(rn_view STATIC gtk/RnView.cpp)
+# This project's own sources are held to -Wall -Wextra. React Native's are not:
+# its targets set their own flags, and these are PRIVATE so they never reach it.
+target_compile_options(rn_view PRIVATE -Wall -Wextra)
+target_include_directories(rn_view PUBLIC gtk)
+target_link_libraries(rn_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
+
+# ---------------------------------------------------------------------------
+# demo_layout — exercises the widget layer with hand-written frames.
+# ---------------------------------------------------------------------------
+
+add_executable(demo_layout gtk/demo_layout.cpp)
+target_link_libraries(demo_layout PRIVATE rn_view)
+
+# ---------------------------------------------------------------------------
+# rn_mounting — the GTK half of the Fabric mounting manager.
+#
+# The mutation walk is not here: it is in core/MountingWalk.h, shared with every
+# other desktop platform. What is here is what is genuinely GTK about mounting.
+# ---------------------------------------------------------------------------
+
+if(TARGET rn_desktop_core)
   add_library(rn_mounting STATIC
     gtk/GtkMountingManager.cpp
+    # Which components this platform claims. See core/ComponentRegistry.h.
+    gtk/ComponentRegistryGtk.cpp
     # The mounting manager loads <Image> pixels itself, so the loader lives
     # here rather than with the host: mount_harness links this too.
     gtk/GtkImageLoader.cpp

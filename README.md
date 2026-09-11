@@ -31,11 +31,19 @@ brings the host's sources and `react-native run-linux --build` can compile one.
 before 2026-09-10 name these files without that prefix.
 
 `native/` has three parts. `core/` is everything that is not about a toolkit --
-the Expo runtime, the core modules, the http client -- and it builds and *links*
-without GTK on the path, which is how that claim is kept honest rather than
-aspirational. `gtk/` is the Linux view layer. `mac/` is the beginning of the
-macOS one. See `plan/17-shared-core.md` and `plan/18-macos-view-layer.md`.
+the mutation walk, the Expo runtime, the core modules, the http client -- and it
+builds and *links* without GTK on the path, which is how that claim is kept
+honest rather than aspirational. `gtk/` is the Linux view layer. `mac/` is the
+macOS one, which mounts `<View>` and nothing else so far. See
+`plan/17-shared-core.md`, `plan/18-macos-view-layer.md` and
+`plan/19-macos-mounting.md`.
 
+    native/core/MountingWalk.h         Fabric's mutation semantics, once. Every
+                                platform supplies seven operations; the
+                                Create/Insert/Remove/Update/Delete rules are
+                                here and shared.
+    native/core/ComponentRegistry.h    Documents which components a platform
+                                claims -- a seam, defined per platform.
     native/core/ExpoRuntime.*          globalThis.expo, and the modules on it.
     native/core/PlatformConstantsModule.*  Platform.OS and friends.
     native/core/SourceCodeModule.*     Where the bundle came from. Assets need it.
@@ -46,7 +54,11 @@ macOS one. See `plan/17-shared-core.md` and `plan/18-macos-view-layer.md`.
                                 failure rather than a paragraph.
 
     native/gtk/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
-    native/gtk/GtkMountingManager.*    IMountingManager implementation.
+    native/gtk/GtkMountingManager.*    The GTK half of IMountingManager: making a
+                                widget, parenting it, and turning a ShadowView
+                                into widget state. The walk is in core/.
+    native/gtk/ComponentRegistryGtk.cpp  What GTK claims: View, Paragraph, Text,
+                                RawText, Image, ScrollView, TextInput.
     native/gtk/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
     native/gtk/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
     native/gtk/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.
@@ -61,8 +73,12 @@ macOS one. See `plan/17-shared-core.md` and `plan/18-macos-view-layer.md`.
     native/gtk/main.cpp                The host: ReactHost, Hermes, one live surface.
 
     native/mac/RnMacView.h/.mm         AppKit view layer. Flipped, layer-backed.
-                                Nothing drives it yet -- there is no macOS
-                                mounting manager. Built only on a Mac.
+    native/mac/MacMountingManager.*    The AppKit half of IMountingManager. Mounts
+                                <View>; everything else is unimplemented and
+                                says so. Built only on a Mac.
+    native/mac/ComponentRegistryMac.mm   What macOS claims: View. The shortness
+                                is the honest part; see core/ComponentRegistry.h.
+    native/mac/MacSnapshot.*           Renders a view tree to a PNG with no window.
 
     js/index.js                 The demo app. Ordinary React Native.
     js/metro.config.js          Resolves react/react-native out of the checkout.
@@ -79,6 +95,9 @@ macOS one. See `plan/17-shared-core.md` and `plan/18-macos-view-layer.md`.
     native/gtk/demo_layout.cpp         Renders hand-written frames; no RN needed.
     native/mac/demo_layout_mac.mm      The same boxes, on AppKit. Snapshots to a
                                 PNG offscreen with RN_MAC_SNAPSHOT=out.png.
+    native/mac/mount_harness_mac.mm    The same two transactions as the GTK
+                                harness, on AppKit. RN_MAC_SNAPSHOT_DIR=dir
+                                writes a PNG per transaction.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time
@@ -352,7 +371,7 @@ See `plan/backlog.md` for the per-component detail.
 
     ./build/rn_tests                    # unit
     scripts/integration_test.py         # end to end, needs a built bundle
-    ./build/rn_mac_tests                # the macOS view layer, on a Mac only
+    ./build/rn_mac_tests                # the macOS view layer and mounting, on a Mac
 
 The first two need a display; on a headless machine prefix with `xvfb-run -a`.
 Both run in CI on Linux, where the end-to-end suite drives the app with real

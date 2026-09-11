@@ -49,11 +49,15 @@ flowchart TD
     Fabric --> Yoga["Yoga<br/>absolute frames"]
     Yoga --> Diff["Differentiator<br/>ShadowViewMutation list"]
     Diff --> Sched["Scheduler +<br/>SchedulerDelegateImpl"]
-    Sched -->|executeMount| MM["GtkMountingManager<br/>★ this project"]
-    MM --> Registry["tag → RnView registry"]
-    MM --> RnView["RnView (GtkWidget)"]
+    Sched -->|executeMount| MM["MountingWalk<br/>★ this project, shared"]
+    MM --> Registry["tag → view registry"]
+    MM --> Gtk["GtkMountingManager<br/>★ seven operations"]
+    MM --> Mac["MacMountingManager<br/>★ seven operations"]
+    Gtk --> RnView["RnView (GtkWidget)"]
     RnView --> RnLayout["RnLayout<br/>(GtkLayoutManager, no-op)"]
     RnLayout --> GTK["GTK4 / GSK / Wayland"]
+    Mac --> RnMacView["RnMacView (NSView)<br/>flipped, layer-backed"]
+    RnMacView --> AppKit["AppKit / Core Animation"]
 ```
 
 ## The view layer
@@ -74,7 +78,13 @@ testable (`demo_layout`), and keeps RN types out of the widget layer.
 
 ## Mutation semantics
 
-Read off `StubViewTree::mutate`, RN's own reference walk:
+Read off `StubViewTree::mutate`, RN's own reference walk, and implemented once
+in `native/core/MountingWalk.h` for every desktop platform. None of what follows
+is about a toolkit, and writing it twice would mean two chances to get it subtly
+different -- which shows up as a layout that is wrong on one desktop and right on
+another. Each platform supplies seven operations that do touch a view:
+`createView`, `createRootView`, `destroyView`, `insertChild`, `removeChild`,
+`updateView` and `forgetTag`.
 
 | Mutation | `parentTag` | Meaning |
 |---|---|---|
@@ -88,8 +98,11 @@ Two consequences the implementation depends on:
 
 - Create/Delete are **registry** operations; Insert/Remove are **tree**
   operations. A view can sit in the registry with no parent between a Remove
-  and its Delete, so the registry holds a strong reference
-  (`g_object_ref_sink` on Create, `g_object_unref` on Delete).
+  and its Delete, so the registry holds a strong reference: `g_object_ref_sink`
+  on Create and `g_object_unref` on Delete under GObject, and on macOS the map
+  entry itself under ARC, which is why `destroyView` there is a no-op. The hook
+  exists regardless, because the walk still has to say *when* a view stops being
+  owned even on a platform where saying it costs nothing.
 - `mutatedViewIsVirtual()` marks views that exist only in the shadow tree to
   keep an `EventEmitter` alive. They have no widget; skip them on Insert and
   Remove. (It is hardcoded `false` off-Android, but honouring it keeps parity.)
@@ -291,12 +304,29 @@ proposal is that they were previously one row reading "Expo, CLI, packaging",
 which hid that Expo alone is likely larger than the two phases before it. See
 `plan/backlog.md` for the detail behind each.
 
+## Which components a platform claims
+
+`getDefaultComponentRegistryFactory()` is declared by ReactCommon and defined
+nowhere in it: each host supplies its own and, in doing so, declares what its
+platform can put on screen. It is defined per platform here --
+`gtk/ComponentRegistryGtk.cpp` with seven descriptors, `mac/ComponentRegistryMac.mm`
+with one -- and that is not tidiness. `ParagraphComponentDescriptor` constructs a
+`TextLayoutManager`, whose stub this build drops so the platform's own can be the
+only definition, so a shared registry means a platform with no text engine fails
+to link rather than failing to render text.
+
+The set a platform registers has to match what its mounting manager answers
+`hasComponent` for. When they disagree the registry wins, Fabric builds shadow
+nodes nothing can mount, and the app renders blank rectangles rather than
+reporting anything.
+
 ## Testing
 
-Two suites: `build/rn_tests` for everything reachable without a JavaScript
-runtime, and `scripts/integration_test.py` for the whole stack, asserting on the
-widget tree the host dumps rather than on a screenshot. See `docs/TESTING.md`,
-which also records what is still not covered and why.
+Three suites: `build/rn_tests` for everything reachable without a JavaScript
+runtime, `scripts/integration_test.py` for the whole stack, asserting on the
+widget tree the host dumps rather than on a screenshot, and `build/rn_mac_tests`
+for the macOS view layer and mounting manager. See `docs/TESTING.md`, which also
+records what is still not covered and why.
 
 ## Risks
 

@@ -11,6 +11,7 @@
 // because it prints the frames that were set rather than where they landed.
 // Neither needs a window. Without either, it opens one.
 
+#import "MacSnapshot.h"
 #import "RnMacView.h"
 
 #include <cstdio>
@@ -58,69 +59,6 @@ static RnMacView *buildTree(void) {
   return root;
 }
 
-// Renders the hierarchy to a PNG, without showing anything.
-//
-// Two things here are not obvious and cost an afternoon each if guessed at.
-//
-// The hierarchy needs a window, and the window needs to have displayed once.
-// AppKit does not attach a subview's layer to its superview's layer when the
-// subview is added -- it assembles the layer tree during a display cycle, and a
-// view with no window never has one. Without this the snapshot comes out as the
-// root's background colour and nothing else, which reads as "the children did
-// not paint" rather than "the children are not in the layer tree". The window is
-// never ordered front, so nothing appears on screen.
-//
-// The render goes through the layer tree rather than `cacheDisplayInRect:`,
-// because these views draw nothing themselves: every prop this layer supports is
-// a CALayer property, so `renderInContext:` is what actually exercises the code
-// under test.
-static bool writeSnapshot(RnMacView *root, NSString *path) {
-  const NSRect bounds = root.bounds;
-  const NSInteger width = (NSInteger)bounds.size.width;
-  const NSInteger height = (NSInteger)bounds.size.height;
-
-  NSWindow *offscreen = [[NSWindow alloc] initWithContentRect:bounds
-                                                    styleMask:NSWindowStyleMaskBorderless
-                                                      backing:NSBackingStoreBuffered
-                                                        defer:NO];
-  offscreen.contentView = root;
-  [offscreen display];
-
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-  CGContextRef context = CGBitmapContextCreate(nullptr,
-                                               (size_t)width,
-                                               (size_t)height,
-                                               8,
-                                               0,
-                                               colorSpace,
-                                               kCGImageAlphaPremultipliedLast);
-  CGColorSpaceRelease(colorSpace);
-  if (context == nullptr) {
-    std::fputs("could not create a bitmap context\n", stderr);
-    return false;
-  }
-
-  // Core Graphics' origin is bottom-left and the layer tree's, having come from
-  // a flipped view, is top-left. Flipping the context puts them back in
-  // agreement; without it the image comes out mirrored vertically, which is the
-  // same class of bug `isFlipped` exists to prevent one level up.
-  CGContextTranslateCTM(context, 0, (CGFloat)height);
-  CGContextScaleCTM(context, 1, -1);
-
-  [root.layer renderInContext:context];
-
-  CGImageRef image = CGBitmapContextCreateImage(context);
-  CGContextRelease(context);
-  if (image == nullptr) {
-    return false;
-  }
-
-  NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:image];
-  CGImageRelease(image);
-  NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-  return [png writeToFile:path atomically:YES];
-}
-
 int main(int argc, const char *argv[]) {
   (void)argc;
   (void)argv;
@@ -133,10 +71,7 @@ int main(int argc, const char *argv[]) {
     }
 
     if (const char *snapshotPath = getenv("RN_MAC_SNAPSHOT")) {
-      // AppKit has to be woken up before it will render: an NSView outside a
-      // running application draws nothing, and does so silently.
-      [NSApplication sharedApplication];
-      return writeSnapshot(root, [NSString stringWithUTF8String:snapshotPath]) ? 0 : 1;
+      return RnMacWriteSnapshot(root, [NSString stringWithUTF8String:snapshotPath]) ? 0 : 1;
     }
 
     [NSApplication sharedApplication];
