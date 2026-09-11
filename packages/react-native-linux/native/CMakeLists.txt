@@ -126,7 +126,12 @@ if(DEFINED RN_DIR)
     ${CODEGEN_DIR}
     ${CODEGEN_DIR}/react/renderer/components/FBReactNativeSpec
     ${CODEGEN_DIR}/react/renderer/components)
-  target_link_libraries(rn_desktop_core PUBLIC rn_core)
+  # libcurl, because core/HttpClient.cpp is here. It used to be named only on
+  # rn_mounting, which worked for exactly as long as the GTK host was the only
+  # thing linking core: the archive member goes unreferenced until something
+  # asks for an http client, so the missing dependency stayed invisible until
+  # the macOS host asked.
+  target_link_libraries(rn_desktop_core PUBLIC rn_core CURL::libcurl)
   if(TARGET expo_core)
     target_link_libraries(rn_desktop_core PUBLIC expo_core)
     target_sources(rn_desktop_core PUBLIC $<TARGET_OBJECTS:expo_core>)
@@ -173,10 +178,25 @@ if(APPLE)
     add_library(rn_mac_mounting STATIC
       mac/MacMountingManager.mm
       # Which components this platform claims. See core/ComponentRegistry.h.
-      mac/ComponentRegistryMac.mm)
+      mac/ComponentRegistryMac.mm
+      # macOS's implementation of core/FontRegistry.h -- the seam phase 17
+      # named. Core links against whichever implementation the platform half
+      # provides, so without this nothing that reaches expo-font links.
+      mac/FontRegistryCoreText.mm)
     target_compile_options(rn_mac_mounting PRIVATE -Wall -Wextra -fobjc-arc)
     target_include_directories(rn_mac_mounting PUBLIC mac)
     target_link_libraries(rn_mac_mounting PUBLIC rn_mac_view rn_desktop_core)
+    target_link_libraries(rn_mac_mounting PUBLIC "-framework CoreText")
+
+    # ---------------------------------------------------------------------------
+    # rn_mac_host — a ReactHost, Hermes, and one surface in an NSWindow.
+    # ---------------------------------------------------------------------------
+    add_executable(rn_mac_host
+      mac/main_mac.mm
+      mac/MacRunLoopObserver.mm
+      mac/MacAnimationChoreographer.mm)
+    target_compile_options(rn_mac_host PRIVATE -Wall -Wextra -fobjc-arc)
+    target_link_libraries(rn_mac_host PRIVATE rn_mac_mounting)
 
     # Real mutations into real views, with no JavaScript anywhere. The
     # checkpoint between "the mounting manager compiles" and "React Native
@@ -288,7 +308,7 @@ if(TARGET rn_desktop_core)
   # RN headers carry Xcode's #pragma mark, which GCC does not recognise.
   target_compile_options(rn_mounting PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
-  target_link_libraries(rn_mounting PUBLIC rn_view rn_core CURL::libcurl)
+  target_link_libraries(rn_mounting PUBLIC rn_view rn_core)
 target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
 
   # ---------------------------------------------------------------------------
@@ -309,7 +329,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     gtk/GtkRunLoopObserver.cpp
     gtk/GtkTouchDispatcher.cpp
     core/HttpClient.cpp)
-  target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
+  target_link_libraries(rn_linux_host PRIVATE rn_mounting)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
   # ---------------------------------------------------------------------------

@@ -9,7 +9,8 @@ GTK program, and both run in CI on Linux, which is where they matter: see
 scripts/bundle.sh ../react-native --prod
 scripts/integration_test.py         # end to end
 
-./build/rn_mac_tests                # the macOS view layer, on a Mac only
+./build/rn_mac_tests                # the macOS view layer and mounting, on a Mac
+scripts/compare_hosts.sh            # both hosts, same script, diffed
 ```
 
 On a headless machine, run either under a virtual display:
@@ -68,6 +69,14 @@ manager with no JavaScript anywhere. `RN_MAC_SNAPSHOT_DIR=/tmp/out
 ./build/mount_harness_mac` writes `mount-1.png` and `mount-2.png` and prints the
 tree after each; with no directory set it opens a window and applies the second
 transaction two seconds in, the way the GTK harness does.
+
+`scripts/compare_hosts.sh` is the one that matters most and the one that cannot
+run in CI. It drives the same script through `rn_linux_host` and `rn_mac_host`
+and diffs the view tree each dumped -- the same JavaScript, the same Fabric, the
+same Yoga, two entirely different view layers. If they disagree, one platform is
+wrong and the diff says which line. It needs both toolkits installed, so it runs
+on a developer's Mac rather than on CI, where each host only exists on its own
+side.
 
 `native/mac/demo_layout_mac.mm` is the visual half of the view layer. It carries the same boxes at
 the same coordinates as the GTK `demo_layout`, so the two can be compared

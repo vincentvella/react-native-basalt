@@ -12,5 +12,10 @@
 
 // Renders `root` to a PNG at `path`. Returns false if the file could not be
 // written. Needs no window server and shows nothing on screen.
+//
+// Works on a detached tree and on one already mounted in a live window; a
+// detached one gets an offscreen window of its own, because AppKit only
+// assembles a layer tree during a display cycle and a view with no window never
+// has one.
 bool RnMacWriteSnapshot(RnMacView *root, NSString *path);
 #endif

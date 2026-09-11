@@ -33,10 +33,11 @@ before 2026-09-10 name these files without that prefix.
 `native/` has three parts. `core/` is everything that is not about a toolkit --
 the mutation walk, the Expo runtime, the core modules, the http client -- and it
 builds and *links* without GTK on the path, which is how that claim is kept
-honest rather than aspirational. `gtk/` is the Linux view layer. `mac/` is the
-macOS one, which mounts `<View>` and nothing else so far. See
-`plan/17-shared-core.md`, `plan/18-macos-view-layer.md` and
-`plan/19-macos-mounting.md`.
+honest rather than aspirational. `gtk/` is the Linux platform. `mac/` is the
+macOS one: a view layer, a mounting manager and a host, mounting `<View>` and
+nothing else so far. Both hosts produce a byte-identical view tree from the same
+script; `scripts/compare_hosts.sh` is what says so. See `plan/17-shared-core.md`
+through `plan/20-macos-host.md`.
 
     native/core/MountingWalk.h         Fabric's mutation semantics, once. Every
                                 platform supplies seven operations; the
@@ -78,6 +79,11 @@ macOS one, which mounts `<View>` and nothing else so far. See
                                 says so. Built only on a Mac.
     native/mac/ComponentRegistryMac.mm   What macOS claims: View. The shortness
                                 is the honest part; see core/ComponentRegistry.h.
+    native/mac/MacRunLoopObserver.*    The event beat, on a CFRunLoopObserver.
+    native/mac/MacAnimationChoreographer.*  Animation frames, on a CADisplayLink.
+    native/mac/FontRegistryCoreText.mm   macOS's half of the font seam.
+    native/mac/main_mac.mm             The host: ReactHost, Hermes, one surface
+                                in an NSWindow.
     native/mac/MacSnapshot.*           Renders a view tree to a PNG with no window.
 
     js/index.js                 The demo app. Ordinary React Native.
@@ -90,6 +96,8 @@ macOS one, which mounts `<View>` and nothing else so far. See
                                 `run-linux` command, and native/ above.
     examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
+    scripts/compare_hosts.sh    Runs one script through both hosts and diffs the
+                                trees. Needs both toolkits, so not CI.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     native/gtk/mount_harness.cpp       Hand-built mutations; no JS runtime.
     native/gtk/demo_layout.cpp         Renders hand-written frames; no RN needed.
@@ -435,6 +443,28 @@ Environment:
     RN_LINUX_DUMP_TREE        write the widget tree to a file on the way out.
                               Useful on its own for seeing what React actually
                               produced, and what the end-to-end tests assert on.
+
+### On a Mac
+
+`build/rn_mac_host` is the same host over AppKit, and takes the same arguments.
+It mounts `<View>` and nothing else so far, and it defaults to an **empty**
+module name rather than `RNLinuxDemo`, because a React app with any text in it
+would render blank rectangles:
+
+    ./build/rn_mac_host js/demo.js
+
+Its environment variables are `RN_MAC_*` in place of `RN_LINUX_*`:
+`RN_MAC_DEV`, `RN_MAC_DEV_HOST`, `RN_MAC_DEV_PORT`, `RN_MAC_DEV_ENTRY`,
+`RN_MAC_QUIT_AFTER_MS`, `RN_MAC_DUMP_TREE`, plus `RN_MAC_SNAPSHOT`, which writes
+a PNG of what is actually on screen. Two prefixes for the same knobs is an
+inconsistency that should become one; see `plan/20-macos-host.md` for why it has
+not yet.
+
+To check the two agree:
+
+    scripts/compare_hosts.sh
+
+which runs a script through both and diffs the tree each produced.
 
 ## The `linux` platform
 

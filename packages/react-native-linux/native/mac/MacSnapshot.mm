@@ -31,12 +31,21 @@ bool RnMacWriteSnapshot(RnMacView *root, NSString *path) {
     return false;
   }
 
-  NSWindow *offscreen = [[NSWindow alloc] initWithContentRect:bounds
-                                                    styleMask:NSWindowStyleMaskBorderless
-                                                      backing:NSBackingStoreBuffered
-                                                        defer:NO];
-  offscreen.contentView = root;
-  [offscreen display];
+  // A view that is already in a window has a layer tree; one that is not needs
+  // a window made for it. Checking rather than always making one matters: a
+  // live host's root is the window's contentView, and putting it into a second
+  // window would take it out of the first.
+  NSWindow *offscreen = nil;
+  if (root.window != nil) {
+    [root.window displayIfNeeded];
+  } else {
+    offscreen = [[NSWindow alloc] initWithContentRect:bounds
+                                            styleMask:NSWindowStyleMaskBorderless
+                                              backing:NSBackingStoreBuffered
+                                                defer:NO];
+    offscreen.contentView = root;
+    [offscreen display];
+  }
 
   CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   CGContextRef context = CGBitmapContextCreate(nullptr,
@@ -74,7 +83,9 @@ bool RnMacWriteSnapshot(RnMacView *root, NSString *path) {
   // The root is handed back, because a caller that snapshots twice needs it out
   // of the window it was just put in -- a view has one superview, and leaving it
   // parented here would make the second snapshot's window silently steal it.
-  offscreen.contentView = [[NSView alloc] initWithFrame:bounds];
+  if (offscreen != nil) {
+    offscreen.contentView = [[NSView alloc] initWithFrame:bounds];
+  }
 
   return [png writeToFile:path atomically:YES];
 }
