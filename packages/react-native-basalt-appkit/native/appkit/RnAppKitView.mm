@@ -47,6 +47,7 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
 }
 
 @implementation RnAppKitView {
+  NSString *_roleName;
   RnTextLayout *_textLayout;
   CGImageRef _image;
   RnAppKitImageFit _imageFit;
@@ -117,6 +118,133 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   self.layer.backgroundColor = color;
   CGColorRelease(color);
   CGColorSpaceRelease(space);
+}
+
+// --- Accessibility ---------------------------------------------------------
+
+// React Native's role vocabulary is mostly ARIA's; AppKit's is its own, older
+// and smaller. Several entries below are the closest thing rather than an
+// equivalent, and each says so -- an approximate role is better than none, and
+// much better than a wrong one, which makes a control announce itself as
+// something it is not.
+static NSAccessibilityRole RnAccessibilityRoleFor(NSString *name) {
+  static NSDictionary<NSString *, NSAccessibilityRole> *roles = nil;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    roles = @{
+      @"button" : NSAccessibilityButtonRole,
+      @"imagebutton" : NSAccessibilityButtonRole,
+      @"link" : NSAccessibilityLinkRole,
+      // A search field is a text field with a subrole on macOS, not a role of
+      // its own. Reporting the role loses the "this searches" part, which is
+      // what NSAccessibilitySearchFieldSubrole would carry -- a subrole needs a
+      // second property, and this does not set one yet.
+      @"search" : NSAccessibilityTextFieldRole,
+      @"image" : NSAccessibilityImageRole,
+      @"text" : NSAccessibilityStaticTextRole,
+      @"adjustable" : NSAccessibilitySliderRole,
+      @"checkbox" : NSAccessibilityCheckBoxRole,
+      @"combobox" : NSAccessibilityComboBoxRole,
+      @"menu" : NSAccessibilityMenuRole,
+      @"menubar" : NSAccessibilityMenuBarRole,
+      @"menuitem" : NSAccessibilityMenuItemRole,
+      @"progressbar" : NSAccessibilityProgressIndicatorRole,
+      @"radio" : NSAccessibilityRadioButtonRole,
+      @"radiogroup" : NSAccessibilityRadioGroupRole,
+      @"scrollbar" : NSAccessibilityScrollBarRole,
+      @"spinbutton" : NSAccessibilityIncrementorRole,
+      @"list" : NSAccessibilityListRole,
+      @"grid" : NSAccessibilityTableRole,
+      @"toolbar" : NSAccessibilityToolbarRole,
+      @"tooltip" : NSAccessibilityHelpTagRole,
+      // macOS has no toggle-button or switch role: VoiceOver announces both as
+      // checkboxes, which is also what AppKit's own NSSwitch reports.
+      @"togglebutton" : NSAccessibilityCheckBoxRole,
+      @"switch" : NSAccessibilityCheckBoxRole,
+      // A tab in an AX tab group is a radio button, which reads oddly and is
+      // what every Mac application does.
+      @"tab" : NSAccessibilityRadioButtonRole,
+      @"tablist" : NSAccessibilityTabGroupRole,
+      // No standalone header or alert role for a view. A group at least says
+      // "these belong together", which a static text would not.
+      @"header" : NSAccessibilityGroupRole,
+      @"alert" : NSAccessibilityGroupRole,
+      // Explicitly nothing: `none` and `presentation` mean "do not announce
+      // this", which is handled by isAccessibilityElement below.
+      @"none" : NSAccessibilityUnknownRole,
+      @"presentation" : NSAccessibilityUnknownRole,
+    };
+  });
+  NSAccessibilityRole role = roles[name];
+  // Anything unrecognised is a group rather than a guess: a wrong role is worse
+  // for a screen reader than a vague one, because it makes the view announce
+  // itself as something it is not.
+  return role != nil ? role : NSAccessibilityGroupRole;
+}
+
+- (void)setRnAccessibleRole:(NSString *)role {
+  _roleName = role.length > 0 ? [role copy] : nil;
+
+  if (_roleName == nil) {
+    self.accessibilityRole = NSAccessibilityGroupRole;
+    // A plain <View> is scenery. Leaving every one of them in the tree would
+    // bury the handful that mean something under hundreds that do not.
+    self.accessibilityElement = NO;
+    return;
+  }
+
+  const NSAccessibilityRole mapped = RnAccessibilityRoleFor(_roleName);
+  self.accessibilityRole = mapped;
+  self.accessibilityElement = mapped != NSAccessibilityUnknownRole;
+}
+
+- (void)setRnAccessibleLabel:(NSString *)label hint:(NSString *)hint {
+  self.accessibilityLabel = label.length > 0 ? label : nil;
+  // `accessibilityHelp`, not `accessibilityValue`: React Native's hint is the
+  // supplementary description, which on a Mac is what a help tag carries.
+  self.accessibilityHelp = hint.length > 0 ? hint : nil;
+
+  // A label makes a view worth announcing even when it has no role -- which is
+  // the common case for an icon-only <Pressable> with an accessibilityLabel.
+  if (label.length > 0) {
+    self.accessibilityElement = YES;
+  }
+}
+
+- (void)setRnAccessibleStateDisabled:(RnAppKitAccessibleFlag)disabled
+                             checked:(RnAppKitAccessibleFlag)checked
+                            selected:(RnAppKitAccessibleFlag)selected
+                            expanded:(RnAppKitAccessibleFlag)expanded
+                                busy:(RnAppKitAccessibleFlag)busy {
+  if (disabled != RnAppKitAccessibleUnset) {
+    self.accessibilityEnabled = disabled != RnAppKitAccessibleTrue;
+  }
+  if (checked != RnAppKitAccessibleUnset) {
+    // AppKit expresses checked as the element's value, the way a checkbox does,
+    // rather than as a state of its own.
+    self.accessibilityValue = @(checked == RnAppKitAccessibleTrue);
+  }
+  if (selected != RnAppKitAccessibleUnset) {
+    self.accessibilitySelected = selected == RnAppKitAccessibleTrue;
+  }
+  if (expanded != RnAppKitAccessibleUnset) {
+    self.accessibilityExpanded = expanded == RnAppKitAccessibleTrue;
+  }
+  // `busy` has no AppKit equivalent. React Native's meaning is "this is
+  // loading", which VoiceOver has no way to be told about a plain view; the
+  // nearest thing is an NSAccessibilityProgressIndicator, which would be a
+  // different role rather than a state. Left unreported rather than mapped onto
+  // something that means something else.
+  (void)busy;
+}
+
+- (void)setRnAccessibleHidden:(BOOL)hidden {
+  if (hidden) {
+    self.accessibilityElement = NO;
+  }
+  // Not `else { YES }`: whether an unhidden view is an element is decided by
+  // its role and label above, and overriding that here would put every plain
+  // <View> back into the tree.
 }
 
 - (void)setRnScrollOffsetX:(CGFloat)x y:(CGFloat)y {
@@ -319,6 +447,15 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
                                   options:0 range:NSMakeRange(0, escaped.length)];
       [out appendFormat:@" text=\"%@\"", escaped];
     }
+  }
+
+  // React Native's role name, not AppKit's. The GTK side reports the same
+  // string for the same reason: this dump is compared line by line across two
+  // platforms, and each reporting its own toolkit's vocabulary would make every
+  // accessible view look like a difference. That the *platform* role was really
+  // applied is asserted in each platform's unit tests instead.
+  if (_roleName != nil) {
+    [out appendFormat:@" role=%@", _roleName];
   }
   [out appendString:@"\n"];
 

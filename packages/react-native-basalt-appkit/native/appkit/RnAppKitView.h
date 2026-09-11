@@ -92,6 +92,14 @@ RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x,
 
 // How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
 // Repeat, which needs a tiled draw rather than one image draw.
+// Accessible states. Each is a tri-state: unset leaves AppKit's default alone,
+// which is not the same as setting it false.
+typedef NS_ENUM(NSInteger, RnAppKitAccessibleFlag) {
+  RnAppKitAccessibleUnset,
+  RnAppKitAccessibleFalse,
+  RnAppKitAccessibleTrue,
+};
+
 typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
   RnAppKitImageFitCover,
   RnAppKitImageFitContain,
@@ -126,6 +134,35 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 
 // The same one-line-per-view format the GTK side produces, so the two can be
 // compared and eventually asserted on by the same tests.
+// Accessibility, as a screen reader sees it.
+//
+// The role arrives as React Native's own string -- "button", "image", "text" --
+// rather than as an NSAccessibilityRole, and the view maps it. Two reasons.
+// The mapping is a platform decision and belongs beside the platform; and the
+// string is what `describeTree` reports, so the two hosts' trees can be
+// compared without one of them speaking AppKit's vocabulary and the other
+// speaking GTK's.
+//
+// Pass nil or an empty string for no role, which is what a plain <View> is.
+- (void)setRnAccessibleRole:(nullable NSString *)role;
+
+// `label` is the accessible name and `hint` the description; either may be nil
+// or empty to leave it unset.
+- (void)setRnAccessibleLabel:(nullable NSString *)label hint:(nullable NSString *)hint;
+
+// Accessible states. Each is a tri-state: unset leaves AppKit's default alone,
+// which is not the same as setting it false.
+
+- (void)setRnAccessibleStateDisabled:(RnAppKitAccessibleFlag)disabled
+                             checked:(RnAppKitAccessibleFlag)checked
+                            selected:(RnAppKitAccessibleFlag)selected
+                            expanded:(RnAppKitAccessibleFlag)expanded
+                                busy:(RnAppKitAccessibleFlag)busy;
+
+// Hidden from assistive technology, for accessible={false} and
+// accessibilityElementsHidden.
+- (void)setRnAccessibleHidden:(BOOL)hidden;
+
 // Set on the surface root. See RnAppKitInputHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
 

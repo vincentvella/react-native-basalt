@@ -4,6 +4,7 @@
 
 #include "ComponentRegistry.h"
 
+#include <react/renderer/components/view/AccessibilityProps.h>
 #include <react/renderer/components/image/ImageEventEmitter.h>
 #include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
@@ -302,6 +303,7 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyImage(view, shadowView);
+  applyAccessibility(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before
@@ -382,6 +384,106 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
   // The GTK side has all of these; none is hard, and each needs a test that
   // compares the result against what Linux produces rather than against what
   // looks plausible on a Mac.
+}
+
+namespace {
+
+RnAppKitAccessibleFlag toFlag(bool value) {
+  return value ? RnAppKitAccessibleTrue : RnAppKitAccessibleFalse;
+}
+
+// The role React Native effectively means for this view: what the app asked
+// for, or what the component implies.
+//
+// A <Text> is a label and an <Image> is an image whether or not the app said
+// so, which is what makes an ordinary screen navigable without every developer
+// having annotated it. The GTK side infers the same two, at construction time,
+// because its role is construct-only.
+std::string effectiveRole(const ShadowView &shadowView) {
+  if (const auto props =
+          std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props)) {
+    if (!props->accessibilityRole.empty()) {
+      return props->accessibilityRole;
+    }
+  }
+  if (shadowView.componentName != nullptr) {
+    const std::string_view name(shadowView.componentName);
+    if (name == "Paragraph") {
+      return "text";
+    }
+    if (name == "Image") {
+      return "image";
+    }
+  }
+  return {};
+}
+
+} // namespace
+
+// Accessibility, as VoiceOver sees it.
+void AppKitMountingManager::applyAccessibility(RnAppKitView *view, const ShadowView &shadowView) {
+  const auto props =
+      std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props);
+  if (props == nullptr) {
+    return;
+  }
+
+  const std::string role = effectiveRole(shadowView);
+  [view setRnAccessibleRole:role.empty() ? nil : [NSString stringWithUTF8String:role.c_str()]];
+
+  // A label given in props wins. Falling back to a Paragraph's own text means a
+  // plain <Text> announces itself without the app having to repeat the string
+  // in an accessibilityLabel.
+  std::string label = props->accessibilityLabel;
+  if (label.empty() && shadowView.componentName != nullptr &&
+      std::string_view(shadowView.componentName) == "Paragraph") {
+    if (const auto state =
+            std::dynamic_pointer_cast<const facebook::react::ConcreteState<ParagraphState>>(
+                shadowView.state)) {
+      label = state->getData().attributedString.getString();
+    }
+  }
+
+  [view setRnAccessibleLabel:label.empty() ? nil : [NSString stringWithUTF8String:label.c_str()]
+                        hint:props->accessibilityHint.empty()
+                                 ? nil
+                                 : [NSString stringWithUTF8String:props->accessibilityHint.c_str()]];
+
+  if (props->accessibilityState.has_value()) {
+    const auto &state = *props->accessibilityState;
+    RnAppKitAccessibleFlag checked = RnAppKitAccessibleUnset;
+    switch (state.checked) {
+      case facebook::react::AccessibilityState::Checked:
+        checked = RnAppKitAccessibleTrue;
+        break;
+      case facebook::react::AccessibilityState::Unchecked:
+        checked = RnAppKitAccessibleFalse;
+        break;
+      case facebook::react::AccessibilityState::Mixed:
+      case facebook::react::AccessibilityState::None:
+        break;
+    }
+    [view setRnAccessibleStateDisabled:toFlag(state.disabled)
+                               checked:checked
+                              selected:toFlag(state.selected)
+                              expanded:state.expanded.has_value()
+                                           ? toFlag(*state.expanded)
+                                           : RnAppKitAccessibleUnset
+                                  busy:toFlag(state.busy)];
+  } else {
+    [view setRnAccessibleStateDisabled:RnAppKitAccessibleUnset
+                               checked:RnAppKitAccessibleUnset
+                              selected:RnAppKitAccessibleUnset
+                              expanded:RnAppKitAccessibleUnset
+                                  busy:RnAppKitAccessibleUnset];
+  }
+
+  // accessibilityElementsHidden hides the subtree; importantForAccessibility
+  // NoHideDescendants is Android's spelling of the same idea.
+  const bool hidden = props->accessibilityElementsHidden ||
+      props->importantForAccessibility ==
+          facebook::react::ImportantForAccessibility::NoHideDescendants;
+  [view setRnAccessibleHidden:hidden ? YES : NO];
 }
 
 void AppKitMountingManager::applyLayoutMetrics(RnAppKitView *view, const ShadowView &shadowView) {

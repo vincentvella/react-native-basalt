@@ -12,8 +12,9 @@ instead of trailing a rebase.
 
 Today: Linux runs real Expo apps -- text, images, scrolling, text input,
 accessibility, fonts, assets. macOS mounts `<View>`, `<Text>`,
-`<ScrollView>` and `<Image>`, and responds to a press and a wheel --
-everything but `<TextInput>` and accessibility. Both hosts produce a byte-identical view tree from the same
+`<ScrollView>` and `<Image>`, responds to a press and a wheel, and reports
+itself to a screen reader -- everything but `<TextInput>`. The two hosts agree
+on all six test apps; `scripts/compare_all.sh` is what says so. Both hosts produce a byte-identical view tree from the same
 JavaScript, which `scripts/compare_hosts.sh` checks. Windows is a name in a
 list.
 
@@ -147,12 +148,14 @@ And at the repository root:
     js/press.js                 A <Pressable> that counts presses as boxes.
     js/scroll.js                A <ScrollView> that scrolls itself by command.
     js/image.js                 Four resize modes, a data: URI, a broken source.
+    js/a11y.js                  Roles, labels, hints, states and hiding.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
     scripts/compare_hosts.sh    Runs one script through both hosts and diffs the
                                 trees. Needs both toolkits, so not CI.
+    scripts/compare_all.sh      Every app in js/, through both. The summary.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time

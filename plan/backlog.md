@@ -17,9 +17,14 @@ Not scheduled. Roughly by value.
   end.
 - **No `<TextInput>`**, which is the last of the four components an ordinary
   app is built from, and brings the focus model and the keyboard with it.
-- **No accessibility**, which is now the *only* difference `compare_hosts.sh`
-  finds between the two hosts on the text and image apps: GTK emits `role=` and
-  macOS emits nothing. Measurable definition of done, for once.
+- **Nothing tested against a real screen reader**, on either platform.
+  VoiceOver and Orca are both a manual step nobody has taken; the unit tests
+  assert the properties were set and cannot assert the result is usable.
+- **No accessibility subroles.** A search field should be a text field with
+  `NSAccessibilitySearchFieldSubrole`; reporting only the role loses the "this
+  searches" part.
+- **`accessibilityValue`, `accessibilityLiveRegion` and
+  `accessibilityLabelledBy`** are unimplemented on both platforms.
 - **No animated images.** The first frame of a GIF is drawn as a still, on both
   desktops.
 - **No scrollbars.** AppKit's are `NSScroller`, which comes with

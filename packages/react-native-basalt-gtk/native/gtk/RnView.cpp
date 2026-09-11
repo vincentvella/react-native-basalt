@@ -143,6 +143,7 @@ struct _RnView {
 
   GdkTexture *texture;
   RnImageFit texture_fit;
+  char *role_name;
 
   gboolean clips_children;
   double scroll_x;
@@ -372,6 +373,7 @@ static void rn_view_dispose(GObject *object) {
 
   g_clear_object(&self->text_layout);
   g_clear_object(&self->texture);
+  g_clear_pointer(&self->role_name, g_free);
 
   G_OBJECT_CLASS(rn_view_parent_class)->dispose(object);
 }
@@ -396,6 +398,7 @@ static void rn_view_init(RnView *self) {
   self->text_color = GdkRGBA{0.0f, 0.0f, 0.0f, 1.0f};
   self->texture = nullptr;
   self->texture_fit = RN_IMAGE_FIT_COVER;
+  self->role_name = nullptr;
   self->clips_children = FALSE;
   self->scroll_x = 0.0;
   self->scroll_y = 0.0;
@@ -570,6 +573,12 @@ void rn_view_set_text_layout(RnView *self, PangoLayout *layout, const GdkRGBA *c
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
+void rn_view_set_role_name(RnView *self, const char *name) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  g_free(self->role_name);
+  self->role_name = name != nullptr && *name != '\0' ? g_strdup(name) : nullptr;
+}
+
 void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
   g_return_if_fail(RN_IS_VIEW(self));
 
@@ -741,14 +750,13 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
     }
   }
 
-  // What a screen reader would be told, so it can be asserted on end to end
-  // rather than only in the unit tests.
-  const GtkAccessibleRole role = gtk_accessible_get_accessible_role(GTK_ACCESSIBLE(self));
-  if (role != GTK_ACCESSIBLE_ROLE_GENERIC) {
-    GEnumClass *roles = static_cast<GEnumClass *>(g_type_class_ref(GTK_TYPE_ACCESSIBLE_ROLE));
-    const GEnumValue *value = g_enum_get_value(roles, static_cast<int>(role));
-    g_string_append_printf(out, " role=%s", value != nullptr ? value->value_nick : "?");
-    g_type_class_unref(roles);
+  // React Native's role name, not GTK's. This dump is compared line by line
+  // with the AppKit one, and each reporting its own toolkit's vocabulary would
+  // make every accessible view look like a difference. That the *GTK* role was
+  // really applied is asserted in tests/test_accessibility.cpp, which is where
+  // a platform question belongs.
+  if (self->role_name != nullptr && *self->role_name != '\0') {
+    g_string_append_printf(out, " role=%s", self->role_name);
   }
   if (gtk_accessible_get_platform_state(GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_PLATFORM_STATE_FOCUSABLE)) {
     g_string_append(out, " focusable");

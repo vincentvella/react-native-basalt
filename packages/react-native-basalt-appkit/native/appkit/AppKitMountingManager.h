@@ -81,6 +81,7 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyScrollView(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyImage(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+  void applyAccessibility(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
 
   AppKitScrollViewManager scrollViews_;

@@ -236,8 +236,8 @@ def test_initial_render(bundle: Path) -> None:
     # Accessibility: what a screen reader would be told. A <Text> should call
     # itself a label and an <Image> an image without the app saying so, and an
     # explicit accessibilityRole should win.
-    expect_contains(tree, "role=label", "no <Text> reported itself as a label")
-    expect_contains(tree, "role=img", "no <Image> reported itself as an image")
+    expect_contains(tree, "role=text", "no <Text> reported itself as text")
+    expect_contains(tree, "role=image", "no <Image> reported itself as an image")
     expect_contains(tree, "role=button", "the buttons did not take their accessibilityRole")
     expect_contains(tree, "role=list", "the ScrollView did not take its accessibilityRole")
 

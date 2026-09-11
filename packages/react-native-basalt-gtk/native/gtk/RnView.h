@@ -164,6 +164,19 @@ GtkText *rn_view_get_editable(RnView *self);
 // reads.
 void rn_view_set_accessible_text(RnView *self, const char *label, const char *description);
 
+// React Native's own name for the role -- "button", "image", "text" -- kept
+// alongside the GtkAccessibleRole the widget was constructed with.
+//
+// Two vocabularies for one fact, and both are needed. GTK's is what a screen
+// reader reads; React Native's is what `rn_view_describe_tree` reports, so that
+// dump can be compared line by line with the AppKit one without either platform
+// speaking the other's language. That the GTK role was really applied is
+// asserted in tests/test_accessibility.cpp instead.
+//
+// Set from the same computation that picks the GtkAccessibleRole, so the two
+// cannot disagree. Pass NULL or "" for no role.
+void rn_view_set_role_name(RnView *self, const char *name);
+
 // Accessible states. Each is a tri-state: unset leaves GTK's default alone,
 // which is not the same as setting it false.
 typedef enum {

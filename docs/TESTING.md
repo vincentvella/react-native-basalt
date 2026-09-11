@@ -51,6 +51,12 @@ that background colour, opacity, clipping and corner radius reach the CALayer,
 that the background is in sRGB rather than the display's space, and that
 `describeTree` emits the same text the GTK side does.
 
+`native/tests/test_appkit_accessibility.mm` asserts the *AppKit* role, not the
+React Native name: the name is what `describeTree` reports and what the
+cross-platform diff compares, and whether the mapping onto `NSAccessibility`
+actually happened is a platform question. The GTK suite's
+`test_accessibility.cpp` asserts the same thing about `GtkAccessibleRole`.
+
 `native/tests/test_appkit_input.mm` is hit testing and the touch state machine.
 Hit testing is a pure function of the view tree, so it needs no mouse, no window
 server, and no permission to synthesise an event -- which matters, because a
@@ -78,7 +84,23 @@ manager with no JavaScript anywhere. `BASALT_SNAPSHOT_DIR=/tmp/out
 tree after each; with no directory set it opens a window and applies the second
 transaction two seconds in, the way the GTK harness does.
 
-`scripts/compare_hosts.sh` is the one that matters most and the one that cannot
+`scripts/compare_all.sh` runs every app in `js/` through both hosts and prints
+where the two platforms stand:
+
+```
+  views    identical, frames included
+  press    identical, frames included
+  scroll   identical, frames included
+  image    identical, frames included
+  text     identical, frames ignored
+  a11y     identical, frames ignored
+```
+
+An app that only passes with frames ignored is one whose layout depends on text
+measurement. Everything else -- tree shape, strings, colours, roles, flags -- is
+still compared there.
+
+`scripts/compare_hosts.sh` is the single-app version, and the one that cannot
 run in CI. It runs `js/views.js` -- a real React app made only of `<View>` --
 through `basalt_gtk` and `basalt_appkit`, and checks two things that fail
 differently: that the view trees match, and that each host's log reports the

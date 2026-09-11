@@ -85,7 +85,10 @@ set(BASALT_APPKIT_TEST_SOURCES
   tests/test_appkit_text.mm
   # The resize modes, against a real bitmap. No React Native, so these run in
   # the toolkit-only build too.
-  tests/test_appkit_image.mm)
+  tests/test_appkit_image.mm
+  # The NSAccessibility mapping. The React Native role name is what the
+  # cross-platform diff compares; this is where the platform half is checked.
+  tests/test_appkit_accessibility.mm)
 
 # ---------------------------------------------------------------------------
 # basalt_appkit_mounting — the AppKit half of the Fabric mounting manager.

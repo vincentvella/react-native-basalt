@@ -172,23 +172,32 @@ RnView *GtkMountingManager::createView(const ShadowView &shadowView) {
   // The accessible role has to be decided now: GTK4 makes it construct-only,
   // and RnView is one class for every React Native view. This is the reason
   // createView is handed the whole ShadowView rather than just a tag.
-  GtkAccessibleRole role = GTK_ACCESSIBLE_ROLE_GENERIC;
+  // The role React Native effectively means for this view: what the app asked
+  // for, or what the component implies. A <Text> is a label and an <Image> is an
+  // image whether or not the app said so, which is what makes an ordinary screen
+  // navigable without every developer having annotated it.
+  std::string roleName;
   if (const auto accessibility =
           std::dynamic_pointer_cast<const facebook::react::AccessibilityProps>(shadowView.props)) {
-    role = toAccessibleRole(accessibility->accessibilityRole);
+    roleName = accessibility->accessibilityRole;
   }
-  if (role == GTK_ACCESSIBLE_ROLE_GENERIC && shadowView.componentName != nullptr) {
-    // No explicit role, so infer one from the component. A <Text> is a label
-    // and an <Image> is an image whether or not the app said so.
+  if (roleName.empty() && shadowView.componentName != nullptr) {
     const std::string_view name(shadowView.componentName);
     if (name == "Paragraph") {
-      role = GTK_ACCESSIBLE_ROLE_LABEL;
+      roleName = "text";
     } else if (name == "Image") {
-      role = GTK_ACCESSIBLE_ROLE_IMG;
+      roleName = "image";
     }
   }
+  const GtkAccessibleRole role = toAccessibleRole(roleName);
 
   RnView *view = rn_view_new_with_role(static_cast<int>(shadowView.tag), role);
+
+  // React Native's own name for the same decision, for the tree dump. Set here
+  // rather than in applyAccessibility so the two vocabularies always describe
+  // the same choice: GTK's role is construct-only, so a role changed after
+  // mount would leave the name telling a truth the widget does not.
+  rn_view_set_role_name(view, roleName.c_str());
   // A fresh GtkWidget carries a floating reference. Sinking it here makes the
   // registry the owner, so the view survives the gap between a Remove and the
   // Insert that re-parents it.
