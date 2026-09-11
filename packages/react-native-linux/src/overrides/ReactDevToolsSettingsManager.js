@@ -1,5 +1,5 @@
 /**
- * `ReactDevToolsSettingsManager` for Linux.
+ * `ReactDevToolsSettingsManager`, for every desktop platform here.
  *
  * React Native ships this only as `.android.js` and `.ios.js`. There is no
  * platform-neutral fallback, and `Libraries/Core/setUpReactDevTools.js` imports

@@ -87,6 +87,8 @@ through `plan/20-macos-host.md`.
     native/mac/MacSnapshot.*           Renders a view tree to a PNG with no window.
 
     js/index.js                 The demo app. Ordinary React Native.
+    js/views.js                 A React app made only of <View>, which is what
+                                macOS can mount. What compare_hosts.sh runs.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     native/CMakeLists.txt       The host build. CMakeLists.txt at the repo root
                                 is a wrapper that points third_party and the
@@ -466,12 +468,25 @@ To check the two agree:
 
 which runs a script through both and diffs the tree each produced.
 
-## The `linux` platform
+## The `linux`, `macos` and `windows` platforms
 
 `packages/react-native-linux` is the JavaScript half: the `Platform` module and
 the Metro configuration that makes Metro resolve it. With it, an app bundled
-with `--platform linux` sees `Platform.OS === 'linux'` and can use `.linux.js`
-files, in development and in a release build alike.
+with `--platform macos` sees `Platform.OS === 'macos'` and can use `.macos.js`
+files, in development and in a release build alike. The names match
+react-native-macos and react-native-windows, so a library that already ships
+`Button.macos.js` for those forks resolves correctly here.
+
+In an app's `metro.config.js`:
+
+    const {withDesktopPlatforms} = require('react-native-linux/metro-config');
+    module.exports = withDesktopPlatforms(config);
+
+`withLinuxPlatform` still exists and still enables only `linux`.
+
+Almost none of what this does is per-platform: the shims below resolve to the
+same place on all three, and only `Platform` differs, by one string. See
+`plan/21-js-platform-layer.md`.
 
 Getting there is mostly about a family of React Native files that cannot work on
 a platform React Native has never heard of:

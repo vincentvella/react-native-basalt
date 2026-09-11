@@ -1,11 +1,11 @@
 /**
- * Metro configuration for the `linux` platform.
+ * Metro configuration for this project's desktop platforms.
  *
  * An out-of-tree React Native platform has to do two things to Metro, and the
  * second is the one that is not obvious.
  *
- * First, `linux` has to be a platform Metro knows about, so that
- * `Button.linux.js` wins over `Button.js` the way `Button.android.js` would.
+ * First, the platform has to be one Metro knows about, so that
+ * `Button.macos.js` wins over `Button.js` the way `Button.android.js` would.
  *
  * Second, some of React Native's own modules cannot work on a platform it has
  * never heard of. There are three kinds, and each needs different handling:
@@ -15,24 +15,31 @@
  *      with a note about "backwards compatibility of subpath (deep) imports".
  *      They exist so `react-native/Libraries/Image/Image` keeps working, and
  *      they rely on a platform-specific sibling winning the resolution. Bundle
- *      for `linux` and each resolves to *itself*, exports undefined, and kills
- *      whatever touches it -- as `Platform.constants` being undefined, or a
- *      view config being undefined, or a component being undefined.
+ *      for one of these platforms and each resolves to *itself*, exports
+ *      undefined, and kills whatever touches it -- as `Platform.constants`
+ *      being undefined, or a view config being undefined, or a component being
+ *      undefined.
  *
  *   2. **Modules with no neutral fallback at all**, which do not resolve, so
  *      there is no resolution to rewrite -- only a failure to intercept.
  *
- *   3. **Modules this platform genuinely implements differently**, which is
- *      only `Platform` so far.
+ *   3. **Modules this project genuinely implements differently**, which is
+ *      `Platform` and `TextInput`.
  *
  * React Native for Windows solves all of this with a whole override system and
  * a fork of every file it replaces. This is the same idea at the smallest size
  * that works.
  *
+ * None of the three kinds is Linux-specific, which is the point of this file's
+ * shape: the answers are identical for linux, macos and windows, and only
+ * `Platform` differs, by one string. Anything that has to be written per
+ * platform is a `.linux.js` / `.macos.js` / `.windows.js` file in
+ * `src/overrides`, and the tables below name it.
+ *
  * Usage, in an app's metro.config.js:
  *
- *     const {withLinuxPlatform} = require('react-native-linux/metro-config');
- *     module.exports = withLinuxPlatform(config);
+ *     const {withDesktopPlatforms} = require('react-native-linux/metro-config');
+ *     module.exports = withDesktopPlatforms(config);
  *
  * @format
  */
@@ -44,11 +51,22 @@ const path = require('path');
 const OVERRIDE_DIR = path.join(__dirname, 'src', 'overrides');
 
 /**
+ * The platforms this package can bundle for.
+ *
+ * `macos` and `windows` deliberately match the names react-native-macos and
+ * react-native-windows use. A library that ships `Button.macos.js` for those
+ * forks resolves correctly here without knowing this project exists, and a
+ * library that does not is no worse off. Picking different names would have
+ * bought nothing and cost that.
+ */
+const DESKTOP_PLATFORMS = ['linux', 'macos', 'windows'];
+
+/**
  * Kind 1: React Native's self-importing deep-import shims.
  *
  * Each is answered with its own `.android.js` sibling rather than a file of
- * ours. That is deliberate: this platform reports `PlatformConstantsAndroid`
- * from C++, shares ReactCommon's prop parsing, and drives the same components
+ * ours. That is deliberate: these platforms report `PlatformConstantsAndroid`
+ * from C++, share ReactCommon's prop parsing, and drive the same components
  * Android's JavaScript drives, so Android's implementation is the one that
  * matches what is actually implemented here. Copying them would mean nine forks
  * drifting silently from upstream.
@@ -74,13 +92,18 @@ const SELF_IMPORTING_SHIMS = [
 ];
 
 /**
- * Kind 3: modules this platform implements itself. Checked before the shim
- * list, so `Platform` gets ours rather than Android's.
+ * Kind 3: modules this project implements itself. Checked before the shim list,
+ * so `Platform` gets ours rather than Android's.
+ *
+ * A replacement is either a path, when every platform shares it, or a function
+ * of the platform when they do not. Only `Platform` needs the second form, and
+ * the one-line files it points at exist so that the difference between the
+ * platforms stays exactly one string. See src/overrides/createPlatform.js.
  */
 const PLATFORM_OVERRIDES = [
   [
     path.join('Libraries', 'Utilities', 'Platform.js'),
-    path.join(OVERRIDE_DIR, 'Platform.linux.js'),
+    platform => path.join(OVERRIDE_DIR, `Platform.${platform}.js`),
   ],
   [
     // Not a shim: React Native's TextInput.js branches on `Platform.OS` being
@@ -88,7 +111,7 @@ const PLATFORM_OVERRIDES = [
     // the header of the replacement for why it is a rewrite rather than a
     // third branch.
     path.join('Libraries', 'Components', 'TextInput', 'TextInput.js'),
-    path.join(OVERRIDE_DIR, 'TextInput.linux.js'),
+    path.join(OVERRIDE_DIR, 'TextInput.js'),
   ],
 ];
 
@@ -100,9 +123,32 @@ const PLATFORM_OVERRIDES = [
 const MISSING_MODULES = [
   [
     path.join('rndevtools', 'ReactDevToolsSettingsManager'),
-    path.join(OVERRIDE_DIR, 'ReactDevToolsSettingsManager.linux.js'),
+    path.join(OVERRIDE_DIR, 'ReactDevToolsSettingsManager.js'),
   ],
 ];
+
+/**
+ * How a host tells the dev server which desktop it is.
+ *
+ * ReactCxxPlatform's DevServerHelper builds its bundle URL from
+ * `constexpr DEFAULT_PLATFORM = "android"`, with no hook and no setting, so
+ * every desktop host asks Metro for an android bundle. Left alone, an app would
+ * be `Platform.OS === 'android'` under Fast Refresh and its real value in a
+ * release build, which is a far worse trap than either on its own.
+ *
+ * The request is therefore corrected on arrival, and the only thing in it that
+ * a host controls is `app=`, which comes from `ReactInstanceConfig::appId` and
+ * which Metro itself ignores. So the hosts set that to
+ * `react-native-desktop-<platform>` and this reads it back.
+ *
+ * It is a workaround and it should not have to exist. The fix is a `platform`
+ * field on ReactInstanceConfig, upstream; see plan/21-js-platform-layer.md.
+ */
+const APP_ID_PREFIX = 'react-native-desktop-';
+
+function appIdFor(platform) {
+  return APP_ID_PREFIX + platform;
+}
 
 // Whether `parent` contains `child`, or is it.
 //
@@ -119,17 +165,17 @@ function contains(parent, child) {
 
 // Matched on the tail of a path rather than an absolute one: the React Native
 // checkout can be a node_modules copy, a sibling clone or a workspace symlink.
-function matchTail(filePath, table) {
+function matchTail(filePath, table, platform) {
   for (const [tail, replacement] of table) {
     if (filePath.endsWith(tail)) {
-      return replacement;
+      return typeof replacement === 'function' ? replacement(platform) : replacement;
     }
   }
   return null;
 }
 
-function replacementFor(filePath) {
-  const own = matchTail(filePath, PLATFORM_OVERRIDES);
+function replacementFor(filePath, platform) {
+  const own = matchTail(filePath, PLATFORM_OVERRIDES, platform);
   if (own != null) {
     return own;
   }
@@ -143,22 +189,67 @@ function replacementFor(filePath) {
 }
 
 /**
- * Adds `linux` to Metro's platforms and installs the overrides above.
+ * Rewrites a dev-server bundle request that says `android` to the desktop
+ * platform that actually asked for it. See APP_ID_PREFIX above.
  *
- * Composes with an existing `resolveRequest` rather than replacing it, so an
- * app that already has one keeps it.
+ * `fallback` is used when the request carries no `app=` this plugin recognises,
+ * which is what an older host or a hand-typed URL looks like.
  */
-function withLinuxPlatform(config = {}) {
+function correctBundlePlatform(url, platforms, fallback) {
+  if (!/\.(bundle|map)\b/.test(url)) {
+    return url;
+  }
+  if (!/([?&]platform=)android(&|$)/.test(url)) {
+    return url;
+  }
+
+  const app = /[?&]app=([^&]*)/.exec(url);
+  let target = fallback;
+  if (app != null && app[1].startsWith(APP_ID_PREFIX)) {
+    const named = app[1].slice(APP_ID_PREFIX.length);
+    if (platforms.includes(named)) {
+      target = named;
+    }
+  }
+  if (target == null) {
+    return url;
+  }
+  return url.replace(/([?&]platform=)android(&|$)/, `$1${target}$2`);
+}
+
+/**
+ * Adds this project's desktop platforms to Metro and installs the overrides.
+ *
+ * Composes with an existing `resolveRequest` and `rewriteRequestUrl` rather
+ * than replacing them, so an app that already has either keeps it.
+ *
+ * Options:
+ *
+ *   platforms          which of linux/macos/windows to enable. All of them by
+ *                      default: bundling is per-platform anyway, so there is
+ *                      nothing to be gained by making an app declare a subset.
+ *   devServerPlatform  what to assume a dev-server request is for when it does
+ *                      not say. Defaults to the first enabled platform. A host
+ *                      built from this repo always says, so this only matters
+ *                      for a URL typed by hand.
+ */
+function withDesktopPlatforms(config = {}, options = {}) {
+  const enabled = options.platforms ?? DESKTOP_PLATFORMS;
+  const devServerPlatform = options.devServerPlatform ?? enabled[0];
+
   const resolver = config.resolver ?? {};
   const existingResolveRequest = resolver.resolveRequest;
   const server = config.server ?? {};
   const existingRewrite = server.rewriteRequestUrl;
 
   const platforms = resolver.platforms ?? [];
-  const withLinux = platforms.includes('linux') ? platforms : ['linux', ...platforms];
+  const withDesktop = [
+    ...enabled.filter(name => !platforms.includes(name)),
+    ...platforms,
+  ];
 
   // Metro will not read a file it is not watching, and this package hands it
-  // files -- the overrides below. Inside this repo that is already true, since
+  // files -- the overrides above. Inside this repo that is already true, since
   // `packages/` is on watchFolders; for anyone consuming the platform from a
   // linked checkout or another monorepo it is not, and bundling fails with
   // "Failed to get the SHA-1 for" the override rather than anything that names
@@ -188,29 +279,20 @@ function withLinuxPlatform(config = {}) {
     watchFolders: withOverrides,
     server: {
       ...server,
-      // The dev server asks for the wrong platform, and cannot be told
-      // otherwise: ReactCxxPlatform's DevServerHelper builds its bundle URL
-      // from `constexpr DEFAULT_PLATFORM = "android"`, with no hook and no
-      // setting. Left alone, an app would be `Platform.OS === 'android'` under
-      // Fast Refresh and `'linux'` in a release build, which is a far worse
-      // trap than either value on its own.
-      //
-      // So the request is corrected on arrival. Only for bundle requests, and
-      // only when the platform is exactly `android`, so asking for an android
-      // bundle from anything else still works.
-      rewriteRequestUrl: url => {
-        const rewritten = existingRewrite ? existingRewrite(url) : url;
-        if (!/\.(bundle|map)\b/.test(rewritten)) {
-          return rewritten;
-        }
-        return rewritten.replace(/([?&]platform=)android(&|$)/, '$1linux$2');
-      },
+      rewriteRequestUrl: url =>
+        correctBundlePlatform(
+          existingRewrite ? existingRewrite(url) : url,
+          enabled,
+          devServerPlatform,
+        ),
     },
     resolver: {
       ...resolver,
-      platforms: withLinux,
+      platforms: withDesktop,
       nodeModulesPaths: withProject,
       resolveRequest: (context, moduleName, platform) => {
+        const ours = enabled.includes(platform);
+
         // Resolve first, then decide. Rewriting the request instead would mean
         // reimplementing Metro's resolution to know what './Platform' meant
         // from any given file.
@@ -220,12 +302,12 @@ function withLinuxPlatform(config = {}) {
             ? existingResolveRequest(context, moduleName, platform)
             : context.resolveRequest(context, moduleName, platform);
         } catch (error) {
-          if (platform === 'linux' && moduleName.startsWith('.')) {
+          if (ours && moduleName.startsWith('.')) {
             const requested = path.resolve(
               path.dirname(context.originModulePath ?? ''),
               moduleName,
             );
-            const forMissing = matchTail(requested, MISSING_MODULES);
+            const forMissing = matchTail(requested, MISSING_MODULES, platform);
             if (forMissing != null) {
               return {type: 'sourceFile', filePath: forMissing};
             }
@@ -233,11 +315,11 @@ function withLinuxPlatform(config = {}) {
           throw error;
         }
 
-        if (platform !== 'linux' || resolution?.type !== 'sourceFile') {
+        if (!ours || resolution?.type !== 'sourceFile') {
           return resolution;
         }
 
-        const replacement = replacementFor(resolution.filePath);
+        const replacement = replacementFor(resolution.filePath, platform);
         if (replacement == null || replacement === resolution.filePath) {
           return resolution;
         }
@@ -253,8 +335,21 @@ function withLinuxPlatform(config = {}) {
   };
 }
 
+/**
+ * The original name, kept working. Enables only `linux`, which is what it
+ * always did, so an app that has this in its metro.config.js keeps the exact
+ * behaviour it had.
+ */
+function withLinuxPlatform(config = {}) {
+  return withDesktopPlatforms(config, {platforms: ['linux']});
+}
+
 module.exports = {
+  withDesktopPlatforms,
   withLinuxPlatform,
+  appIdFor,
+  APP_ID_PREFIX,
+  DESKTOP_PLATFORMS,
   SELF_IMPORTING_SHIMS,
   PLATFORM_OVERRIDES,
   MISSING_MODULES,

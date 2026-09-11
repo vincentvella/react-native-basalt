@@ -272,7 +272,7 @@ has gone unrecorded until now.
 - `placeholderTextColor`, `selectionColor` and `cursorColor` are parsed and
   ignored. GtkText takes those from CSS, not from a `PangoAttrList`, and this
   platform has no per-widget CSS provider.
-- `TextInput.linux.js` is a fork of React Native's component, and the only fork
+- `src/overrides/TextInput.js` is a fork of React Native's component, and the only fork
   in the tree. Every prop upstream adds is a prop it will not have.
 - `autoCapitalize`, `autoCorrect`, `spellCheck`, `keyboardType`,
   `returnKeyType`, `clearButtonMode`, `selectTextOnFocus` and
@@ -321,7 +321,24 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   guess.
 - Packaging: Arch PKGBUILD, Flatpak.
 
+## Testing
+
+- **One flaky end-to-end scenario.** "focus a TextInput, type, and see it
+  round-trip through React" failed once in five consecutive runs of
+  `scripts/integration_test.py` with "the focus command did not move focus to
+  the field", and passed the other four. The scenario schedules taps at fixed
+  delays and assumes the host has caught up, which is a timing assumption rather
+  than a synchronisation. Fixing it means waiting on something observable --
+  the tree, or a log line -- instead of on a clock.
+
 ## Upstream
+
+- **`ReactInstanceConfig` has no `platform` field.** `DevServerHelper` builds
+  every bundle URL with `constexpr DEFAULT_PLATFORM = "android"`, so every
+  desktop host asks Metro for an android bundle and the Metro plugin has to
+  correct the request on arrival by reading the platform back out of `app=`.
+  See `plan/21-js-platform-layer.md`. Worth a second upstream attempt now that
+  two platforms need it rather than one.
 
 - GTK 4.14's cairo renderer draws a transformed widget subtree unrotated and in
   the wrong colour; the GL renderer is correct. Worth reducing to a minimal case

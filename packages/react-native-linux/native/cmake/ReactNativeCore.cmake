@@ -393,7 +393,7 @@ endforeach()
 # The iOS variant is pure C++: TextInputShadowNode measures through a
 # TextLayoutManager, which on this platform is the Pango one, and nothing in it
 # touches Objective-C or an Apple SDK. Its component name is "TextInput", which
-# is the name packages/react-native-linux' TextInput.linux.js asks for.
+# is the name packages/react-native-linux' src/overrides/TextInput.js asks for.
 #
 # So this target takes the base sources and the iOS ones, and skips Android's.
 # ---------------------------------------------------------------------------

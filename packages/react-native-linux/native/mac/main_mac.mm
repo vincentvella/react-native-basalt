@@ -403,7 +403,10 @@ int main(int argc, const char *argv[]) {
         std::make_unique<DesktopFeatureFlags>());
 
     ReactInstanceConfig config;
-    config.appId = "react-native-linux";
+    // The appId is how this host tells Metro which platform it is; see the
+    // matching comment in gtk/main.cpp and APP_ID_PREFIX in
+    // packages/react-native-linux/metro-config.js.
+    config.appId = "react-native-desktop-macos";
     config.deviceName = "macos";
 
     // Dev mode changes three things at once: loadScript tries Metro before the

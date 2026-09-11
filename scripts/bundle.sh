@@ -2,7 +2,7 @@
 # Builds the demo app into a Metro bundle the host can load.
 #
 # Usage:  scripts/bundle.sh [/path/to/react-native] [--dev|--prod] [--platform P]
-#                          [--build-dir DIR]
+#                          [--build-dir DIR] [--entry FILE] [--out NAME]
 #
 # Produces a production bundle by default, because a development one cannot be
 # loaded from disk. A __DEV__ bundle pulls in LogBox, which reads the
@@ -30,6 +30,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV=false
 PLATFORM=linux
+# The app to bundle, relative to js/, and what to call the output. js/views.js
+# is the one macOS can run: see its header.
+ENTRY=index.js
+OUT_NAME=main.jsbundle
 # Which build tree to write into. Not always `build`: testing against a second
 # React Native version means a second configure, and the bundle has to land
 # beside the host that will load it.
@@ -41,6 +45,8 @@ while [ $# -gt 0 ]; do
     --dev) DEV=true; shift ;;
     --prod) DEV=false; shift ;;
     --platform) PLATFORM="$2"; shift 2 ;;
+    --entry) ENTRY="$2"; shift 2 ;;
+    --out) OUT_NAME="$2"; shift 2 ;;
     --build-dir) BUILD_DIR="$2"; shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
@@ -60,10 +66,10 @@ RN_DIR="$(cd "$RN_DIR" && pwd)"
   exit 1
 }
 
-OUT="$REPO_ROOT/$BUILD_DIR/main.jsbundle"
+OUT="$REPO_ROOT/$BUILD_DIR/$OUT_NAME"
 mkdir -p "$REPO_ROOT/$BUILD_DIR"
 
-echo "==> bundling js/index.js (platform=$PLATFORM, dev=$DEV) against $RN_DIR"
+echo "==> bundling js/$ENTRY (platform=$PLATFORM, dev=$DEV) against $RN_DIR"
 if [ "$DEV" = true ]; then
   echo "    note: the host cannot load a --dev bundle from disk; it needs" >&2
   echo "          DevSettings, which only exists in dev mode. See the header." >&2
@@ -71,7 +77,7 @@ fi
 # metro appends .js to --out.
 # The entry is resolved against projectRoot (js/), so it is named relative to
 # that, not to this script's working directory.
-RN_DIR="$RN_DIR" "$RN_DIR/node_modules/.bin/metro" build index.js \
+RN_DIR="$RN_DIR" "$RN_DIR/node_modules/.bin/metro" build "$ENTRY" \
   --platform "$PLATFORM" \
   --dev "$DEV" \
   --out "$OUT" \

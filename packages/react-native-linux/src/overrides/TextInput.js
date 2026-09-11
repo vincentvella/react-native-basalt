@@ -1,12 +1,12 @@
 /**
- * `<TextInput>` for Linux.
+ * `<TextInput>`, for every desktop platform here.
  *
  * React Native's own `TextInput.js` cannot be used here. Its body is
  *
  *     if (Platform.OS === 'android') { ... }
  *     else if (Platform.OS === 'ios') { ... }
  *
- * and on a third platform neither branch runs, so the component it goes on to
+ * and on any other platform neither branch runs, so the component it goes on to
  * render is undefined and React reports an invalid element type. There is no
  * third branch to add without forking fifteen hundred lines of iOS and Android
  * behaviour that would then drift from upstream in silence.
@@ -14,8 +14,9 @@
  * So this is a smaller implementation, and honestly a subset. It renders the
  * same native component the iOS path renders, `RCTSinglelineTextInputView`,
  * which ReactCommon rewrites to the component named `TextInput`, whose shadow
- * node is React Native's own iOS one and whose measurement runs through the
- * Pango text layout manager this platform installs. What it does not carry is
+ * node is React Native's own iOS one and whose measurement runs through
+ * whichever text layout manager the platform installs -- Pango on Linux, and
+ * nothing yet on macOS, which is why `<TextInput>` does not mount there. What it does not carry is
  * the years of platform-specific behaviour in the real file: no
  * `InputAccessoryView`, no shared `TextInputState` focus registry, no autofill,
  * no `rejectResponderTermination`, no multiline.

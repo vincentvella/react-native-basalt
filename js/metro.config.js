@@ -32,13 +32,14 @@ if (!fs.existsSync(path.join(rnDir, 'node_modules', 'react-native'))) {
 const rnRequire = createRequire(path.join(rnDir, 'package.json'));
 const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
 
-// The `linux` platform itself: adds it to Metro's platform list and puts this
-// project's replacements in front of the React Native modules that have no
-// .linux variant. Without it, bundling with --platform linux produces a bundle
-// that builds and then dies on Platform.constants being undefined.
-const {withLinuxPlatform} = require('../packages/react-native-linux/metro-config');
+// The desktop platforms themselves: adds linux, macos and windows to Metro's
+// platform list and puts this project's replacements in front of the React
+// Native modules that have no variant for them. Without it, bundling with
+// --platform linux produces a bundle that builds and then dies on
+// Platform.constants being undefined.
+const {withDesktopPlatforms} = require('../packages/react-native-linux/metro-config');
 
-module.exports = withLinuxPlatform(mergeConfig(getDefaultConfig(__dirname), {
+module.exports = withDesktopPlatforms(mergeConfig(getDefaultConfig(__dirname), {
   projectRoot: __dirname,
   watchFolders: [rnDir, path.resolve(__dirname, '..', 'packages')],
   watcher: {

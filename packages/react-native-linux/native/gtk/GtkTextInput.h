@@ -5,7 +5,7 @@
 // TextLayoutManager, which on this platform is the Pango one. Android's variant
 // includes fbjni and calls into a Java FabricUIManager, so it is unusable here;
 // see plan/decisions.md. The component name is therefore "TextInput", which is
-// what packages/react-native-linux' TextInput.linux.js asks for.
+// what packages/react-native-linux' src/overrides/TextInput.js asks for.
 //
 // The editing itself is a real GtkText -- the widget behind GtkEntry -- rather
 // than a cursor drawn on a PangoLayout. That brings input methods, selection,

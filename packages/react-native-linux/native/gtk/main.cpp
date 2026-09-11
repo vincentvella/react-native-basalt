@@ -416,7 +416,13 @@ void onActivate(GtkApplication *app, gpointer data) {
       std::make_unique<LinuxFeatureFlags>());
 
   ReactInstanceConfig config;
-  config.appId = "react-native-linux";
+  // The appId is how this host tells Metro which platform it is. ReactCxxPlatform's
+  // DevServerHelper builds its bundle URL from `constexpr DEFAULT_PLATFORM =
+  // "android"` with no hook and no setting, and `app=` -- which comes from
+  // here, and which Metro itself ignores -- is the only thing in that URL a
+  // host controls. The Metro plugin reads it back and corrects the platform.
+  // See APP_ID_PREFIX in packages/react-native-linux/metro-config.js.
+  config.appId = "react-native-desktop-linux";
   config.deviceName = "linux";
 
   // Dev mode changes three things at once, which is worth being explicit about:

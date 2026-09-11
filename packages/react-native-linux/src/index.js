@@ -13,4 +13,8 @@
 'use strict';
 
 export * from 'react-native';
-export {default as Platform} from './overrides/Platform.linux';
+// Extensionless on purpose: Metro picks Platform.linux.js, Platform.macos.js or
+// Platform.windows.js by the platform being bundled for, which is the same
+// mechanism React Native uses for its own and means this line never has to know
+// how many desktops there are.
+export {default as Platform} from './overrides/Platform';

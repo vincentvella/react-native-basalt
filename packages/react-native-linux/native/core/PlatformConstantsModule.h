@@ -20,7 +20,7 @@
 //
 // Everything else is copied from ReactCxxPlatform's implementation, including
 // the Android-shaped fields, because that is the spec this platform answers.
-// See packages/react-native-linux/src/overrides/Platform.linux.js for why the
+// See packages/react-native-linux/src/overrides/createPlatform.js for why the
 // Android spec is the right one here.
 
 #pragma once

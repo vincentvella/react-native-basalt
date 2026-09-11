@@ -71,12 +71,20 @@ tree after each; with no directory set it opens a window and applies the second
 transaction two seconds in, the way the GTK harness does.
 
 `scripts/compare_hosts.sh` is the one that matters most and the one that cannot
-run in CI. It drives the same script through `rn_linux_host` and `rn_mac_host`
-and diffs the view tree each dumped -- the same JavaScript, the same Fabric, the
-same Yoga, two entirely different view layers. If they disagree, one platform is
-wrong and the diff says which line. It needs both toolkits installed, so it runs
-on a developer's Mac rather than on CI, where each host only exists on its own
-side.
+run in CI. It runs `js/views.js` -- a real React app made only of `<View>` --
+through `rn_linux_host` and `rn_mac_host`, and checks two things that fail
+differently: that the view trees match, and that each host's log reports the
+`Platform.OS` its bundle was built for. A bundle built for the wrong platform
+can render perfectly and be wrong about everything `Platform.OS` guards.
+
+It needs both toolkits installed, so it runs on a developer's Mac rather than on
+CI, where each host only exists on its own side. Build the bundles first:
+
+```bash
+scripts/bundle.sh --platform linux --entry views.js --out views.linux.jsbundle
+scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
+scripts/compare_hosts.sh
+```
 
 `native/mac/demo_layout_mac.mm` is the visual half of the view layer. It carries the same boxes at
 the same coordinates as the GTK `demo_layout`, so the two can be compared
