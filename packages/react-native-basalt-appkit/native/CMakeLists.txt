@@ -60,10 +60,16 @@ enable_language(OBJCXX)
 # No React Native dependency, so it builds and is tested on its own, on a Mac
 # with nothing else installed.
 # ---------------------------------------------------------------------------
-add_library(basalt_appkit_view STATIC appkit/RnAppKitView.mm appkit/AppKitSnapshot.mm)
+add_library(basalt_appkit_view STATIC
+  appkit/RnAppKitView.mm
+  # The paragraph object. Core Text only, no React Native, which is what keeps
+  # this target buildable on a Mac with nothing else installed.
+  appkit/RnTextLayout.mm
+  appkit/AppKitSnapshot.mm)
 target_compile_options(basalt_appkit_view PRIVATE -Wall -Wextra -fobjc-arc)
 target_include_directories(basalt_appkit_view PUBLIC appkit)
-target_link_libraries(basalt_appkit_view PUBLIC "-framework Cocoa" "-framework QuartzCore")
+target_link_libraries(basalt_appkit_view PUBLIC
+  "-framework Cocoa" "-framework QuartzCore" "-framework CoreText")
 
 add_executable(demo_layout_appkit appkit/demo_layout_appkit.mm)
 target_compile_options(demo_layout_appkit PRIVATE -Wall -Wextra -fobjc-arc)
@@ -71,7 +77,12 @@ target_link_libraries(demo_layout_appkit PRIVATE basalt_appkit_view)
 
 # The runner comes from the shared half, which knows about no toolkit: the test
 # infrastructure is shared even though the views are not.
-set(BASALT_APPKIT_TEST_SOURCES ${BASALT_TEST_HARNESS} tests/test_appkit_view.mm)
+set(BASALT_APPKIT_TEST_SOURCES
+  ${BASALT_TEST_HARNESS}
+  tests/test_appkit_view.mm
+  # Core Text, against RnTextLayout alone. No React Native, so these run in the
+  # toolkit-only build too.
+  tests/test_appkit_text.mm)
 
 # ---------------------------------------------------------------------------
 # basalt_appkit_mounting — the AppKit half of the Fabric mounting manager.
@@ -90,7 +101,13 @@ if(TARGET basalt_core)
     # macOS's implementation of core/FontRegistry.h -- the seam phase 17 named.
     # Core links against whichever implementation the platform half provides,
     # so without this nothing that reaches expo-font links.
-    appkit/FontRegistryCoreText.mm)
+    appkit/FontRegistryCoreText.mm
+    # AttributedString -> Core Text. Shared by measurement and painting, so they
+    # agree, which is the whole reason it is one file.
+    appkit/CoreTextLayout.mm
+    # Replaces React Native's stub TextLayoutManager; see the shared half's
+    # cmake/ReactNativeCore.cmake for why the stub has to leave the build.
+    appkit/CoreTextLayoutManager.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)

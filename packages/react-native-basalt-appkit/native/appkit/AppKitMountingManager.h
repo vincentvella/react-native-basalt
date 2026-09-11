@@ -69,6 +69,7 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
 
   // --- The AppKit half of updateView ----------------------------------------
   void applyProps(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+  void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
 };
 

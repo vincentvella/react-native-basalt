@@ -2,6 +2,24 @@
 
 Not scheduled. Roughly by value.
 
+## macOS
+
+- **No accessibility.** AppKit views carry no role, so a screen reader sees a
+  tree of untyped views. It is also the only thing `scripts/compare_hosts.sh`
+  finds different between the two hosts on a text-heavy app: GTK emits
+  `role=label` on a paragraph and macOS emits nothing.
+- **Justified text.** `NSTextAlignmentJustified` reaches the paragraph style and
+  Core Text ignores it for lines drawn individually, which is how RnTextLayout
+  has to draw them to honour `numberOfLines`. Doing it properly needs
+  `CTLineCreateJustifiedLine` per line.
+- **Fonts loaded at runtime are untested.** `resolveFontFamily` is wired into
+  the Core Text font lookup, and `expo-font` on macOS has never been run end to
+  end.
+- **No `<Image>`, `<ScrollView>` or `<TextInput>`**, and no input of any kind --
+  the event beat runs with nothing to deliver.
+- Within `<View>`: per-corner radii, borders, transform, z-index and
+  pointer-events are unmapped. The GTK side has all of them.
+
 ## Testing
 
 - No rendering assertions: the widget tree says a view has a colour and a

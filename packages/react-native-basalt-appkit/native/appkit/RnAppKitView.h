@@ -50,6 +50,16 @@ NS_ASSUME_NONNULL_BEGIN
                        hasColor:(BOOL)hasColor;
 
 - (void)setRnOpacity:(CGFloat)opacity;
+
+// The paragraph this view draws, or nil for a view that draws none.
+//
+// A view either paints a layer or draws text; nothing here does both, because
+// React Native's <Text> is a Paragraph node with no children of its own. Held
+// as an opaque object so this header stays free of Core Text -- see
+// RnTextLayout.h for the object, and CoreTextLayout.h for what builds one --
+// both the mounting manager and the measurement seam go through that, so the
+// size a view draws at is the size Yoga was told.
+- (void)setRnTextLayout:(nullable id)layout;
 - (void)setRnClipsChildren:(BOOL)clips;
 - (void)setRnCornerRadius:(CGFloat)radius;
 

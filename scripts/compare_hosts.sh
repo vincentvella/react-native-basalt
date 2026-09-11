@@ -12,6 +12,15 @@
 # the wrong platform can still render correctly and be wrong about everything
 # `Platform.OS` guards.
 #
+# Text is the exception, and BASALT_COMPARE_IGNORE_FRAMES=1 is how to say so.
+# Pango over the system sans and Core Text over San Francisco are different
+# shapers over different fonts: the same paragraph is a few points taller on one
+# than the other, and every frame below it shifts. Demanding equality there
+# would mean the check could never be turned on for text at all. With frames
+# ignored what is still compared is everything that must match -- the tree
+# shape, the strings, the colours, the clip and opacity flags -- which is where
+# a real bug would show up.
+#
 # Needs both toolkits present, so it runs on a Mac with GTK installed rather
 # than in CI, where each host only exists on its own side.
 #
@@ -86,6 +95,17 @@ for side in linux macos; do
     fi
   fi
 done
+
+# Frames stripped, when asked. Deliberately a whole-line substitution rather
+# than a tolerance: "close enough" would need a number nobody can justify, and
+# the sizes that differ are the ones this cannot check anyway.
+if [[ -n "${BASALT_COMPARE_IGNORE_FRAMES:-}" ]]; then
+  for side in linux macos; do
+    sed -E 's/ frame=\([^)]*\)//' "$out/$side.txt" > "$out/$side.stripped"
+    mv "$out/$side.stripped" "$out/$side.txt"
+  done
+  echo "  (frames ignored)"
+fi
 
 if diff -u "$out/linux.txt" "$out/macos.txt"; then
   echo

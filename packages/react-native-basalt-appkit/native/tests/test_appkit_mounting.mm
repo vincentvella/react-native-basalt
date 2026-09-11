@@ -278,17 +278,19 @@ TEST(mac_props_reach_the_layer_through_a_mutation) {
   }
 }
 
-TEST(mac_has_component_admits_what_does_not_mount_yet) {
+TEST(appkit_has_component_admits_what_does_not_mount_yet) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
 
     EXPECT(manager.hasComponent("View"));
     EXPECT(manager.hasComponent("RootView"));
+    // Paragraph is the mountable half of <Text>, and could not be claimed until
+    // there was a Core Text TextLayoutManager to measure it with.
+    EXPECT(manager.hasComponent("Paragraph"));
 
     // Everything else. Claiming a component without an AppKit peer is worse
     // than admitting the gap: the registry would build shadow nodes nothing can
     // mount, and the app would render blank rectangles rather than fail.
-    EXPECT(!manager.hasComponent("Paragraph"));
     EXPECT(!manager.hasComponent("Image"));
     EXPECT(!manager.hasComponent("ScrollView"));
     EXPECT(!manager.hasComponent("TextInput"));

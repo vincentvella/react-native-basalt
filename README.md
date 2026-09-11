@@ -11,9 +11,10 @@ separately. Nothing is forked, which is why this can track the current Expo
 instead of trailing a rebase.
 
 Today: Linux runs real Expo apps -- text, images, scrolling, text input,
-accessibility, fonts, assets. macOS mounts `<View>` and is catching up. Both
-hosts produce a byte-identical view tree from the same JavaScript, which
-`scripts/compare_hosts.sh` checks. Windows is a name in a list.
+accessibility, fonts, assets. macOS mounts `<View>` and `<Text>`, and is
+catching up. Both hosts produce a byte-identical view tree from the same
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows is a name in a
+list.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -112,11 +113,15 @@ Inside the shared package, under `native/`:
     appkit/AppKitMountingManager.*  The AppKit half of IMountingManager. Mounts
                                 <View>; everything else is unimplemented and says
                                 so.
-    appkit/ComponentRegistryAppKit.mm  What macOS claims: View. The shortness is
-                                the honest part; see core/ComponentRegistry.h.
+    appkit/ComponentRegistryAppKit.mm  What macOS claims: View, Paragraph, Text,
+                                RawText. See core/ComponentRegistry.h.
     appkit/AppKitRunLoopObserver.*  The event beat, on a CFRunLoopObserver.
     appkit/AppKitAnimationChoreographer.*  Animation frames, on a CADisplayLink.
     appkit/FontRegistryCoreText.mm  macOS's half of the font seam.
+    appkit/RnTextLayout.*       A laid-out paragraph. Core Text only, no RN.
+    appkit/CoreTextLayout.*     AttributedString -> Core Text. Shared by
+                                measurement and painting, so they agree.
+    appkit/CoreTextLayoutManager.mm  Replaces RN's stub TextLayoutManager.
     appkit/AppKitSnapshot.*     Renders a view tree to a PNG with no window.
     appkit/main_appkit.mm       The host: ReactHost, Hermes, one surface in an
                                 NSWindow.
@@ -127,8 +132,9 @@ And at the repository root:
 
     CMakeLists.txt              The development build: adds all three packages.
     js/index.js                 The demo app. Ordinary React Native.
-    js/views.js                 A React app made only of <View>, which is what
-                                macOS can mount. What compare_hosts.sh runs.
+    js/views.js                 A React app made only of <View>. What
+                                compare_hosts.sh runs by default.
+    js/text.js                  A React app that is mostly <Text>.
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.

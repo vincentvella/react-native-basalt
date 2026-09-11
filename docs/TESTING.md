@@ -86,6 +86,26 @@ scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
 scripts/compare_hosts.sh
 ```
 
+For `js/text.js`, frames have to be ignored:
+
+```bash
+scripts/bundle.sh --platform linux --entry text.js --out text.linux.jsbundle
+scripts/bundle.sh --platform macos --entry text.js --out text.macos.jsbundle
+BASALT_COMPARE_IGNORE_FRAMES=1 scripts/compare_hosts.sh \
+  build/text.linux.jsbundle.js build/text.macos.jsbundle.js BasaltText
+```
+
+Pango over the system sans and Core Text over San Francisco are different
+shapers over different fonts, so the same paragraph is a few points taller on
+one than the other and every frame below it shifts. Demanding equality there
+would mean the check could never be turned on for text at all. What is still
+compared is everything that must match: the tree shape, the strings, the
+colours, the clip and opacity flags.
+
+As of phase 23 that comparison differs by exactly one thing -- GTK emits
+`role=label` on a paragraph and macOS emits nothing, because macOS has no
+accessibility yet.
+
 `native/mac/demo_layout_appkit.mm` is the visual half of the view layer. It carries the same boxes at
 the same coordinates as the GTK `demo_layout_gtk`, so the two can be compared
 directly, and `BASALT_SNAPSHOT=out.png ./build/demo_layout_appkit` renders them

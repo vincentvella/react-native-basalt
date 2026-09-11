@@ -1,8 +1,12 @@
 #import "AppKitMountingManager.h"
 
+#import "CoreTextLayout.h"
+
 #include "ComponentRegistry.h"
 
+#include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Color.h>
 
 #include <glog/logging.h>
@@ -24,6 +28,7 @@ static_assert(!std::is_abstract_v<AppKitMountingManager>,
 using facebook::react::ColorComponents;
 using facebook::react::ComponentRegistryFactory;
 using facebook::react::MountingTransaction;
+using facebook::react::ParagraphState;
 using facebook::react::ShadowView;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
@@ -101,10 +106,13 @@ bool AppKitMountingManager::hasComponent(const std::string &name) {
   // gap: the registry would build shadow nodes nothing can put on screen, and
   // the app would render blank rectangles instead of failing somewhere legible.
   //
-  // Text, Image, ScrollView and TextInput are all missing, and each is its own
-  // piece of work -- Core Text, an image loader, a clipping scroller and an
-  // NSTextField peer respectively. See plan/19-macos-mounting.md.
-  return name == "View" || name == "RootView";
+  // Paragraph is the mountable half of <Text>; Text and RawText exist only in
+  // the shadow tree, folded into the Paragraph's AttributedString.
+  //
+  // Image, ScrollView and TextInput are still missing, and each is its own
+  // piece of work -- an image loader, a clipping scroller and an NSTextField
+  // peer respectively. See plan/23-core-text.md.
+  return name == "View" || name == "RootView" || name == "Paragraph";
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +152,35 @@ void AppKitMountingManager::forgetTag(Tag tag) {
 
 void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
+  applyText(view, shadowView);
   applyLayoutMetrics(view, shadowView);
 }
 
 // ---------------------------------------------------------------------------
 // Applying a ShadowView to a view
 // ---------------------------------------------------------------------------
+
+// A <Paragraph> carries its text in state, not props: ParagraphShadowNode
+// resolves the whole <Text> subtree into one AttributedString and commits it as
+// ParagraphState, which is why nothing here walks child shadow nodes.
+void AppKitMountingManager::applyText(RnAppKitView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr ||
+      std::string_view(shadowView.componentName) != "Paragraph") {
+    return;
+  }
+
+  const auto state =
+      std::dynamic_pointer_cast<const facebook::react::ConcreteState<ParagraphState>>(shadowView.state);
+  if (state == nullptr) {
+    return;
+  }
+
+  const auto &data = state->getData();
+  // Built through the same function the measurement seam uses, which is what
+  // makes the painted lines break where the measured ones did. The width is not
+  // baked in -- the view draws at whatever size Yoga gave it.
+  [view setRnTextLayout:basalt::buildTextLayout(data.attributedString, data.paragraphAttributes)];
+}
 
 void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &shadowView) {
   const auto props = std::dynamic_pointer_cast<const ViewProps>(shadowView.props);
