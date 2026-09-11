@@ -1,9 +1,8 @@
 #include "ExpoRuntime.h"
 
-#include "LinuxFonts.h"
+#include "FontRegistry.h"
 
-#include <glib.h>
-
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -113,7 +112,8 @@ Object makeAssetModule(Runtime &runtime) {
             }
 
             const std::string path = url.substr(std::string_view{"file://"}.size());
-            if (!g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR)) {
+            std::error_code ignored;
+            if (!std::filesystem::is_regular_file(path, ignored)) {
               return rejectedPromise(
                   rt,
                   "no asset at " + path +

@@ -1,4 +1,4 @@
-#include "LinuxFonts.h"
+#include "FontRegistry.h"
 
 #include <pango/pangocairo.h>
 #include <pango/pangofc-fontmap.h>

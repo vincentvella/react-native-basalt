@@ -25,10 +25,10 @@
 
 namespace rnlinux {
 
-class LinuxStatusBarModule
-    : public facebook::react::NativeStatusBarManagerAndroidCxxSpec<LinuxStatusBarModule> {
+class DesktopStatusBarModule
+    : public facebook::react::NativeStatusBarManagerAndroidCxxSpec<DesktopStatusBarModule> {
  public:
-  explicit LinuxStatusBarModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
+  explicit DesktopStatusBarModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
       : NativeStatusBarManagerAndroidCxxSpec(std::move(jsInvoker)) {}
 
   facebook::jsi::Object getConstants(facebook::jsi::Runtime &rt);

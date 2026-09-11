@@ -1,6 +1,6 @@
 #include "GtkMountingManager.h"
 
-#include "LinuxComponentRegistry.h"
+#include "ComponentRegistry.h"
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/image/ImageEventEmitter.h>

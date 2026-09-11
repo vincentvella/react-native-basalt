@@ -1,4 +1,4 @@
-#include "LinuxPlatformConstants.h"
+#include "PlatformConstantsModule.h"
 
 #include <cstdlib>
 
@@ -11,7 +11,7 @@ namespace rnlinux {
 
 using facebook::react::PlatformConstantsAndroid;
 
-LinuxPlatformConstantsModule::Version LinuxPlatformConstantsModule::parseVersion(
+DesktopPlatformConstantsModule::Version DesktopPlatformConstantsModule::parseVersion(
     const std::string &text) {
   Version version;
 
@@ -39,7 +39,7 @@ LinuxPlatformConstantsModule::Version LinuxPlatformConstantsModule::parseVersion
   return version;
 }
 
-PlatformConstantsAndroid LinuxPlatformConstantsModule::getConstants(facebook::jsi::Runtime &rt) {
+PlatformConstantsAndroid DesktopPlatformConstantsModule::getConstants(facebook::jsi::Runtime &rt) {
   // Everything but the version is what ReactCxxPlatform reports, kept in step
   // with it deliberately: this class exists to correct one field, not to invent
   // a different set of constants.

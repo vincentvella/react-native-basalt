@@ -11,7 +11,7 @@
 //   RunLoopObserverManager  ReactCxxPlatform    (event beat)
 //   AnimationChoreographer  GtkAnimationChoreographer (this repo, frame clock)
 //   ContextContainer        http + websocket client factories, below
-//   ComponentRegistryFactory LinuxComponentRegistry (via the mounting manager)
+//   ComponentRegistryFactory ComponentRegistry (via the mounting manager)
 //
 // Threading: GTK owns this thread. ReactHost spins up its own JS thread and
 // every mount is marshalled back here by GtkMountingManager. Nothing below
@@ -40,9 +40,9 @@
 #include <cstdlib>
 #include <exception>
 #include "ExpoRuntime.h"
-#include "LinuxPlatformConstants.h"
-#include "LinuxSourceCode.h"
-#include "LinuxStatusBar.h"
+#include "PlatformConstantsModule.h"
+#include "SourceCodeModule.h"
+#include "StatusBarModule.h"
 
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsDefaults.h>
@@ -333,13 +333,13 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
          const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
-          return std::make_shared<rnlinux::LinuxPlatformConstantsModule>(jsInvoker);
+          return std::make_shared<rnlinux::DesktopPlatformConstantsModule>(jsInvoker);
         }
-        if (name == rnlinux::LinuxStatusBarModule::kModuleName) {
-          return std::make_shared<rnlinux::LinuxStatusBarModule>(jsInvoker);
+        if (name == rnlinux::DesktopStatusBarModule::kModuleName) {
+          return std::make_shared<rnlinux::DesktopStatusBarModule>(jsInvoker);
         }
-        if (name == rnlinux::LinuxSourceCodeModule::kModuleName) {
-          return std::make_shared<rnlinux::LinuxSourceCodeModule>(jsInvoker, scriptURL);
+        if (name == rnlinux::DesktopSourceCodeModule::kModuleName) {
+          return std::make_shared<rnlinux::DesktopSourceCodeModule>(jsInvoker, scriptURL);
         }
         return nullptr;
       });

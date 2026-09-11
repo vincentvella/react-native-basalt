@@ -19,10 +19,10 @@
 
 namespace rnlinux {
 
-class LinuxSourceCodeModule
-    : public facebook::react::NativeSourceCodeCxxSpec<LinuxSourceCodeModule> {
+class DesktopSourceCodeModule
+    : public facebook::react::NativeSourceCodeCxxSpec<DesktopSourceCodeModule> {
  public:
-  LinuxSourceCodeModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker, std::string scriptURL)
+  DesktopSourceCodeModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker, std::string scriptURL)
       : NativeSourceCodeCxxSpec(std::move(jsInvoker)), scriptURL_(std::move(scriptURL)) {}
 
   facebook::jsi::Object getConstants(facebook::jsi::Runtime &rt);

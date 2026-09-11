@@ -30,6 +30,12 @@ brings the host's sources and `react-native run-linux --build` can compile one.
 `native/` below is `packages/react-native-linux/native/`. Plan documents written
 before 2026-09-10 name these files without that prefix.
 
+`native/` has two halves. `core/` is the part that is not about a toolkit --
+the Expo runtime, the core modules, the http client -- and it builds without
+GTK on the include path, which is how that claim is kept honest rather than
+aspirational. `src/` is the GTK view layer, and would be something else on
+another desktop. See `plan/17-shared-core.md`.
+
     native/src/RnView.h/.cpp           GTK4 widget layer. No RN dependency.
     native/src/GtkMountingManager.*    IMountingManager implementation.
     native/src/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.

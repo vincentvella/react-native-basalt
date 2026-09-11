@@ -1,11 +1,11 @@
-#include "LinuxStatusBar.h"
+#include "StatusBarModule.h"
 
 namespace rnlinux {
 
 using facebook::jsi::Object;
 using facebook::jsi::Runtime;
 
-Object LinuxStatusBarModule::getConstants(Runtime &rt) {
+Object DesktopStatusBarModule::getConstants(Runtime &rt) {
   Object constants(rt);
   // Zero, and meant literally. React Native's own JavaScript lays out around
   // this value, so reporting a plausible-looking phone height would push every
@@ -15,9 +15,9 @@ Object LinuxStatusBarModule::getConstants(Runtime &rt) {
   return constants;
 }
 
-void LinuxStatusBarModule::setColor(Runtime & /*rt*/, double /*color*/, bool /*animated*/) {}
-void LinuxStatusBarModule::setTranslucent(Runtime & /*rt*/, bool /*translucent*/) {}
-void LinuxStatusBarModule::setStyle(Runtime & /*rt*/, std::optional<std::string> /*style*/) {}
-void LinuxStatusBarModule::setHidden(Runtime & /*rt*/, bool /*hidden*/) {}
+void DesktopStatusBarModule::setColor(Runtime & /*rt*/, double /*color*/, bool /*animated*/) {}
+void DesktopStatusBarModule::setTranslucent(Runtime & /*rt*/, bool /*translucent*/) {}
+void DesktopStatusBarModule::setStyle(Runtime & /*rt*/, std::optional<std::string> /*style*/) {}
+void DesktopStatusBarModule::setHidden(Runtime & /*rt*/, bool /*hidden*/) {}
 
 } // namespace rnlinux

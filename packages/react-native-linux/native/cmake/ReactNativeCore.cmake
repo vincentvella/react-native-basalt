@@ -31,7 +31,7 @@ string(REGEX MATCH "\"version\"[ \t]*:[ \t]*\"([^\"]+)\"" _ ${RN_PACKAGE_JSON})
 set(RN_VERSION ${CMAKE_MATCH_1})
 message(STATUS "React Native ${RN_VERSION} (${RN_DIR})")
 
-# Reported to JavaScript by src/LinuxPlatformConstants.cpp, which exists
+# Reported to JavaScript by core/PlatformConstantsModule.cpp, which exists
 # because ReactCxxPlatform hardcodes 1000.0.0 and so can never match a release.
 add_compile_definitions(RN_LINUX_REACT_NATIVE_VERSION="${RN_VERSION}")
 

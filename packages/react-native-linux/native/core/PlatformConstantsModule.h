@@ -36,10 +36,10 @@ namespace rnlinux {
 // overriding getConstants does nothing at all -- the method table still points
 // at the base. It has to derive from the spec itself. That failure is silent
 // and looks exactly like the provider not being consulted.
-class LinuxPlatformConstantsModule
-    : public facebook::react::NativePlatformConstantsAndroidCxxSpec<LinuxPlatformConstantsModule> {
+class DesktopPlatformConstantsModule
+    : public facebook::react::NativePlatformConstantsAndroidCxxSpec<DesktopPlatformConstantsModule> {
  public:
-  explicit LinuxPlatformConstantsModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
+  explicit DesktopPlatformConstantsModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
       : NativePlatformConstantsAndroidCxxSpec(std::move(jsInvoker)) {}
 
   std::string getAndroidID(facebook::jsi::Runtime & /*rt*/) {

@@ -1,6 +1,6 @@
 #include "PangoTextLayout.h"
 
-#include "LinuxFonts.h"
+#include "FontRegistry.h"
 
 #include <react/renderer/graphics/Color.h>
 

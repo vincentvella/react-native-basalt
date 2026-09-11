@@ -9,12 +9,12 @@
 
 #include "TestHarness.h"
 
-#include "LinuxPlatformConstants.h"
+#include "PlatformConstantsModule.h"
 
-using rnlinux::LinuxPlatformConstantsModule;
+using rnlinux::DesktopPlatformConstantsModule;
 
 TEST(version_parses_a_stable_release) {
-  const auto version = LinuxPlatformConstantsModule::parseVersion("0.87.1");
+  const auto version = DesktopPlatformConstantsModule::parseVersion("0.87.1");
   EXPECT_EQ(version.major, 0);
   EXPECT_EQ(version.minor, 87);
   EXPECT_EQ(version.patch, 1);
@@ -24,14 +24,14 @@ TEST(version_parses_a_stable_release) {
 TEST(version_parses_the_main_placeholder) {
   // What React Native calls itself on main, and the value this whole class
   // exists to stop being reported against a release.
-  const auto version = LinuxPlatformConstantsModule::parseVersion("1000.0.0");
+  const auto version = DesktopPlatformConstantsModule::parseVersion("1000.0.0");
   EXPECT_EQ(version.major, 1000);
   EXPECT_EQ(version.minor, 0);
   EXPECT_EQ(version.patch, 0);
 }
 
 TEST(version_keeps_a_prerelease_tag_out_of_the_patch) {
-  const auto version = LinuxPlatformConstantsModule::parseVersion("0.88.0-rc.2");
+  const auto version = DesktopPlatformConstantsModule::parseVersion("0.88.0-rc.2");
   EXPECT_EQ(version.major, 0);
   EXPECT_EQ(version.minor, 88);
   EXPECT_EQ(version.patch, 0);
@@ -42,7 +42,7 @@ TEST(version_survives_something_it_does_not_understand) {
   // Never a crash and never a wrong number: a version that cannot be parsed
   // reports zeroes, which disagrees with every bundle and so fails loudly
   // rather than matching one by accident.
-  const auto version = LinuxPlatformConstantsModule::parseVersion("");
+  const auto version = DesktopPlatformConstantsModule::parseVersion("");
   EXPECT_EQ(version.major, 0);
   EXPECT_EQ(version.minor, 0);
   EXPECT_EQ(version.patch, 0);

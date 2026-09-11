@@ -1,10 +1,10 @@
-#include "LinuxSourceCode.h"
+#include "SourceCodeModule.h"
 
-#include <glib.h>
+#include <filesystem>
 
 namespace rnlinux {
 
-facebook::jsi::Object LinuxSourceCodeModule::getConstants(facebook::jsi::Runtime &rt) {
+facebook::jsi::Object DesktopSourceCodeModule::getConstants(facebook::jsi::Runtime &rt) {
   facebook::jsi::Object constants(rt);
   constants.setProperty(rt, "scriptURL", facebook::jsi::String::createFromUtf8(rt, scriptURL_));
   return constants;
@@ -24,10 +24,12 @@ std::string scriptURLFor(const std::string &bundlePath,
         ".bundle?platform=linux&dev=true";
   }
 
-  char *absolute = g_canonicalize_filename(bundlePath.c_str(), nullptr);
-  std::string url = std::string("file://") + absolute;
-  g_free(absolute);
-  return url;
+  // Absolute and fully formed: React Native tests this with
+  // startsWith('file://') and then takes the directory beside it, so a relative
+  // path silently produces an asset URL that resolves nowhere.
+  std::error_code ignored;
+  const std::filesystem::path absolute = std::filesystem::absolute(bundlePath, ignored);
+  return "file://" + absolute.lexically_normal().string();
 }
 
 } // namespace rnlinux

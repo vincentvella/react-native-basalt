@@ -103,6 +103,43 @@ if(DEFINED RN_DIR)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
+  # ---------------------------------------------------------------------------
+  # rn_desktop_core — everything that is not about a particular toolkit.
+  #
+  # A desktop platform on React Native's C++ host divides in two. One half is
+  # the view layer: widgets, text shaping, input, the frame clock. That half is
+  # GTK here and would be something else on macOS or Windows, and there is no
+  # sense pretending otherwise. The other half is the host wiring, the Expo
+  # runtime, the core modules and networking, and none of it is about Linux at
+  # all -- it was simply written here first.
+  #
+  # This target is the second half, and it deliberately does not link GTK. That
+  # is the whole point: the split is asserted by the compiler rather than by a
+  # directory name, so a toolkit dependency that creeps into core fails the
+  # build rather than quietly making core unshareable.
+  # ---------------------------------------------------------------------------
+  add_library(rn_desktop_core STATIC
+    core/ExpoRuntime.cpp
+    core/HttpClient.cpp
+    core/PlatformConstantsModule.cpp
+    core/SourceCodeModule.cpp
+    core/StatusBarModule.cpp)
+  target_compile_options(rn_desktop_core PRIVATE -Wall -Wextra)
+  target_include_directories(rn_desktop_core PUBLIC core)
+  target_include_directories(rn_desktop_core SYSTEM PUBLIC
+    ${RN_DIR}/ReactCommon
+    ${RN_DIR}/ReactCommon/jsi
+    ${REACT_CXX_PLATFORM_DIR}
+    ${FOLLY_DIR}
+    ${CODEGEN_DIR}
+    ${CODEGEN_DIR}/react/renderer/components/FBReactNativeSpec
+    ${CODEGEN_DIR}/react/renderer/components)
+  target_link_libraries(rn_desktop_core PUBLIC rn_core)
+  if(TARGET expo_core)
+    target_link_libraries(rn_desktop_core PUBLIC expo_core)
+    target_sources(rn_desktop_core PUBLIC $<TARGET_OBJECTS:expo_core>)
+  endif()
+
   add_library(rn_mounting STATIC
     src/GtkMountingManager.cpp
     # The mounting manager loads <Image> pixels itself, so the loader lives
@@ -110,27 +147,18 @@ if(DEFINED RN_DIR)
     src/GtkImageLoader.cpp
     src/GtkScrollView.cpp
     src/GtkTextInput.cpp
-    src/ExpoRuntime.cpp
-    src/LinuxFonts.cpp
-    src/LinuxPlatformConstants.cpp
-    src/LinuxSourceCode.cpp
-    src/LinuxStatusBar.cpp
+    # Linux's implementation of core/FontRegistry.h.
+    src/FontRegistryFontconfig.cpp
     src/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     src/PangoTextLayoutManager.cpp)
 
   target_include_directories(rn_mounting PUBLIC src)
+  target_link_libraries(rn_mounting PUBLIC rn_desktop_core)
 
   # SYSTEM, so -Wall -Wextra on this project's own sources does not drown in
   # diagnostics from React Native's headers, which are not -Wextra clean (its
   # own targets build with a narrower warning set).
-  # Expo's classes are installed by src/ExpoRuntime.cpp, so its objects and
-  # headers have to reach that translation unit and the final link.
-  if(TARGET expo_core)
-    target_link_libraries(rn_mounting PUBLIC expo_core)
-    target_sources(rn_mounting PUBLIC $<TARGET_OBJECTS:expo_core>)
-  endif()
-
   target_include_directories(rn_mounting SYSTEM PUBLIC
     ${RN_DIR}/ReactCommon
     ${RN_DIR}/ReactCommon/jsi
@@ -180,7 +208,7 @@ target_link_libraries(rn_mounting PUBLIC hermes-engine::hermesvm)
     src/GtkAnimationChoreographer.cpp
     src/GtkRunLoopObserver.cpp
     src/GtkTouchDispatcher.cpp
-    src/LinuxNetworking.cpp)
+    core/HttpClient.cpp)
   target_link_libraries(rn_linux_host PRIVATE rn_mounting CURL::libcurl)
   target_compile_options(rn_linux_host PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 

@@ -11,7 +11,7 @@
 // be thread-safe and it must be fast. `textMeasureCache_` handles the second
 // part: Yoga measures the same string repeatedly while resolving flex.
 
-#include "LinuxFonts.h"
+#include "FontRegistry.h"
 #include "PangoTextLayout.h"
 
 #include <mutex>

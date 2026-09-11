@@ -1,5 +1,11 @@
 // Fonts an app loads at runtime, and the name it knows them by.
 //
+// Declared here and implemented per platform, because this is one of the places
+// a desktop platform genuinely differs: fontconfig on Linux, and something else
+// on macOS or Windows. Core calls it -- `expo-font` arrives here -- and links
+// against whichever implementation the platform half provides. Linux's is
+// src/FontRegistryFontconfig.cpp.
+//
 // `expo-font` hands over a file and a name of the app's choosing -- "Inter",
 // say -- and expects `fontFamily: 'Inter'` to work afterwards. A font file
 // carries its own family name inside it, which is usually something else

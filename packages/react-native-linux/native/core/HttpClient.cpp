@@ -28,7 +28,7 @@
 
 #include <curl/curl.h>
 #include <folly/io/IOBuf.h>
-#include <glib.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <memory>
@@ -204,9 +204,8 @@ class CurlHttpClient final : public IHttpClient {
     // from JS APIs that nothing on this platform can reach yet -- there is no
     // file picker, no camera and no Blob implementation.
     if (body.blob || body.formData || body.base64) {
-      g_warning("http: only string request bodies are supported (%s %s)",
-                method.c_str(),
-                url.c_str());
+      LOG(WARNING) << "http: only string request bodies are supported (" << method << " "
+                   << url << ")";
     }
 
     auto state = std::make_shared<RequestState>();
