@@ -197,21 +197,20 @@ so anything importing them dies at startup.
 - ~~**`BlobModule`**~~ **done in phase 31**, on both desktops. What is left:
   blob request bodies and `responseType: 'blob'`, both blocked upstream (below),
   binary websocket frames, and `readAsText` understanding only UTF-8.
-- **`Clipboard`** (throws on import). GTK has `GdkClipboard`; the work is the
-  module, not the mechanism.
-- **`Vibration`** (throws on import). Meaningless on a desktop, but it has to
-  answer rather than throw, so a no-op module is enough.
-- **`LinkingManager`** (soft). Opening a URL, and receiving one. `gio`'s
-  `g_app_info_launch_default_for_uri` covers the outbound half.
-- **`AlertManager`** / **`DialogManagerAndroid`** (soft). `Alert.alert()` does
-  nothing at all today, which is a quiet way to lose a confirmation dialog.
-- **`I18nManager`** (soft). Right-to-left layout. Yoga already supports it; this
-  is the switch that turns it on.
-- **`AccessibilityInfo`** (soft). Whether a screen reader is running, and
-  announcements. Pairs with the AT-SPI work below.
-- **`ShareModule`** (soft).
-- `BlobModule` and `FileReaderModule`, without which `fetch` cannot return a
-  blob and `src/LinuxNetworking.cpp` stays limited to string bodies.
+- ~~**`Clipboard`**, **`Vibration`**, **`AlertManager`**, **`LinkingManager`**,
+  **`I18nManager`**, **`AccessibilityInfo`**~~ **done in phase 32**, on both
+  desktops. What is left: alert prompts on Linux (GtkAlertDialog has no text
+  field), `login-password` alerts on either, incoming URLs, reading another
+  application's clipboard on Linux, and `setAccessibilityFocus` /
+  `announceForAccessibility`, which need a per-view accessibility handle neither
+  mounting manager exposes.
+- **React Native's JavaScript branches two ways and a third platform lands on
+  iOS.** `TextInput.js` (phase 09), `ImageViewNativeComponent`'s view config
+  (phase 26) and `AccessibilityInfo.js` (phase 32) all did this, each found by an
+  app failing rather than by review. Worth checking for deliberately the next
+  time a module misbehaves.
+- **`ShareModule`** (soft), and **`ToastAndroid`** (throws, but only if an app
+  imports it directly).
 
 ## Desktop capabilities
 

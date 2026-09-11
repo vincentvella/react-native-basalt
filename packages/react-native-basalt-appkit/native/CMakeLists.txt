@@ -88,7 +88,10 @@ set(BASALT_APPKIT_TEST_SOURCES
   tests/test_appkit_image.mm
   # The NSAccessibility mapping. The React Native role name is what the
   # cross-platform diff compares; this is where the platform half is checked.
-  tests/test_appkit_accessibility.mm)
+  tests/test_appkit_accessibility.mm
+  # macOS's half of the platform-services seam. The alert is the reason: a
+  # sheet is its own window and never appears in a snapshot.
+  tests/test_appkit_services.mm)
 
 # ---------------------------------------------------------------------------
 # basalt_appkit_mounting — the AppKit half of the Fabric mounting manager.
@@ -110,6 +113,8 @@ if(TARGET basalt_core)
     appkit/FontRegistryCoreText.mm
     # ...and of core/ColorScheme.h.
     appkit/ColorSchemeAppKit.mm
+    # ...and of core/PlatformServices.h.
+    appkit/PlatformServicesAppKit.mm
     # AttributedString -> Core Text. Shared by measurement and painting, so they
     # agree, which is the whole reason it is one file.
     appkit/CoreTextLayout.mm

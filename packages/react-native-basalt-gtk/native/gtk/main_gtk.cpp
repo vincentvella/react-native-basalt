@@ -41,6 +41,7 @@
 #include <exception>
 #include "AppearanceModule.h"
 #include "BlobModule.h"
+#include "CoreModules.h"
 #include "ColorScheme.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
@@ -346,6 +347,27 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopFileReaderModule::kModuleName) {
           return std::make_shared<basalt::DesktopFileReaderModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopClipboardModule::kModuleName) {
+          return std::make_shared<basalt::DesktopClipboardModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopVibrationModule::kModuleName) {
+          return std::make_shared<basalt::DesktopVibrationModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopAlertModule::kModuleName) {
+          return std::make_shared<basalt::DesktopAlertModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopLinkingModule::kModuleName) {
+          return std::make_shared<basalt::DesktopLinkingModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopI18nManagerModule::kModuleName) {
+          return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopAccessibilityManagerModule::kModuleName) {
+          return std::make_shared<basalt::DesktopAccessibilityManagerModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopAccessibilityInfoModule::kModuleName) {
+          return std::make_shared<basalt::DesktopAccessibilityInfoModule>(jsInvoker);
         }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);

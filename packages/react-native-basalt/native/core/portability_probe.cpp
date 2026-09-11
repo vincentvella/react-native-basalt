@@ -15,6 +15,7 @@
 
 #include "AppearanceModule.h"
 #include "ColorScheme.h"
+#include "CoreModules.h"
 #include "ComponentRegistry.h"
 #include "ExpoRuntime.h"
 #include "FontRegistry.h"
@@ -53,11 +54,30 @@ ColorScheme systemColorScheme() {
   return ColorScheme::Light;
 }
 void startObservingColorScheme() {}
+
+// The platform-services seam, stubbed the same way: clipboard, opening a URL
+// and showing a dialog are the three things a core module cannot do alone.
+std::string clipboardText() {
+  return {};
+}
+void setClipboardText(const std::string &) {}
+bool canOpenUrl(const std::string &) {
+  return false;
+}
+bool openUrl(const std::string &) {
+  return false;
+}
+void showAlert(const AlertRequest &, AlertCallback) {}
 } // namespace basalt
 
 int main() {
   using basalt::DesktopPlatformConstantsModule;
+  using basalt::DesktopAccessibilityInfoModule;
+  using basalt::DesktopAlertModule;
   using basalt::DesktopAppearanceModule;
+  using basalt::DesktopClipboardModule;
+  using basalt::DesktopI18nManagerModule;
+  using basalt::DesktopLinkingModule;
   using basalt::DesktopSourceCodeModule;
   using basalt::DesktopStatusBarModule;
 
@@ -73,16 +93,26 @@ int main() {
 
   // Named so the link has to find each module the core claims to provide.
   std::printf("core links.\n");
-  std::printf("  modules           %s, %s, %s, %s\n",
+  // Named so the link has to find each module the core claims to provide.
+  std::printf("  modules           %s, %s, %s, %s,\n",
               std::string(DesktopPlatformConstantsModule::kModuleName).c_str(),
               std::string(DesktopSourceCodeModule::kModuleName).c_str(),
               std::string(DesktopStatusBarModule::kModuleName).c_str(),
               std::string(DesktopAppearanceModule::kModuleName).c_str());
+  std::printf("                    %s, %s, %s, %s, %s\n",
+              std::string(DesktopClipboardModule::kModuleName).c_str(),
+              std::string(DesktopAlertModule::kModuleName).c_str(),
+              std::string(DesktopLinkingModule::kModuleName).c_str(),
+              std::string(DesktopI18nManagerModule::kModuleName).c_str(),
+              std::string(DesktopAccessibilityInfoModule::kModuleName).c_str());
   std::printf("  scriptURLFor      %s\n", url.c_str());
   std::printf("  expo runtime      %s\n", expo ? "compiled in" : "not compiled in");
   std::printf("  font seam         isFontRegistered=%d generation=%lu\n",
               registered ? 1 : 0,
               generation);
   std::printf("  colour scheme     %s\n", scheme);
+  std::printf("  services seam     canOpenUrl=%d clipboard=\"%s\"\n",
+              basalt::canOpenUrl("https://example.com") ? 1 : 0,
+              basalt::clipboardText().c_str());
   return 0;
 }

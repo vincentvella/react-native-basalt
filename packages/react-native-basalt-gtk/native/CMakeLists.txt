@@ -97,6 +97,8 @@ if(TARGET basalt_core)
     gtk/FontRegistryFontconfig.cpp
     # ...and of core/ColorScheme.h.
     gtk/ColorSchemeGtk.cpp
+    # ...and of core/PlatformServices.h.
+    gtk/PlatformServicesGtk.cpp
     gtk/PangoTextLayout.cpp
     # Replaces React Native's stub; see cmake/ReactNativeCore.cmake.
     gtk/PangoTextLayoutManager.cpp)

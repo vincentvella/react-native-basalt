@@ -127,6 +127,9 @@ if(DEFINED RN_DIR)
     core/BlobModule.cpp
     core/BlobRegistry.cpp
     core/ColorScheme.cpp
+    # Clipboard, Vibration, Alert, Linking, I18nManager, AccessibilityInfo --
+    # the core modules ReactCxxPlatform does not provide.
+    core/CoreModules.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp
     # The bytes behind an <Image>, which is the half of image loading that is

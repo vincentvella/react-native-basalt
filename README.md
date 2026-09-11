@@ -429,11 +429,10 @@ Not yet done:
 - **No scroll momentum**, so `onMomentumScroll*` never fire.
 - **No LogBox**, so a JavaScript error is a log line and a window that keeps
   sitting there.
-- **Core modules still missing.** `Clipboard`, `Linking`, `Alert`,
-  `I18nManager` and `AccessibilityInfo` have no implementation anywhere in this
-  stack. Most fail quietly, which is worse than failing loudly. `Appearance`
-  and `BlobModule` were on this list until phases 30 and 31; dark mode and
-  `Blob`/`File`/`FileReader` now work on both desktops.
+- **`Share` and incoming URLs** are the core-module gaps left. `Appearance`,
+  `Blob`/`File`/`FileReader`, `Clipboard`, `Vibration`, `Alert`, `Linking`,
+  `I18nManager` and `AccessibilityInfo` all work on both desktops as of phases
+  30 to 32; nothing a real app imports throws any more.
 - **Nothing desktop-shaped.** One window, no menus, no native file dialogs, no
   drag and drop, no tray. React Native has no cross-platform API for any of it,
   so each is a design decision before it is an implementation.
