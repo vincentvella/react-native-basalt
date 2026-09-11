@@ -47,7 +47,9 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 # other unchecked and asserting them in both would be the same file twice. The
 # seam they sit on top of -- what the system is actually set to -- is never
 # asked about, because it differs by machine.
-set(BASALT_CORE_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
+set(BASALT_CORE_TESTS
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
@@ -121,6 +123,9 @@ if(DEFINED RN_DIR)
   add_library(basalt_core STATIC
     # `Appearance`, and the portable half of light-vs-dark.
     core/AppearanceModule.cpp
+    # Blob, File and FileReader -- portable in full.
+    core/BlobModule.cpp
+    core/BlobRegistry.cpp
     core/ColorScheme.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp

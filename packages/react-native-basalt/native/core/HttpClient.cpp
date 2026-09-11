@@ -24,6 +24,8 @@
 // server hands the result to a promise, and NetworkingModule bounces through
 // its CallInvoker.
 
+#include "BlobRegistry.h"
+
 #include <react/http/IHttpClient.h>
 
 #include <curl/curl.h>
@@ -200,12 +202,33 @@ class CurlHttpClient final : public IHttpClient {
       std::optional<std::string> /*loggingId*/ = std::nullopt) override {
     ensureCurlInitialised();
 
-    // Only a string body is supported. Blob, form-data and base64 bodies come
-    // from JS APIs that nothing on this platform can reach yet -- there is no
-    // file picker, no camera and no Blob implementation.
-    if (body.blob || body.formData || body.base64) {
-      LOG(WARNING) << "http: only string request bodies are supported (" << method << " "
-                   << url << ")";
+    // A string body, or a blob's bytes looked up by id.
+    //
+    // `http::Body::blob` is typed `std::optional<std::string>` upstream, and
+    // JavaScript sends `{blobId, offset, size}` -- an object. So a Blob body
+    // cannot currently reach here at all: ReactCxxPlatform's bridging tries to
+    // read that object as a string before this code is ever called. Handling it
+    // anyway, as an id, because that is what the type says it is and because
+    // the day upstream fixes the type this becomes correct rather than needing
+    // to be written. See plan/31-blobs.md.
+    std::string requestBody = body.string.value_or(std::string{});
+    bool hasBody = body.string.has_value();
+
+    if (body.blob) {
+      if (auto bytes = basalt::blobBytes(*body.blob)) {
+        requestBody = std::move(*bytes);
+        hasBody = true;
+      } else {
+        LOG(WARNING) << "http: request body names an unknown blob '" << *body.blob << "' ("
+                     << method << " " << url << ")";
+      }
+    }
+
+    // Form-data and base64 bodies come from JS APIs nothing here can reach yet:
+    // there is no file picker and no camera.
+    if (body.formData || body.base64) {
+      LOG(WARNING) << "http: form-data and base64 request bodies are not supported (" << method
+                   << " " << url << ")";
     }
 
     auto state = std::make_shared<RequestState>();
@@ -215,8 +238,8 @@ class CurlHttpClient final : public IHttpClient {
                 method,
                 url,
                 headers,
-                body.string.value_or(std::string{}),
-                body.string.has_value(),
+                std::move(requestBody),
+                hasBody,
                 timeout,
                 state)
         .detach();

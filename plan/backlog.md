@@ -194,9 +194,9 @@ so anything importing them dies at startup.
   there is no `AppearanceProvider` or per-view override, and nothing native
   repaints on the switch because neither platform has a `PlatformColor` or a
   system control to repaint.
-- **`BlobModule`** (soft). Backs `Blob`, `File` and `FileReader`. The one
-  remaining module a stock Expo app asks for and misses; see
-  `plan/29-expo-on-macos.md`.
+- ~~**`BlobModule`**~~ **done in phase 31**, on both desktops. What is left:
+  blob request bodies and `responseType: 'blob'`, both blocked upstream (below),
+  binary websocket frames, and `readAsText` understanding only UTF-8.
 - **`Clipboard`** (throws on import). GTK has `GdkClipboard`; the work is the
   module, not the mechanism.
 - **`Vibration`** (throws on import). Meaningless on a desktop, but it has to
@@ -380,6 +380,16 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   the tree, or a log line -- instead of on a clock.
 
 ## Upstream
+
+- **`http::Body::blob` is typed `std::optional<std::string>`** in
+  ReactCxxPlatform, and `convertRequestBody` sends `{blobId, offset, size}` --
+  an object. So a `Blob` request body throws "Value is an object, expected a
+  String" in the bridging layer before reaching any platform's http client,
+  identically on both desktops. The fix is a structured type or bridging that
+  resolves the handle. See `plan/31-blobs.md`.
+- **The cxx `NetworkingModule` does not mention blobs at all**, so
+  `responseType: 'blob'` has no response path to hook and `addNetworkingHandler`
+  has nothing to register with.
 
 - **`ReactInstanceConfig` has no `platform` field.** `DevServerHelper` builds
   every bundle URL with `constexpr DEFAULT_PLATFORM = "android"`, so every

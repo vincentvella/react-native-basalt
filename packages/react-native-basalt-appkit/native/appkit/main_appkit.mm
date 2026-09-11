@@ -35,6 +35,7 @@
 #import "RnAppKitView.h"
 
 #include "AppearanceModule.h"
+#include "BlobModule.h"
 #include "ColorScheme.h"
 #include "ExpoRuntime.h"
 #include "PlatformConstantsModule.h"
@@ -209,6 +210,12 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopAppearanceModule::kModuleName) {
           return std::make_shared<basalt::DesktopAppearanceModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopBlobModule::kModuleName) {
+          return std::make_shared<basalt::DesktopBlobModule>(jsInvoker);
+        }
+        if (name == basalt::DesktopFileReaderModule::kModuleName) {
+          return std::make_shared<basalt::DesktopFileReaderModule>(jsInvoker);
         }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
