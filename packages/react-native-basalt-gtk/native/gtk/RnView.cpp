@@ -579,6 +579,20 @@ void rn_view_set_role_name(RnView *self, const char *name) {
   self->role_name = name != nullptr && *name != '\0' ? g_strdup(name) : nullptr;
 }
 
+static const char *rn_image_fit_name(RnImageFit fit) {
+  switch (fit) {
+    case RN_IMAGE_FIT_CONTAIN:
+      return "contain";
+    case RN_IMAGE_FIT_STRETCH:
+      return "stretch";
+    case RN_IMAGE_FIT_CENTER:
+      return "center";
+    case RN_IMAGE_FIT_COVER:
+      break;
+  }
+  return "cover";
+}
+
 void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
   g_return_if_fail(RN_IS_VIEW(self));
 
@@ -751,10 +765,14 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
     g_string_append_printf(out, " scroll=(%g,%g)", self->scroll_x, self->scroll_y);
   }
   if (self->texture != nullptr) {
+    // The fit is here because it is the only thing about a drawn image that a
+    // frame cannot show: two views the same size holding the same picture are
+    // identical in every other line of this dump and different on screen.
     g_string_append_printf(out,
-                           " texture=%dx%d",
+                           " texture=%dx%d fit=%s",
                            gdk_texture_get_width(self->texture),
-                           gdk_texture_get_height(self->texture));
+                           gdk_texture_get_height(self->texture),
+                           rn_image_fit_name(self->texture_fit));
   }
   if (self->text_layout != nullptr) {
     const char *text = pango_layout_get_text(self->text_layout);

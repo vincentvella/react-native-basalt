@@ -254,6 +254,7 @@ void installExpoRuntime(facebook::jsi::Runtime &runtime) {
 
   jsi::Object core = runtime.global().getPropertyAsObject(runtime, "expo");
   core.setProperty(runtime, "modules", std::move(modules));
+  installExpoViewConfigs(runtime, core);
 }
 
 #else

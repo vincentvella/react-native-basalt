@@ -132,6 +132,7 @@ if(DEFINED RN_DIR)
     # the core modules ReactCxxPlatform does not provide.
     core/CoreModules.cpp
     core/DevBundle.cpp
+    core/ExpoImageComponent.cpp
     core/ExpoModules.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp

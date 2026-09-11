@@ -15,5 +15,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `33-dev-bundle-errors.md` — what Metro said, instead of what it compiled to
 - `34-expo-dependencies.md` — what a real app's libraries do, and the one that blocked the build
 - `35-expo-modules.md` — the registry filled: clipboard, linking, the manifest
+- `36-expo-image.md` — an Expo view is a Fabric component with a config in front
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

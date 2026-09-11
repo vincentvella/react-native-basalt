@@ -262,6 +262,20 @@ static NSAccessibilityRole RnAccessibilityRoleFor(NSString *name) {
   return self.bounds.origin;
 }
 
+static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
+  switch (fit) {
+    case RnAppKitImageFitContain:
+      return "contain";
+    case RnAppKitImageFitStretch:
+      return "stretch";
+    case RnAppKitImageFitCenter:
+      return "center";
+    case RnAppKitImageFitCover:
+      break;
+  }
+  return "cover";
+}
+
 - (void)setRnImage:(CGImageRef)image fit:(RnAppKitImageFit)fit {
   if (_image == image && _imageFit == fit) {
     return;
@@ -429,9 +443,13 @@ static NSAccessibilityRole RnAccessibilityRoleFor(NSString *name) {
     [out appendFormat:@" scroll=(%g,%g)", scroll.x, scroll.y];
   }
   if (_image != nullptr) {
-    // The same `texture=WxH` the GTK side emits, so an <Image> shows up in the
-    // cross-platform diff and the end-to-end suite can assert on it.
+    // The same `texture=WxH fit=<name>` the GTK side emits, so an <Image> shows
+    // up in the cross-platform diff and the end-to-end suite can assert on it.
+    // The fit is here because it is the only thing about a drawn image that a
+    // frame cannot show: two views the same size holding the same picture are
+    // identical in every other line of this dump and different on screen.
     [out appendFormat:@" texture=%zux%zu", CGImageGetWidth(_image), CGImageGetHeight(_image)];
+    [out appendFormat:@" fit=%s", RnAppKitImageFitName(_imageFit)];
   }
   if (_textLayout != nil) {
     NSString *text = _textLayout.attributedString.string;

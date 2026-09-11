@@ -3,6 +3,7 @@
 #import "CoreTextLayout.h"
 
 #include "ComponentRegistry.h"
+#include "ExpoImageComponent.h"
 
 #include <react/renderer/components/view/AccessibilityProps.h>
 #include <react/renderer/components/image/ImageEventEmitter.h>
@@ -223,18 +224,47 @@ RnAppKitImageFit toImageFit(ImageResizeMode mode) {
 // ImageResponse, so nothing arrives through ImageState. The URI is read off the
 // props and loaded here instead, which is also how Android does it.
 void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &shadowView) {
-  if (shadowView.componentName == nullptr ||
-      std::string_view(shadowView.componentName) != "Image") {
+  if (shadowView.componentName == nullptr) {
     return;
   }
 
-  const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
-  if (props == nullptr) {
+  // Two components draw an image here: React Native's <Image> and expo-image's
+  // view, which is an ordinary Fabric component with its own props (see
+  // core/ExpoImageComponent.h). Everything past reading the source and the fit
+  // off the props is identical, and the only other difference is which emitter
+  // reports the result, because the two carry different payloads.
+  const std::string_view componentName(shadowView.componentName);
+  const bool isExpoImage = componentName == facebook::react::ExpoImageComponentName;
+  if (componentName != "Image" && !isExpoImage) {
     return;
   }
 
-  const RnAppKitImageFit fit = toImageFit(props->resizeMode);
-  const std::string uri = props->sources.empty() ? std::string{} : props->sources.front().uri;
+  RnAppKitImageFit fit = RnAppKitImageFitCover;
+  // Qualified: Carbon's headers put a CGImageSource in scope, and an
+  // unqualified ImageSource resolves to that one.
+  facebook::react::ImageSource source{};
+
+  if (isExpoImage) {
+    const auto props = std::dynamic_pointer_cast<const facebook::react::ExpoImageProps>(shadowView.props);
+    if (props == nullptr) {
+      return;
+    }
+    fit = toImageFit(props->contentFit);
+    if (!props->sources.empty()) {
+      source = props->sources.front();
+    }
+  } else {
+    const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
+    if (props == nullptr) {
+      return;
+    }
+    fit = toImageFit(props->resizeMode);
+    if (!props->sources.empty()) {
+      source = props->sources.front();
+    }
+  }
+
+  const std::string uri = source.uri;
   const Tag tag = shadowView.tag;
 
   // A mutation that changed only layout must not restart the load, or an
@@ -275,13 +305,18 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
   // anybody is listening. Doing the same is both correct and cheaper than
   // forking a two-hundred-line view config to change one ternary -- and the
   // emitter lookup below already returns null when nothing is listening.
-  if (auto emitter =
-          std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
+  if (isExpoImage) {
+    if (auto emitter =
+            std::dynamic_pointer_cast<const facebook::react::ExpoImageEventEmitter>(eventEmitterForTag(tag))) {
+      emitter->onLoadStart();
+    }
+  } else if (auto emitter =
+                 std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
     emitter->onLoadStart();
   }
 
-  const auto source = props->sources.front();
-  imageLoader_.load(uri, [this, tag, fit, source](CGImageRef image, const std::string &error) {
+  imageLoader_.load(uri, [this, tag, fit, source, isExpoImage](CGImageRef image,
+                                                              const std::string &error) {
     // The view may have been deleted while the image was in flight, which is
     // why this looks the tag up again rather than capturing the view.
     if (RnAppKitView *target = viewForTag(tag); target != nil) {
@@ -290,6 +325,24 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
 
     if (image == nullptr) {
       LOG(WARNING) << "image failed to load: " << source.uri << " (" << error << ")";
+    }
+
+    if (isExpoImage) {
+      auto emitter =
+          std::dynamic_pointer_cast<const facebook::react::ExpoImageEventEmitter>(eventEmitterForTag(tag));
+      if (emitter == nullptr) {
+        return;
+      }
+      if (image != nullptr) {
+        // The pixel dimensions, which is what expo-image's onLoad reports and
+        // what an app sizing itself to an image reads.
+        emitter->onLoad(source,
+                        static_cast<double>(CGImageGetWidth(image)),
+                        static_cast<double>(CGImageGetHeight(image)));
+      } else {
+        emitter->onError(error);
+      }
+      return;
     }
 
     auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag));

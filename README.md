@@ -344,7 +344,7 @@ That is what this project exists to show. `plan/15-expo-runtime.md` is how, and
 
 Beyond the template, a real app's dependency set -- expo-image, expo-font,
 expo-constants, expo-clipboard, gesture-handler, Reanimated, react-navigation
-and the rest -- loads **twelve of fifteen**, identically on both desktops.
+and the rest -- loads **thirteen of fifteen**, identically on both desktops.
 
 `expo-clipboard` really does write the system clipboard, `Constants.expoConfig`
 really is the app's `app.json`, and `Linking.createURL` produces the app's own
@@ -353,10 +353,11 @@ can be added to now, and because the bundler writes the resolved Expo config
 beside the bundle the way Expo's own native builds embed it. See
 `plan/35-expo-modules.md`.
 
-The three that are left are not that shape: `expo-image` is a *view* and needs a
-Fabric component, and Reanimated and gesture-handler are native libraries in
-their own right. `plan/34-expo-dependencies.md` has the table; `plan/backlog.md`
-has what each one needs.
+`expo-image` renders too, which took the other half of the port: an Expo *view*
+is a Fabric component with a view config in front of it, and phase 36 built that
+seam. The two that are left -- Reanimated and gesture-handler -- are native
+libraries in their own right rather than Expo modules.
+`plan/34-expo-dependencies.md` has the table.
 
 ## Supported React Native versions
 

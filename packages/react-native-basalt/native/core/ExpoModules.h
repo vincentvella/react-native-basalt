@@ -41,6 +41,11 @@ namespace basalt {
 // everything else Expo here.
 void installExpoModules(facebook::jsi::Runtime &runtime, facebook::jsi::Object &modules);
 
+// Adds `expo.getViewConfig`, which is how expo-modules-core turns an Expo view
+// into a React Native component. Separate from the modules because it goes on
+// `expo` itself rather than on `expo.modules`.
+void installExpoViewConfigs(facebook::jsi::Runtime &runtime, facebook::jsi::Object &expo);
+
 // The app's Expo config -- `app.json` or `app.config.js`, resolved -- which is
 // what `Constants.expoConfig` is and what expo-linking reads to find the app's
 // URI scheme. Without it `Constants.expoConfig` is null and an app that reads

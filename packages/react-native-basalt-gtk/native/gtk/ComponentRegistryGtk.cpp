@@ -2,6 +2,7 @@
 // why this is per-platform rather than shared.
 
 #include "ComponentRegistry.h"
+#include "ExpoImageComponent.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
@@ -42,6 +43,10 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // through a TextLayoutManager, which here is the Pango one. Android's
       // needs fbjni. Its component name is "TextInput".
       registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
+      // expo-image's view. Registered whether or not the build has Expo in it:
+      // the descriptor is ordinary Fabric C++, and an app that never renders
+      // one pays a registry entry. See core/ExpoImageComponent.h.
+      registry->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

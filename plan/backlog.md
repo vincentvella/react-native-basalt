@@ -225,11 +225,12 @@ so anything importing them dies at startup.
 
 Measured in phase 34 against a real dependency set, on both desktops.
 
-- **Expo modules that are views.** `expo-image` is the one a real app misses
-  first, and it is not the shape phase 35 solved: a view needs a Fabric
-  component -- registry entry, prop parsing, a mounting peer -- rather than a
-  registry entry in `globalThis.expo.modules`. The module host is done; this is
-  the other half of it.
+- **expo-image's decorative props**: placeholder, transition, blurhash, cache
+  policy. Left out of the view config in phase 36, so they are dropped in
+  JavaScript and an app gets an image without them.
+- **More Expo views.** The seam exists now (phase 36), so expo-linear-gradient,
+  expo-blur and the rest are each a props class, a descriptor and a mounting
+  peer rather than a new mechanism.
 - **A URL delivered to a running app.** `ExpoLinking.getLinkingURL` is honestly
   null because neither desktop can receive one: macOS needs an Apple Event
   handler and a registered scheme, Linux a desktop entry and single-instance

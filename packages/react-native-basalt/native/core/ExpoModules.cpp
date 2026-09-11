@@ -164,6 +164,44 @@ Object makeLinkingModule(Runtime &runtime) {
   return module;
 }
 
+// ExpoImage's module half: the static functions on `Image`, as against its view.
+//
+// The cache functions answer honestly rather than pretending. There is no disk
+// cache here -- images are fetched through the same loader React Native's
+// <Image> uses, which caches in memory for the life of the process -- so
+// `clearDiskCacheAsync` reports false, which is expo-image's own way of saying
+// "nothing was cleared". `prefetch` is not implemented rather than lying about
+// having warmed a cache that does not exist.
+//
+// `ViewPrototypes` is what `requireNativeViewManager` reads to hang native view
+// methods off a ref (`startAnimating`, `lockResourceAsync`). None of them apply
+// to a still image drawn by this platform, so the object is there and empty --
+// which is the difference between "this view has no extra methods" and the
+// TypeError that reading a property of undefined would raise.
+Object makeImageModule(Runtime &runtime) {
+  Object module = makeModule(runtime);
+
+  addFunction(runtime,
+              module,
+              "clearMemoryCache",
+              0,
+              [](Runtime &rt, const Value &, const Value *, size_t) -> Value {
+                return resolved(rt, Value(false));
+              });
+
+  addFunction(runtime,
+              module,
+              "clearDiskCache",
+              0,
+              [](Runtime &rt, const Value &, const Value *, size_t) -> Value {
+                return resolved(rt, Value(false));
+              });
+
+  module.setProperty(runtime, "ViewPrototypes", Object(runtime));
+
+  return module;
+}
+
 // ExponentConstants, which is expo-constants' native half.
 //
 // Two things live here. The manifest is the app's own Expo config, loaded from
@@ -210,19 +248,84 @@ Object makeConstantsModule(Runtime &runtime) {
   return module;
 }
 
+// `expo.getViewConfig(moduleName, viewName)`, which is how an Expo view becomes
+// a React Native component.
+//
+// `requireNativeViewManager` calls this, wraps the answer with React Native's
+// `createViewConfig` -- which merges in the base view config, so style, layout
+// and touch props come free -- and registers the result as a component called
+// `ViewManagerAdapter_<moduleName>`. What is listed here is therefore exactly
+// what reaches C++: a prop that is not in `validAttributes` is dropped in
+// JavaScript, silently, before anything can diff it.
+//
+// Native platforms generate this from the module's own definition. Here it is a
+// table, because here there is no module definition to generate it from -- the
+// views are written directly against Fabric.
+Value viewConfigFor(Runtime &runtime, const std::string &moduleName) {
+  if (moduleName != "ExpoImage") {
+    return Value::null();
+  }
+
+  Object attributes(runtime);
+  // What core/ExpoImageComponent.cpp parses. expo-image sends a good deal more
+  // -- placeholder, transition, blurhash, cachePolicy, SF Symbol props -- and
+  // leaving them out here is what stops them travelling to a platform that
+  // would ignore them anyway.
+  for (const char *name : {"source", "contentFit", "tintColor"}) {
+    attributes.setProperty(runtime, name, Value(true));
+  }
+
+  Object events(runtime);
+  // "topLoad" rather than "load": EventEmitter::normalizeEventType prefixes
+  // what C++ dispatches, and this is the name after that.
+  for (const auto &[eventName, handler] :
+       {std::pair{"topLoadStart", "onLoadStart"},
+        std::pair{"topLoad", "onLoad"},
+        std::pair{"topError", "onError"}}) {
+    Object registration(runtime);
+    registration.setProperty(runtime, "registrationName", String::createFromUtf8(runtime, handler));
+    events.setProperty(runtime, eventName, std::move(registration));
+  }
+
+  Object config(runtime);
+  config.setProperty(runtime, "validAttributes", std::move(attributes));
+  config.setProperty(runtime, "directEventTypes", std::move(events));
+  return Value(runtime, config);
+}
+
 } // namespace
 
 void installExpoModules(Runtime &runtime, Object &modules) {
   modules.setProperty(runtime, "ExpoClipboard", makeClipboardModule(runtime));
+  modules.setProperty(runtime, "ExpoImage", makeImageModule(runtime));
   modules.setProperty(runtime, "ExpoLinking", makeLinkingModule(runtime));
   // Replaces the empty stub installExpoRuntime puts in for Expo's own start-up.
   modules.setProperty(runtime, "ExponentConstants", makeConstantsModule(runtime));
+}
+
+void installExpoViewConfigs(Runtime &runtime, Object &expo) {
+  expo.setProperty(
+      runtime,
+      "getViewConfig",
+      Function::createFromHostFunction(
+          runtime,
+          PropNameID::forAscii(runtime, "getViewConfig"),
+          2,
+          [](Runtime &rt, const Value &, const Value *args, size_t count) -> Value {
+            if (count < 1 || !args[0].isString()) {
+              return Value::null();
+            }
+            return viewConfigFor(rt, args[0].asString(rt).utf8(rt));
+          }));
 }
 
 #else
 
 void installExpoModules(facebook::jsi::Runtime & /*runtime*/,
                         facebook::jsi::Object & /*modules*/) {}
+
+void installExpoViewConfigs(facebook::jsi::Runtime & /*runtime*/,
+                            facebook::jsi::Object & /*expo*/) {}
 
 #endif
 

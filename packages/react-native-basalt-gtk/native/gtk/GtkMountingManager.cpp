@@ -1,6 +1,7 @@
 #include "GtkMountingManager.h"
 
 #include "ComponentRegistry.h"
+#include "ExpoImageComponent.h"
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/image/ImageEventEmitter.h>
@@ -294,17 +295,45 @@ RnImageFit toImageFit(ImageResizeMode mode) {
 // ImageResponse, so nothing arrives through ImageState. The URI is read off the
 // props and loaded here instead, which is also how Android does it.
 void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) {
-  if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "Image") {
+  if (shadowView.componentName == nullptr) {
     return;
   }
 
-  const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
-  if (props == nullptr) {
+  // Two components draw an image here: React Native's <Image> and expo-image's
+  // view, which is an ordinary Fabric component with its own props (see
+  // core/ExpoImageComponent.h). Everything past reading the source and the fit
+  // off the props is identical, and the only other difference is which emitter
+  // reports the result, because the two carry different payloads.
+  const std::string_view componentName(shadowView.componentName);
+  const bool isExpoImage = componentName == facebook::react::ExpoImageComponentName;
+  if (componentName != "Image" && !isExpoImage) {
     return;
   }
 
-  const RnImageFit fit = toImageFit(props->resizeMode);
-  const std::string uri = props->sources.empty() ? std::string{} : props->sources.front().uri;
+  RnImageFit fit = RN_IMAGE_FIT_COVER;
+  facebook::react::ImageSource source{};
+
+  if (isExpoImage) {
+    const auto props = std::dynamic_pointer_cast<const facebook::react::ExpoImageProps>(shadowView.props);
+    if (props == nullptr) {
+      return;
+    }
+    fit = toImageFit(props->contentFit);
+    if (!props->sources.empty()) {
+      source = props->sources.front();
+    }
+  } else {
+    const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
+    if (props == nullptr) {
+      return;
+    }
+    fit = toImageFit(props->resizeMode);
+    if (!props->sources.empty()) {
+      source = props->sources.front();
+    }
+  }
+
+  const std::string uri = source.uri;
   const Tag tag = shadowView.tag;
 
   // A mutation that changed only layout must not restart the load, or an
@@ -345,12 +374,18 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
   // anybody is listening. Doing the same is both correct and cheaper than
   // forking a two-hundred-line view config to change one ternary -- and the
   // emitter lookup below already returns null when nothing is listening.
-  if (auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
+  if (isExpoImage) {
+    if (auto emitter =
+            std::dynamic_pointer_cast<const facebook::react::ExpoImageEventEmitter>(eventEmitterForTag(tag))) {
+      emitter->onLoadStart();
+    }
+  } else if (auto emitter =
+                 std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
     emitter->onLoadStart();
   }
 
-  const auto source = props->sources.front();
-  imageLoader_.load(uri, [this, tag, fit, source](GdkTexture *texture, const std::string &error) {
+  imageLoader_.load(uri, [this, tag, fit, source, isExpoImage](GdkTexture *texture,
+                                                              const std::string &error) {
     // The view may have been deleted while the image was in flight, which is
     // why this looks the tag up again rather than capturing the widget.
     RnView *target = viewForTag(tag);
@@ -360,6 +395,24 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
 
     if (texture == nullptr) {
       g_warning("image failed to load: %s (%s)", source.uri.c_str(), error.c_str());
+    }
+
+    if (isExpoImage) {
+      auto emitter =
+          std::dynamic_pointer_cast<const facebook::react::ExpoImageEventEmitter>(eventEmitterForTag(tag));
+      if (emitter == nullptr) {
+        return;
+      }
+      if (texture != nullptr) {
+        // The pixel dimensions, which is what expo-image's onLoad reports and
+        // what an app sizing itself to an image reads.
+        emitter->onLoad(source,
+                        static_cast<double>(gdk_texture_get_width(texture)),
+                        static_cast<double>(gdk_texture_get_height(texture)));
+      } else {
+        emitter->onError(error);
+      }
+      return;
     }
 
     auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag));
