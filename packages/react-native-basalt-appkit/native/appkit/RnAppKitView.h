@@ -90,6 +90,23 @@ RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x,
 
 - (void)setRnOpacity:(CGFloat)opacity;
 
+// How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
+// Repeat, which needs a tiled draw rather than one image draw.
+typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
+  RnAppKitImageFitCover,
+  RnAppKitImageFitContain,
+  RnAppKitImageFitStretch,
+  RnAppKitImageFitCenter,
+};
+
+// The decoded pixels of an <Image>. Pass nil to clear.
+//
+// A CGImage rather than a React Native type, so the view layer stays free of
+// React Native headers -- the same arrangement the text layout has.
+// AppKitImageLoader produces the image and AppKitMountingManager chooses the
+// fit.
+- (void)setRnImage:(nullable CGImageRef)image fit:(RnAppKitImageFit)fit;
+
 // The paragraph this view draws, or nil for a view that draws none.
 //
 // A view either paints a layer or draws text; nothing here does both, because

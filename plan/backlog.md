@@ -15,7 +15,13 @@ Not scheduled. Roughly by value.
 - **Fonts loaded at runtime are untested.** `resolveFontFamily` is wired into
   the Core Text font lookup, and `expo-font` on macOS has never been run end to
   end.
-- **No `<Image>` or `<TextInput>`.**
+- **No `<TextInput>`**, which is the last of the four components an ordinary
+  app is built from, and brings the focus model and the keyboard with it.
+- **No accessibility**, which is now the *only* difference `compare_hosts.sh`
+  finds between the two hosts on the text and image apps: GTK emits `role=` and
+  macOS emits nothing. Measurable definition of done, for once.
+- **No animated images.** The first frame of a GIF is drawn as a still, on both
+  desktops.
 - **No scrollbars.** AppKit's are `NSScroller`, which comes with
   `NSScrollView`, so an overlay indicator is real work rather than a property.
   The GTK side gets them from its widget theme.

@@ -14,6 +14,7 @@
 #include <react/renderer/graphics/Color.h>
 
 #include <sstream>
+#include <vector>
 
 using facebook::react::ColorComponents;
 using facebook::react::LayoutMetrics;
@@ -278,24 +279,39 @@ TEST(appkit_props_reach_the_layer_through_a_mutation) {
   }
 }
 
-TEST(appkit_has_component_admits_what_does_not_mount_yet) {
+// What this platform claims, stated as one list rather than as assertions
+// added a component at a time -- this test went stale three milestones running,
+// because "everything not named here is missing" is the fact worth pinning and
+// a pile of individual `!hasComponent` lines is not.
+TEST(appkit_has_component_matches_the_registered_descriptors) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
 
-    EXPECT(manager.hasComponent("View"));
-    EXPECT(manager.hasComponent("RootView"));
-    // Paragraph is the mountable half of <Text>, and could not be claimed until
-    // there was a Core Text TextLayoutManager to measure it with.
-    EXPECT(manager.hasComponent("Paragraph"));
+    // Paragraph is the mountable half of <Text>; Text and RawText exist only in
+    // the shadow tree, folded into the Paragraph's AttributedString.
+    // ScrollView's content child arrives as "ScrollContentView", which the
+    // registry rewrites to "View" before it reaches here.
+    const std::vector<std::string> supported = {
+        "View", "RootView", "Paragraph", "ScrollView", "Image",
+    };
+    for (const auto &name : supported) {
+      if (!manager.hasComponent(name)) {
+        ::basalt::testing::recordFailure(std::string(__FILE__) + ":" + std::to_string(__LINE__),
+                                         "expected to support " + name);
+      }
+    }
 
-    // Its content child arrives as "ScrollContentView", which the registry
-    // rewrites to "View" before it reaches here, so it needs no entry.
-    EXPECT(manager.hasComponent("ScrollView"));
-
-    // Everything else. Claiming a component without an AppKit peer is worse
-    // than admitting the gap: the registry would build shadow nodes nothing can
-    // mount, and the app would render blank rectangles rather than fail.
-    EXPECT(!manager.hasComponent("Image"));
-    EXPECT(!manager.hasComponent("TextInput"));
+    // Claiming a component without an AppKit peer is worse than admitting the
+    // gap: the registry would build shadow nodes nothing can mount, and the app
+    // would render blank rectangles rather than fail.
+    const std::vector<std::string> unsupported = {
+        "TextInput", "Switch", "Slider", "Modal", "ActivityIndicator",
+    };
+    for (const auto &name : unsupported) {
+      if (manager.hasComponent(name)) {
+        ::basalt::testing::recordFailure(std::string(__FILE__) + ":" + std::to_string(__LINE__),
+                                         "claims " + name + " without a peer");
+      }
+    }
   }
 }

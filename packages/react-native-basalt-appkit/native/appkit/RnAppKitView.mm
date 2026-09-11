@@ -48,6 +48,8 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
 
 @implementation RnAppKitView {
   RnTextLayout *_textLayout;
+  CGImageRef _image;
+  RnAppKitImageFit _imageFit;
   BOOL _hasBackgroundColor;
   CGFloat _backgroundComponents[4];
   CGFloat _opacity;
@@ -61,10 +63,15 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   return view;
 }
 
+- (void)dealloc {
+  CGImageRelease(_image);
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (self != nil) {
     _opacity = 1.0;
+    _imageFit = RnAppKitImageFitCover;
     // Layer-backed from the start rather than on demand: a view that acquires a
     // layer later loses whatever was set on it before, and the props arrive in
     // whatever order the mutation stream happens to carry them.
@@ -127,6 +134,55 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   return self.bounds.origin;
 }
 
+- (void)setRnImage:(CGImageRef)image fit:(RnAppKitImageFit)fit {
+  if (_image == image && _imageFit == fit) {
+    return;
+  }
+  // Retained, not borrowed: the loader's cache owns one reference and this owns
+  // another, so a view outliving an eviction still has pixels to draw.
+  CGImageRef previous = _image;
+  _image = image != nullptr ? CGImageRetain(image) : nullptr;
+  CGImageRelease(previous);
+  _imageFit = fit;
+  self.needsDisplay = YES;
+}
+
+// Where the image lands inside the frame.
+//
+// The same arithmetic as the GTK side's, deliberately -- two platforms
+// disagreeing about what `resizeMode: 'contain'` means would be the sort of
+// difference nobody thinks to check. Duplicated rather than shared because the
+// view layers link no common code at all, which is what keeps them testable
+// without React Native.
+- (NSRect)rnImageRectForSize:(NSSize)size {
+  const CGFloat imageWidth = (CGFloat)CGImageGetWidth(_image);
+  const CGFloat imageHeight = (CGFloat)CGImageGetHeight(_image);
+  if (_imageFit == RnAppKitImageFitStretch || imageWidth <= 0 || imageHeight <= 0) {
+    return NSMakeRect(0, 0, size.width, size.height);
+  }
+
+  CGFloat scale = 1.0;
+  switch (_imageFit) {
+    case RnAppKitImageFitContain:
+      scale = MIN(size.width / imageWidth, size.height / imageHeight);
+      break;
+    case RnAppKitImageFitCover:
+      scale = MAX(size.width / imageWidth, size.height / imageHeight);
+      break;
+    case RnAppKitImageFitCenter:
+      // Centre at natural size, but never larger than the frame -- which is
+      // what React Native's `center` does.
+      scale = MIN(1.0, MIN(size.width / imageWidth, size.height / imageHeight));
+      break;
+    case RnAppKitImageFitStretch:
+      break;
+  }
+
+  const CGFloat width = imageWidth * scale;
+  const CGFloat height = imageHeight * scale;
+  return NSMakeRect((size.width - width) / 2.0, (size.height - height) / 2.0, width, height);
+}
+
 - (void)setRnTextLayout:(id)layout {
   _textLayout = (RnTextLayout *)layout;
   // A layer-backed view with a drawRect: gets its contents from that draw, and
@@ -143,11 +199,41 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
 // knowing about the other.
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  if (_textLayout == nil) {
+  if (_textLayout == nil && _image == nullptr) {
     return;
   }
   CGContextRef context = [NSGraphicsContext currentContext].CGContext;
-  [_textLayout drawInContext:context size:self.bounds.size];
+  const NSSize size = self.bounds.size;
+
+  if (_image != nullptr) {
+    const NSRect destination = [self rnImageRectForSize:size];
+
+    CGContextSaveGState(context);
+    // cover and center can put pixels outside the frame, and an <Image> never
+    // paints beyond its own box on iOS or Android.
+    if (_imageFit == RnAppKitImageFitCover || _imageFit == RnAppKitImageFitCenter) {
+      CGContextClipToRect(context, NSMakeRect(0, 0, size.width, size.height));
+    }
+    // CGImage draws bottom-up and this view is flipped, so without this every
+    // photograph comes out upside down -- which reads as a broken decoder
+    // rather than a coordinate system.
+    CGContextTranslateCTM(context, 0, size.height);
+    CGContextScaleCTM(context, 1, -1);
+    CGContextDrawImage(
+        context,
+        NSMakeRect(destination.origin.x,
+                   size.height - destination.origin.y - destination.size.height,
+                   destination.size.width,
+                   destination.size.height),
+        _image);
+    CGContextRestoreGState(context);
+  }
+
+  // Text sits above the image and below any children, which is the order the
+  // GTK side paints in too.
+  if (_textLayout != nil) {
+    [_textLayout drawInContext:context size:size];
+  }
 }
 
 - (void)setRnOpacity:(CGFloat)opacity {
@@ -213,6 +299,11 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   const NSPoint scroll = self.bounds.origin;
   if (scroll.x != 0 || scroll.y != 0) {
     [out appendFormat:@" scroll=(%g,%g)", scroll.x, scroll.y];
+  }
+  if (_image != nullptr) {
+    // The same `texture=WxH` the GTK side emits, so an <Image> shows up in the
+    // cross-platform diff and the end-to-end suite can assert on it.
+    [out appendFormat:@" texture=%zux%zu", CGImageGetWidth(_image), CGImageGetHeight(_image)];
   }
   if (_textLayout != nil) {
     NSString *text = _textLayout.attributedString.string;

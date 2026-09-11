@@ -321,15 +321,27 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
     return;
   }
 
-  const bool notify = props->shouldNotifyLoadEvents;
-  if (notify) {
-    if (auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
-      emitter->onLoadStart();
-    }
+  // Always, rather than only when `shouldNotifyLoadEvents` is set.
+  //
+  // That prop is Android's signal, and it never arrives here.
+  // `Image.android.js` sets it -- which is the Image.js this platform resolves
+  // to -- but `ImageViewNativeComponent`'s view config branches on
+  // `Platform.OS === 'android'`, and a platform that is neither takes the iOS
+  // branch, whose `validAttributes` has no `shouldNotifyLoadEvents` in it. So
+  // the prop is filtered out before it reaches C++ and onLoad/onError never
+  // fire, silently, on both desktops.
+  //
+  // iOS does not use the prop at all: RCTImageComponentView emits load events
+  // unconditionally and lets the emitter be the thing that knows whether
+  // anybody is listening. Doing the same is both correct and cheaper than
+  // forking a two-hundred-line view config to change one ternary -- and the
+  // emitter lookup below already returns null when nothing is listening.
+  if (auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
+    emitter->onLoadStart();
   }
 
   const auto source = props->sources.front();
-  imageLoader_.load(uri, [this, tag, fit, notify, source](GdkTexture *texture, const std::string &error) {
+  imageLoader_.load(uri, [this, tag, fit, source](GdkTexture *texture, const std::string &error) {
     // The view may have been deleted while the image was in flight, which is
     // why this looks the tag up again rather than capturing the widget.
     RnView *target = viewForTag(tag);
@@ -337,12 +349,10 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
       rn_view_set_texture(target, texture, fit);
     }
 
-    if (!notify) {
-      if (texture == nullptr) {
-        g_warning("image failed to load: %s (%s)", source.uri.c_str(), error.c_str());
-      }
-      return;
+    if (texture == nullptr) {
+      g_warning("image failed to load: %s (%s)", source.uri.c_str(), error.c_str());
     }
+
     auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag));
     if (emitter == nullptr) {
       return;

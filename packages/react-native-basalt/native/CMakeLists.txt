@@ -112,6 +112,9 @@ if(DEFINED RN_DIR)
   add_library(basalt_core STATIC
     core/ExpoRuntime.cpp
     core/HttpClient.cpp
+    # The bytes behind an <Image>, which is the half of image loading that is
+    # the same on every desktop.
+    core/ImageBytes.cpp
     core/PlatformConstantsModule.cpp
     core/SourceCodeModule.cpp
     core/StatusBarModule.cpp)

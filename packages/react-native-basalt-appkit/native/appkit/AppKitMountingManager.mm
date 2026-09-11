@@ -4,6 +4,8 @@
 
 #include "ComponentRegistry.h"
 
+#include <react/renderer/components/image/ImageEventEmitter.h>
+#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -29,6 +31,9 @@ static_assert(!std::is_abstract_v<AppKitMountingManager>,
 using facebook::react::ColorComponents;
 using facebook::react::ComponentRegistryFactory;
 using facebook::react::MountingTransaction;
+using facebook::react::ImageEventEmitter;
+using facebook::react::ImageProps;
+using facebook::react::ImageResizeMode;
 using facebook::react::ParagraphState;
 using facebook::react::ShadowView;
 using facebook::react::SurfaceId;
@@ -145,10 +150,10 @@ bool AppKitMountingManager::hasComponent(const std::string &name) {
   // ScrollView's content child arrives as "ScrollContentView", which the
   // registry rewrites to "View" before it reaches here, so it needs no entry.
   //
-  // Image and TextInput are still missing -- an image loader and an NSTextField
-  // peer respectively. See plan/25-macos-scrollview.md.
+  // TextInput is the one still missing, and it needs an NSTextField peer and
+  // the controlled-value loop. See plan/26-macos-image.md.
   return name == "View" || name == "RootView" || name == "Paragraph" ||
-      name == "ScrollView";
+      name == "ScrollView" || name == "Image";
 }
 
 // ---------------------------------------------------------------------------
@@ -182,11 +187,121 @@ void AppKitMountingManager::removeChild(RnAppKitView *parent, RnAppKitView *chil
 
 void AppKitMountingManager::forgetTag(Tag tag) {
   scrollViews_.remove(tag);
+  imageUris_.erase(tag);
+}
+
+namespace {
+
+RnAppKitImageFit toImageFit(ImageResizeMode mode) {
+  switch (mode) {
+    case ImageResizeMode::Contain:
+      return RnAppKitImageFitContain;
+    case ImageResizeMode::Stretch:
+      return RnAppKitImageFitStretch;
+    case ImageResizeMode::Center:
+    case ImageResizeMode::None:
+      return RnAppKitImageFitCenter;
+    case ImageResizeMode::Repeat:
+      // No tiled draw yet; centring is the least wrong single draw.
+      return RnAppKitImageFitCenter;
+    case ImageResizeMode::Cover:
+      break;
+  }
+  return RnAppKitImageFitCover;
+}
+
+} // namespace
+
+// React Native's cxx ImageManager is a stub that never produces an
+// ImageResponse, so nothing arrives through ImageState. The URI is read off the
+// props and loaded here instead, which is also how Android does it.
+void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &shadowView) {
+  if (shadowView.componentName == nullptr ||
+      std::string_view(shadowView.componentName) != "Image") {
+    return;
+  }
+
+  const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
+  if (props == nullptr) {
+    return;
+  }
+
+  const RnAppKitImageFit fit = toImageFit(props->resizeMode);
+  const std::string uri = props->sources.empty() ? std::string{} : props->sources.front().uri;
+  const Tag tag = shadowView.tag;
+
+  // A mutation that changed only layout must not restart the load, or an
+  // <Image> would flicker every time its parent resized. Re-requesting the same
+  // URI is cheap -- the loader answers from its cache on this thread -- and it
+  // reapplies the fit, which is the only thing that can have changed.
+  const auto known = imageUris_.find(tag);
+  if (known != imageUris_.end() && known->second == uri) {
+    if (!uri.empty()) {
+      imageLoader_.load(uri, [this, tag, fit](CGImageRef image, const std::string &) {
+        if (RnAppKitView *target = viewForTag(tag); target != nil) {
+          [target setRnImage:image fit:fit];
+        }
+      });
+    }
+    return;
+  }
+
+  imageUris_[tag] = uri;
+
+  if (uri.empty()) {
+    [view setRnImage:nullptr fit:fit];
+    return;
+  }
+
+  // Always, rather than only when `shouldNotifyLoadEvents` is set.
+  //
+  // That prop is Android's signal, and it never arrives here.
+  // `Image.android.js` sets it -- which is the Image.js this platform resolves
+  // to -- but `ImageViewNativeComponent`'s view config branches on
+  // `Platform.OS === 'android'`, and a platform that is neither takes the iOS
+  // branch, whose `validAttributes` has no `shouldNotifyLoadEvents` in it. So
+  // the prop is filtered out before it reaches C++ and onLoad/onError never
+  // fire, silently, on both desktops.
+  //
+  // iOS does not use the prop at all: RCTImageComponentView emits load events
+  // unconditionally and lets the emitter be the thing that knows whether
+  // anybody is listening. Doing the same is both correct and cheaper than
+  // forking a two-hundred-line view config to change one ternary -- and the
+  // emitter lookup below already returns null when nothing is listening.
+  if (auto emitter =
+          std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag))) {
+    emitter->onLoadStart();
+  }
+
+  const auto source = props->sources.front();
+  imageLoader_.load(uri, [this, tag, fit, source](CGImageRef image, const std::string &error) {
+    // The view may have been deleted while the image was in flight, which is
+    // why this looks the tag up again rather than capturing the view.
+    if (RnAppKitView *target = viewForTag(tag); target != nil) {
+      [target setRnImage:image fit:fit];
+    }
+
+    if (image == nullptr) {
+      LOG(WARNING) << "image failed to load: " << source.uri << " (" << error << ")";
+    }
+
+    auto emitter = std::dynamic_pointer_cast<const ImageEventEmitter>(eventEmitterForTag(tag));
+    if (emitter == nullptr) {
+      return;
+    }
+    if (image != nullptr) {
+      emitter->onLoad(source);
+    } else {
+      emitter->onError(facebook::react::ImageErrorInfo{.error = error});
+    }
+    emitter->onLoadEnd();
+  });
 }
 
 void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &shadowView) {
   applyProps(view, shadowView);
   applyText(view, shadowView);
+  applyImage(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before

@@ -82,7 +82,10 @@ set(BASALT_APPKIT_TEST_SOURCES
   tests/test_appkit_view.mm
   # Core Text, against RnTextLayout alone. No React Native, so these run in the
   # toolkit-only build too.
-  tests/test_appkit_text.mm)
+  tests/test_appkit_text.mm
+  # The resize modes, against a real bitmap. No React Native, so these run in
+  # the toolkit-only build too.
+  tests/test_appkit_image.mm)
 
 # ---------------------------------------------------------------------------
 # basalt_appkit_mounting — the AppKit half of the Fabric mounting manager.
@@ -109,11 +112,14 @@ if(TARGET basalt_core)
     # cmake/ReactNativeCore.cmake for why the stub has to leave the build.
     appkit/CoreTextLayoutManager.mm
     # <ScrollView>: offset, clipping, onScroll, state and commands.
-    appkit/AppKitScrollView.mm)
+    appkit/AppKitScrollView.mm
+    # <Image> pixels. RN's cxx ImageManager produces none; the fetch is in the
+    # shared half, and only the decode and the cache are here.
+    appkit/AppKitImageLoader.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)
-  target_link_libraries(basalt_appkit_mounting PUBLIC "-framework CoreText")
+  target_link_libraries(basalt_appkit_mounting PUBLIC "-framework CoreText" "-framework ImageIO")
 
   # -------------------------------------------------------------------------
   # basalt_appkit — a ReactHost, Hermes, and one surface in an NSWindow.

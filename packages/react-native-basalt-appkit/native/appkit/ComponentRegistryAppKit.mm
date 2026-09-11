@@ -1,9 +1,8 @@
 // The component registry for the macOS platform. See core/ComponentRegistry.h
 // for why this is per-platform rather than shared.
 //
-// `<View>`, `<Text>` and `<ScrollView>`, and the shortness is still the honest
-// part. Every descriptor left out is a piece of work with a name: Image needs
-// an image loader, TextInput an NSTextField peer.
+// `<View>`, `<Text>`, `<ScrollView>` and `<Image>`. The one left out is
+// TextInput, which needs an NSTextField peer and the controlled-value loop.
 //
 // Paragraph arrived with CoreTextLayoutManager.mm, and could not have arrived
 // before it: registering it constructs a `TextLayoutManager`, whose stub this
@@ -19,6 +18,7 @@
 #include "ComponentRegistry.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+#include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -45,6 +45,10 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // UnimplementedNativeView, which has no ScrollViewState, and the symptom
       // is a ScrollView that renders but never scrolls.
       registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+      // Image's descriptor pulls an ImageManager out of the ContextContainer,
+      // creating one if absent. React Native's cxx ImageManager is a stub, so
+      // it produces no pixels; AppKitImageLoader does that from the props.
+      registry->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
       return registry;
     }();
     return providerRegistry->createComponentDescriptorRegistry(

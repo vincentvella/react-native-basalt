@@ -13,6 +13,7 @@
 
 #pragma once
 
+#import "AppKitImageLoader.h"
 #import "AppKitScrollView.h"
 
 #include "MountingWalk.h"
@@ -79,9 +80,15 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void applyProps(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyScrollView(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
+  void applyImage(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
 
   AppKitScrollViewManager scrollViews_;
+  AppKitImageLoader imageLoader_;
+
+  // The source each <Image> is currently showing, so that a mutation which
+  // changed only layout does not restart the load.
+  std::unordered_map<facebook::react::Tag, std::string> imageUris_;
 };
 
 } // namespace basalt

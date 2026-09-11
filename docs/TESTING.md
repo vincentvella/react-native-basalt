@@ -116,7 +116,7 @@ BASALT_COMPARE_QUIT_AFTER_MS=3000 scripts/compare_hosts.sh \
   build/scroll.linux.jsbundle.js build/scroll.macos.jsbundle.js BasaltScroll
 ```
 
-For `js/text.js`, frames have to be ignored:
+For `js/text.js` and `js/image.js`, frames have to be ignored:
 
 ```bash
 scripts/bundle.sh --platform linux --entry text.js --out text.linux.jsbundle
