@@ -13,5 +13,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `03-metro-bundle.md` — React actually reconciling, with Fast Refresh
 - `04-text-pango.md` — the big one
 - `33-dev-bundle-errors.md` — what Metro said, instead of what it compiled to
+- `34-expo-dependencies.md` — what a real app's libraries do, and the one that blocked the build
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

@@ -221,6 +221,30 @@ so anything importing them dies at startup.
   a reload fails is a separate case, and it currently keeps running the code it
   has, with the error only in the log.
 
+## Expo, beyond the template
+
+Measured in phase 34 against a real dependency set, on both desktops.
+
+- **An Expo module host.** `requireNativeModule('ExpoImage')` throws, and so
+  does every other Expo SDK library with native code -- at module scope, which
+  takes the app down before `AppRegistry` runs. `globalThis.expo` exists since
+  phase 15; what does not is any way for C++ to register a module under it.
+  This is the single largest thing between here and "an Expo app works", and it
+  is one piece of plumbing plus a small piece of work per library.
+- **`expo-clipboard` and `expo-linking` are already written**, as React Native's
+  `Clipboard` and `Linking` in phase 32. They need registering, not
+  implementing.
+- **`Constants.expoConfig` is null**, because nothing supplies the app manifest.
+  An app reading `Constants.expoConfig.extra.something` crashes on the property
+  access. The cheapest of these by a distance: the manifest is `app.json`, which
+  the bundler already has.
+- **Reanimated and gesture-handler** are a different shape: native libraries in
+  their own right, wanting a worklet runtime, nothing to do with Expo's module
+  system.
+- **A visible error when the bundle throws.** Today the window stays empty and
+  the only evidence is a line in the host's log. Every failure above, and every
+  future one, is invisible to whoever is running the app.
+
 ## Desktop capabilities
 
 React Native has no cross-platform API for any of this, because it was built for

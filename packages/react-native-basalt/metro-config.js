@@ -128,6 +128,32 @@ const MISSING_MODULES = [
 ];
 
 /**
+ * Kind 4: a *library* that ships only `.ios` and `.android` files.
+ *
+ * `react-native-screens` has `TabsScreen.ios.tsx`, `TabsScreen.android.tsx` and
+ * `TabsScreen.web.tsx`, and an `index.ts` that says `from './TabsScreen'`.
+ * Resolution fails, and the whole bundle fails with it -- one component nothing
+ * in the app renders takes down a build that would otherwise have worked. Every
+ * library that has never heard of this platform is a candidate, which is all of
+ * them, so this cannot be a list of names.
+ *
+ * So a resolution that fails for a desktop platform is retried as another
+ * platform, in this order, and the first that resolves wins. The build gets a
+ * real implementation of the module rather than failing; if that implementation
+ * needs a native module this platform does not have, it fails at runtime like
+ * any other unsupported library, which is a much better place to fail.
+ *
+ * Android first, for the same reason `SELF_IMPORTING_SHIMS` are answered with
+ * their `.android.js` sibling: these platforms report `PlatformConstantsAndroid`
+ * and share ReactCommon's prop parsing. One order for all three desktops rather
+ * than a per-platform guess, because two desktops resolving *different*
+ * implementations of the same library is the one outcome worse than either.
+ *
+ * Set `platformFallbacks: []` to turn this off and get the resolution error.
+ */
+const PLATFORM_FALLBACKS = ['android', 'ios'];
+
+/**
  * How a host tells the dev server which desktop it is.
  *
  * ReactCxxPlatform's DevServerHelper builds its bundle URL from
@@ -232,10 +258,16 @@ function correctBundlePlatform(url, platforms, fallback) {
  *                      not say. Defaults to the first enabled platform. A host
  *                      built from this repo always says, so this only matters
  *                      for a URL typed by hand.
+ *   platformFallbacks  which platforms to retry a failed resolution as, in
+ *                      order. See PLATFORM_FALLBACKS. `[]` disables it.
  */
 function withDesktopPlatforms(config = {}, options = {}) {
   const enabled = options.platforms ?? DESKTOP_PLATFORMS;
   const devServerPlatform = options.devServerPlatform ?? enabled[0];
+  const fallbacks = options.platformFallbacks ?? PLATFORM_FALLBACKS;
+  // One line per module, not per import of it: a library resolved through the
+  // fallback is usually imported from a dozen places.
+  const reported = new Set();
 
   const resolver = config.resolver ?? {};
   const existingResolveRequest = resolver.resolveRequest;
@@ -296,13 +328,20 @@ function withDesktopPlatforms(config = {}, options = {}) {
         // Resolve first, then decide. Rewriting the request instead would mean
         // reimplementing Metro's resolution to know what './Platform' meant
         // from any given file.
+        const resolveAs = target =>
+          existingResolveRequest
+            ? existingResolveRequest(context, moduleName, target)
+            : context.resolveRequest(context, moduleName, target);
+
         let resolution;
         try {
-          resolution = existingResolveRequest
-            ? existingResolveRequest(context, moduleName, platform)
-            : context.resolveRequest(context, moduleName, platform);
+          resolution = resolveAs(platform);
         } catch (error) {
-          if (ours && moduleName.startsWith('.')) {
+          if (!ours) {
+            throw error;
+          }
+
+          if (moduleName.startsWith('.')) {
             const requested = path.resolve(
               path.dirname(context.originModulePath ?? ''),
               moduleName,
@@ -312,7 +351,29 @@ function withDesktopPlatforms(config = {}, options = {}) {
               return {type: 'sourceFile', filePath: forMissing};
             }
           }
-          throw error;
+
+          // Kind 4. The original error is what gets thrown if every fallback
+          // fails too: it names the platform the app actually asked for.
+          resolution = null;
+          for (const fallback of fallbacks) {
+            try {
+              resolution = resolveAs(fallback);
+            } catch {
+              continue;
+            }
+            const key = `${moduleName}\u0000${context.originModulePath ?? ''}`;
+            if (!reported.has(key)) {
+              reported.add(key);
+              console.warn(
+                `basalt: '${moduleName}' has no ${platform} implementation; ` +
+                  `using its ${fallback} one (from ${context.originModulePath ?? '?'})`,
+              );
+            }
+            break;
+          }
+          if (resolution == null) {
+            throw error;
+          }
         }
 
         if (!ours || resolution?.type !== 'sourceFile') {
