@@ -45,9 +45,25 @@ endif()
 # PKG_CONFIG_VERSION as an ordinary variable, which is scoped to the directory
 # that ran it, so a package that only inherits it gets pkg_check_modules failing
 # on a malformed `if` deep inside FindPkgConfig rather than on anything legible.
-find_package(PkgConfig REQUIRED)
+#
+# Neither of the first two is REQUIRED, and that is the same courtesy the AppKit
+# and Win32 packages extend: a checkout builds every package it finds, and on a
+# machine with no GTK -- Windows, or a Mac without brew's gtk4 -- this one has
+# nothing it could compile and should say so rather than fail the configure for
+# the platform that machine *can* build. Everything after these two stays
+# REQUIRED: a box with gtk4 and no pangoft2 is a broken installation, not an
+# absent one.
+find_package(PkgConfig QUIET)
+if(NOT PKG_CONFIG_FOUND)
+  message(STATUS "react-native-basalt-gtk skipped: no pkg-config")
+  return()
+endif()
 
-pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
+pkg_check_modules(GTK4 IMPORTED_TARGET gtk4)
+if(NOT GTK4_FOUND)
+  message(STATUS "react-native-basalt-gtk skipped: no gtk4")
+  return()
+endif()
 # For fonts an app loads at runtime. Pango finds fonts through fontconfig, so
 # adding one to fontconfig is what makes it available to text this platform
 # renders. See gtk/FontRegistryFontconfig.cpp.

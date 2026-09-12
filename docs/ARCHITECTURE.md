@@ -294,7 +294,8 @@ are documented in the project README.
 | 14 | Expo's native runtime | **done** |
 | 15 | The asset pipeline | **done** |
 | 16 | Split the shared core from the toolkit | **started** |
-| 17 | A second view layer: macOS or Windows | |
+| 17 | A second view layer: macOS | **done** |
+| 17a | A third view layer: Windows, over Win32 and Direct2D | **started** |
 | 18 | Core modules: appearance, clipboard, linking, alerts | |
 | 16 | Desktop capabilities: windows, menus, file dialogs | |
 | 17 | Packaging: Arch, Flatpak | |
@@ -322,11 +323,14 @@ reporting anything.
 
 ## Testing
 
-Three suites: `build/basalt_gtk_tests` for everything reachable without a JavaScript
+Four suites: `build/basalt_gtk_tests` for everything reachable without a JavaScript
 runtime, `scripts/integration_test.py` for the whole stack, asserting on the
-widget tree the host dumps rather than on a screenshot, and `build/basalt_appkit_tests`
-for the macOS view layer and mounting manager. See `docs/TESTING.md`, which also
-records what is still not covered and why.
+widget tree the host dumps rather than on a screenshot, `build/basalt_appkit_tests`
+for the macOS view layer and mounting manager, and `build/basalt_win32_tests` for
+the Windows view layer -- which is the only one of the four that asserts on
+pixels, because Direct2D renders offscreen with no window and neither other
+toolkit does. See `docs/TESTING.md`, which also records what is still not
+covered and why.
 
 ## Risks
 

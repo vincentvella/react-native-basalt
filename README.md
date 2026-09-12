@@ -17,8 +17,10 @@ ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
 reader. The demo app written for GTK runs on it unchanged, and the two hosts
 produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
 says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows is a name in a
-list.
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows has a view layer as
+of phase 39 -- it paints, nothing drives it yet -- and it is where this project
+first asserts on pixels rather than on a tree, because Direct2D renders
+offscreen with no window and neither other toolkit does.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -41,11 +43,12 @@ interface has exactly two pure-virtual methods — `executeMount` and
 
 ## Layout
 
-Three npm packages, and the split is the architecture rather than tidiness.
+Four npm packages, and the split is the architecture rather than tidiness.
 
     packages/react-native-basalt          the shared half
     packages/react-native-basalt-gtk      Linux, over GTK4
     packages/react-native-basalt-appkit   macOS, over AppKit
+    packages/react-native-basalt-win32    Windows, over Win32 and Direct2D
 
 `react-native-basalt` is everything that is not about a toolkit: the JavaScript
 platform layer, the bundler, React Native's C++ core and Hermes, the Expo
@@ -56,8 +59,9 @@ else, built on every build.
 
 A platform package is a view layer, a mounting manager and a host, and nothing
 more. Each adds the shared one to its CMake build and skips itself where it
-cannot compile, so a Mac with no GTK builds the AppKit half alone and a Linux
-box never asks for an Objective-C++ compiler.
+cannot compile, so a Mac with no GTK builds the AppKit half alone, a Linux box
+never asks for an Objective-C++ compiler, and a Windows box with neither builds
+the Win32 half.
 
 Both hosts produce a byte-identical view tree from the same script;
 `scripts/compare_hosts.sh` is what says so. See `plan/17-shared-core.md` through
@@ -140,6 +144,15 @@ Inside the shared package, under `native/`:
                                 NSWindow.
     appkit/demo_layout_appkit.mm    The same boxes as GTK's, on AppKit.
     appkit/mount_harness_appkit.mm  The same two transactions as GTK's.
+
+`react-native-basalt-win32`, under `native/`:
+
+    win32/RnWin32View.h/.cpp    Win32 view layer, painted with Direct2D. Not one
+                                HWND per view; see plan/decisions.md.
+    win32/Win32Snapshot.*       One offscreen render, two exits: a PNG, and the
+                                pixels tests/test_win32_paint.cpp asserts on.
+                                No window, no device, no display.
+    win32/demo_layout_win32.cpp The same six boxes as GTK's and AppKit's.
 
 And at the repository root:
 
@@ -229,6 +242,25 @@ The manual equivalents of each bootstrap step are documented below.
 
 Produces `librn_view.a`, `librn_mounting.a` and the `demo_layout_gtk` executable.
 Omit `-DRN_DIR` to build only the widget layer and the demo.
+
+### On Windows
+
+The view layer needs no React Native, no bootstrap and no third-party anything:
+Direct2D, DirectWrite and WIC ship with the operating system. What it needs is
+Visual Studio Build Tools with the C++ workload -- for MSVC's standard library
+and the Windows SDK -- plus CMake and Ninja. From a shell that has run
+`vcvars64.bat`:
+
+    cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
+      -DCMAKE_CXX_COMPILER=clang-cl
+    cmake --build build
+    build\basalt_win32_tests.exe
+
+`clang-cl` because `plan/decisions.md` prefers clang where there is a choice; it
+is a component of the same Build Tools install, and dropping the flag builds
+with `cl` instead. There is no `-DRN_DIR` form yet -- React Native's C++ core
+has never been compiled with MSVC, which is the next real piece of work and is
+described in `plan/backlog.md`.
 
 To run an app that uses Expo modules, Reanimated or worklets, point the build at
 that app's copies of them. Each is optional and each is compiled from the app's

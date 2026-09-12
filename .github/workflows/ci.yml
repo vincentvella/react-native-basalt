@@ -1,10 +1,15 @@
 name: CI
 
-# Linux is the target, so Linux is what CI checks. Development happens on a Mac,
-# and every bug this project has hit that only appears on one of the two has
-# appeared on Linux -- a root-owned npm prefix, libstdc++ against React Native's
-# -Werror, a renderer that mangles transforms. None of them were visible from
-# macOS.
+# Linux is the target, so Linux is what CI checks in full. Every bug this
+# project has hit that only appears on one platform has appeared there -- a
+# root-owned npm prefix, libstdc++ against React Native's -Werror, a renderer
+# that mangles transforms -- and none of them was visible from the machine it
+# was developed on.
+#
+# That machine is now a Windows box, which is why there is a `windows` job as of
+# phase 39 and why it is small: it builds the view layer and nothing behind it.
+# macOS has no job at all and is still covered by whoever is developing, which
+# now means nobody. See plan/backlog.md.
 
 on:
   push:
@@ -182,6 +187,60 @@ jobs:
           name: widget-tree
           path: widget-tree.txt
           if-no-files-found: ignore
+
+  windows:
+    name: the Windows view layer
+    runs-on: windows-2022
+    timeout-minutes: 20
+    if: github.event_name != 'schedule'
+    # The view layer alone: React Native's C++ core has never been compiled with
+    # MSVC, so there is no basalt_core here and nothing asks for one. What this
+    # does check is the half that exists, and it checks it properly -- Direct2D
+    # renders into a WIC bitmap with no window and no display, so the rendering
+    # assertions run on a hosted runner with nothing installed and no xvfb.
+    #
+    # Cheap on purpose. No React Native checkout, no Hermes, no bootstrap: this
+    # is a compiler, the Windows SDK the runner already has, and two minutes.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        # The Visual Studio generator rather than Ninja, and no vcvars step and
+        # no third-party action to set one up: MSBuild finds its own toolchain,
+        # which is one less thing on the runner image to depend on. Development
+        # here uses Ninja and clang-cl, so between the two every combination
+        # this package claims to support gets built by somebody.
+        #
+        # No RN_DIR, so the shared package contributes its test harness and
+        # nothing else, and the GTK and AppKit packages skip themselves. That
+        # those skips work on a machine with neither toolkit is part of what
+        # this job is checking.
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo
+
+      - name: Unit tests
+        run: ./build/basalt_win32_tests.exe
+
+      - name: The demo's tree, and its picture
+        # Both modes of demo_layout_win32, because they fail differently: the
+        # dump would look identical whether or not anything painted, and the
+        # snapshot is what says pixels came out.
+        run: |
+          $env:BASALT_DUMP_TREE = "1"
+          ./build/demo_layout_win32.exe
+          Remove-Item Env:\BASALT_DUMP_TREE
+          $env:BASALT_SNAPSHOT = "$PWD/demo-win32.png"
+          ./build/demo_layout_win32.exe
+          if (-not (Test-Path "$PWD/demo-win32.png")) { throw "no snapshot was written" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-win32
+          path: demo-win32.png
+          if-no-files-found: error
 
   drift:
     name: build against React Native main

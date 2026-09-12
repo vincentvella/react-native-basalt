@@ -2,6 +2,55 @@
 
 Not scheduled. Roughly by value.
 
+## Windows
+
+Everything, except the view layer phase 39 built. Listed in the order the macOS
+port took them, because that order was chosen once already and worked.
+
+- **No mounting manager**, so no `ShadowViewMutation` has ever reached an
+  `RnWin32View`. Phase 19 already did the expensive part of this: the mutation
+  walk is portable and lives in `core/MountingWalk.h`, so what is owed is the
+  seven operations and a props translation. `ComponentRegistryWin32` and
+  `hasComponent` come with it, and the two must agree -- when they do not,
+  Fabric builds shadow nodes nothing can mount and the app renders blank
+  rectangles rather than an error.
+- **React Native's C++ core has never been compiled with MSVC.** This is the
+  real unknown in the Windows port, and it is behind the view layer rather than
+  in it: folly, glog, boost, double-conversion, Hermes and ReactCommon all build
+  on Windows for react-native-windows, so it is known-possible, but nothing in
+  `packages/react-native-basalt` has been through it and `native/bootstrap.sh`
+  is a shell script. Until that is done there is no `basalt_core` on Windows and
+  so no host, whatever the view layer can draw.
+- **`<Text>`**, over DirectWrite: an `IDWriteTextLayout` built in one place and
+  shared by `TextLayoutManager::measure` and painting, for the reason
+  `plan/decisions.md` gives for Pango. The fonts seam
+  (`core/FontRegistry.h`) is behind it, and DirectWrite's is an
+  `IDWriteFontSetBuilder` rather than fontconfig.
+- **`<Image>`**, over WIC. The fetch is already shared in `core/ImageBytes.cpp`;
+  only the decode and the cache are platform work.
+- **`<ScrollView>`** and **`<TextInput>`**, the latter over a real `EDIT` or
+  `RichEdit` child window; see `plan/decisions.md`.
+- **Input.** `WM_POINTER`/`WM_MOUSE` on the one surface `HWND`, hit-tested
+  through the view tree the way `RnAppKitHitTest` does -- and here the hit test
+  must invert each view's transform itself, because unlike GTK and AppKit there
+  is no toolkit picking to inherit.
+- **Accessibility** is UI Automation, and it is the one place Windows is
+  structurally different rather than differently spelled: GTK and AppKit both
+  take properties on a view, while UIA wants a provider object implementing
+  `IRawElementProviderSimple` and `IRawElementProviderFragment`. It is more work
+  than either, and it is the piece most likely to need its own phase.
+- **No `react-native run-windows`**, and no CLI. `packages/react-native-basalt-gtk/cli`
+  is the shape.
+- ~~**CI has no Windows runner.**~~ Added in phase 39, and small: the view layer
+  builds with MSBuild and needs no display, no React Native and no bootstrap.
+- **`scripts/compare_hosts.sh` has never seen Windows.** `describeTree` there is
+  written to be byte-for-byte what GTK and AppKit print, and the test that says
+  so compares against a string copied out of the AppKit suite -- which is a
+  claim about two files agreeing, not about two hosts agreeing. Nothing will
+  really check it until there is a Windows host to run an app on, and until this
+  machine can run one of the others: WSL2 will not start here because
+  virtualisation is disabled in firmware.
+
 ## macOS
 
 - **No accessibility.** AppKit views carry no role, so a screen reader sees a
@@ -49,10 +98,17 @@ Not scheduled. Roughly by value.
 
 ## Testing
 
-- No rendering assertions: the widget tree says a view has a colour and a
-  frame, not that the right pixels reached the screen. This is not theoretical
-  -- GTK's cairo renderer mangled every transform in the demo and no test
-  noticed. See `docs/TESTING.md`.
+- **No rendering assertions on GTK or macOS.** The widget tree says a view has a
+  colour and a frame, not that the right pixels reached the screen. This is not
+  theoretical -- GTK's cairo renderer mangled every transform in the demo and no
+  test noticed. See `docs/TESTING.md`.
+
+  Windows has them as of phase 39, because Direct2D renders offscreen with no
+  window and no display and the other two toolkits do not. So the question is no
+  longer what to assert -- `tests/test_win32_paint.cpp` is the list -- but what
+  each of the others costs: a display server and a `GdkTexture` read-back on
+  GTK, an offscreen `NSWindow` and a display cycle on macOS. The macOS snapshot
+  path in `AppKitSnapshot.mm` already does the hard half of the second one.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.

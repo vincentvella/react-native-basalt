@@ -18,5 +18,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `36-expo-image.md` — an Expo view is a Fabric component with a config in front
 - `37-gesture-handler.md` — a library with no portable C++, so the contract was the port
 - `38-reanimated.md` — worklets, Reanimated, and a mount React Native never reported
+- `39-windows-view-layer.md` — a third desktop, and the first assertions about pixels
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

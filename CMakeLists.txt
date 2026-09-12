@@ -13,9 +13,10 @@
 #                                         toolkit, asserted by the linker.
 #   packages/react-native-basalt-gtk      the Linux view layer and host.
 #   packages/react-native-basalt-appkit   the macOS view layer and host.
+#   packages/react-native-basalt-win32    the Windows view layer and host.
 #
 # Each platform package adds the shared one as a subdirectory and skips itself
-# where it cannot build, so this file adds both unconditionally and gets
+# where it cannot build, so this file adds all three unconditionally and gets
 # whichever of them this machine can produce.
 #
 # This file exists so that the way this repository has always been built keeps
@@ -47,3 +48,4 @@ endif()
 add_subdirectory(packages/react-native-basalt/native basalt)
 add_subdirectory(packages/react-native-basalt-gtk/native basalt-gtk)
 add_subdirectory(packages/react-native-basalt-appkit/native basalt-appkit)
+add_subdirectory(packages/react-native-basalt-win32/native basalt-win32)

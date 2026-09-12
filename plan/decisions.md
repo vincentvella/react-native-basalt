@@ -430,3 +430,59 @@ That is not just for safety: equal-priority idle sources run in the order they
 were added, so a command still lands behind the transaction that created the
 view it names, which is the ordering React Native's `focus()`-on-mount depends
 on.
+
+## On Windows a view is not a window — 2026-09-11
+
+**Rejected:** a child `HWND` per React Native view, which is the direct
+translation of what GTK does with `GtkWidget` and macOS with `NSView`.
+
+**Chosen:** one `HWND` per surface, and a plain C++ `RnWin32View` painted by a
+recursive Direct2D walk.
+
+**Why:** three reasons, and any one of them would be enough. An `HWND` is a
+kernel object and USER32 caps a process at ten thousand by default, so a long
+list would spend a real fraction of the budget on things that are conceptually
+rectangles. An `HWND` clips rectangularly and cannot be rotated, so `transform`
+and rounded `overflow: hidden` — both of which GTK already has — would need a
+parallel implementation regardless. And the message routing a window buys is the
+part this project least wants: React Native does its own hit testing, and
+`gtk_widget_pick` was a convenience rather than a requirement.
+
+The exception, and it is the same exception both other platforms make:
+`<TextInput>` gets a real `EDIT` peer. Input methods, selection, the clipboard
+and every Windows key binding come with it, and each is easy to get subtly
+wrong.
+
+The consequence to remember is that this layer is closer to GTK's snapshot walk
+than to AppKit's layer tree, so where the AppKit side maps a prop onto a
+`CALayer` property, the Windows side composes it by hand in `paint` — exactly as
+`rn_view_snapshot` does.
+
+## Painting is immediate, not composited — 2026-09-11
+
+**Rejected:** DirectComposition, a visual per view, which is the closer analogue
+of AppKit's layer-backed views and would put transform and opacity in the
+compositor.
+
+**Chosen:** one Direct2D walk, rendering to a window or to a WIC bitmap.
+
+**Why:** the offscreen render is not a debugging convenience on this platform,
+it is the test. A composited tree would need a second, separate path to produce
+a picture, and the value of the picture is that it is made by the same code that
+draws the app. Revisit when there is a real frame budget to defend, which needs
+an app first.
+
+## Rendering assertions live on Windows, because they are free there — 2026-09-11
+
+Direct2D renders into a WIC bitmap with no window, no device and no display
+connection. So the backlog item that has been open since GTK — "the widget tree
+says a view has a colour and a frame, not that the right pixels reached the
+screen" — costs a function call here, where it costs a display server on Linux
+and an offscreen window plus a display cycle on macOS.
+
+`tests/test_win32_paint.cpp` is therefore where this project asserts things no
+tree dump can show: that a transform is composed in the right order *and the
+right direction*, that opacity composites a subtree rather than a brush, that a
+clip clips. What those tests check is not Windows-specific; only their being
+cheap is. They are the shape for the other two hosts to borrow, not a reason to
+leave them unchecked.

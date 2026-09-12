@@ -1,6 +1,6 @@
 # Testing
 
-Three suites. The two Linux ones need a display, because everything in them is a
+Four suites. The two Linux ones need a display, because everything in them is a
 GTK program, and both run in CI on Linux, which is where they matter: see
 `.github/workflows/ci.yml`.
 
@@ -10,6 +10,7 @@ scripts/bundle.sh ../react-native --prod
 scripts/integration_test.py         # end to end
 
 ./build/basalt_appkit_tests                # the macOS view layer and mounting, on a Mac
+./build/basalt_win32_tests.exe             # the Windows view layer, on Windows
 scripts/compare_hosts.sh            # both hosts, same script, diffed
 ```
 
@@ -25,6 +26,17 @@ is the convention for "skipped".
 
 `basalt_appkit_tests` needs neither a display nor a window: nothing in it is presented.
 It is built only on a Mac, and CMake omits the target everywhere else.
+
+`basalt_win32_tests` needs neither either, and unlike the other two it makes
+real pictures while not needing them: Direct2D renders into a WIC bitmap with no
+window, no device and no display connection. That is why the rendering
+assertions this project has wanted since GTK live there and nowhere else. Built
+only on Windows; CMake omits the target elsewhere.
+
+| File | What it pins down |
+|---|---|
+| `native/tests/test_win32_view.cpp` | The view layer as a tree. Tags and frames, insert indices, that a Remove detaches without destroying, that an Insert reparents, that destroying a view leaves nothing pointing at it, that zIndex does not touch the child list, and that `describeTree` is byte-for-byte what the other two hosts print. |
+| `native/tests/test_win32_paint.cpp` | What reached the pixels. Placement, opacity as a subtree layer, clipping under `overflow`, a quarter turn about the centre *and in the right direction*, zIndex paint order, the scroll offset, and the corner radius. Each is something a tree dump cannot show. |
 
 ## `build/basalt_gtk_tests` — the unit suite
 
