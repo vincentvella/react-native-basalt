@@ -17,9 +17,11 @@ ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
 reader. The demo app written for GTK runs on it unchanged, and the two hosts
 produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
 says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows has a view layer as
-of phase 39 -- it paints, nothing drives it yet -- and it is where this project
-first asserts on pixels rather than on a tree, because Direct2D renders
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows mounts `<View>`,
+`<Text>` and `<Image>` from real Fabric mutations, reports itself to UI
+Automation, and produces the same two mount-harness pictures the other two do --
+but has no host yet, so nothing drives it from JavaScript. It is also where this
+project first asserts on pixels rather than on a tree, because Direct2D renders
 offscreen with no window and neither other toolkit does.
 
 This was called `react-native-linux` until it stopped being about Linux.
@@ -152,7 +154,23 @@ Inside the shared package, under `native/`:
     win32/Win32Snapshot.*       One offscreen render, two exits: a PNG, and the
                                 pixels tests/test_win32_paint.cpp asserts on.
                                 No window, no device, no display.
+    win32/RnWin32TextLayout.*   A laid-out paragraph, over DirectWrite. No RN.
+    win32/RnWin32Image.*        <Image> pixels, over WIC. Device-independent.
+    win32/RnWin32Accessible.*   UI Automation. A provider answers questions,
+                                where GTK and AppKit take properties.
+    win32/Win32MountingManager.*  The Windows half of IMountingManager. The walk
+                                is in the shared half.
+    win32/ComponentRegistryWin32.cpp  What Windows claims: View, Paragraph,
+                                Image. See core/ComponentRegistry.h.
+    win32/DirectWriteLayout.*   AttributedString -> RnWin32TextLayout. Shared by
+                                measurement and painting, so they agree.
+    win32/DirectWriteLayoutManager.cpp  Replaces RN's stub TextLayoutManager.
+    win32/FontRegistryDirectWrite.cpp   The font seam.
+    win32/ColorSchemeWin32.cpp  Light or dark, from the registry.
+    win32/PlatformServicesWin32.cpp  Clipboard, URLs, alerts -- and
+                                postToUiThread, on a message-only window.
     win32/demo_layout_win32.cpp The same six boxes as GTK's and AppKit's.
+    win32/mount_harness_win32.cpp  The same two transactions as GTK's.
 
 And at the repository root:
 

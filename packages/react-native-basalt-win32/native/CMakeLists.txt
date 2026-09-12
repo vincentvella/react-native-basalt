@@ -181,6 +181,14 @@ if(TARGET basalt_core)
   # shell32 for ShellExecute, which is how a URL is opened.
   target_link_libraries(basalt_win32_mounting PUBLIC shell32)
 
+  # Real mutations into real views, with no JavaScript anywhere. The checkpoint
+  # between "the mounting manager compiles" and "React Native runs": a mistake
+  # in the Create/Insert/Update/Remove/Delete handling shows up in a picture
+  # rather than in review.
+  add_executable(mount_harness_win32 win32/mount_harness_win32.cpp)
+  target_compile_options(mount_harness_win32 PRIVATE ${BASALT_WIN32_WARNINGS})
+  target_link_libraries(mount_harness_win32 PRIVATE basalt_win32_mounting)
+
   list(APPEND BASALT_WIN32_TEST_SOURCES
     ${BASALT_CORE_TESTS}
     # Deliberately the same nine questions tests/test_mounting.cpp asks of GTK
