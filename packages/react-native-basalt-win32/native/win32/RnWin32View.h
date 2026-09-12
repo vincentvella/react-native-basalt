@@ -40,6 +40,8 @@
 
 #pragma once
 
+#include <windows.h>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -132,6 +134,17 @@ class RnWin32View {
   // there to be pressed.
   void setHidden(bool hidden);
   bool hidden() const { return hidden_; }
+
+  // The EDIT control a <TextInput> mounted behind this view, or null.
+  //
+  // The view neither owns it nor draws it -- `Win32TextInputManager` does both
+  // -- and the only thing it is for is `describeTree`: a text field's content
+  // lives in its peer rather than in a layout, so without this it would be
+  // invisible to every test that reads the tree, and the Windows dump would
+  // differ from the other two hosts' for a field that was working perfectly.
+  // GTK keeps the same back pointer to its GtkText for the same reason.
+  void setEditablePeer(HWND control) { editablePeer_ = control; }
+  HWND editablePeer() const { return editablePeer_; }
 
   // --- Content ---------------------------------------------------------------
 
@@ -240,6 +253,7 @@ class RnWin32View {
   float opacity_ = 1.0f;
   bool clipsChildren_ = false;
   float cornerRadius_ = 0.0f;
+  HWND editablePeer_ = nullptr;
   int zIndex_ = 0;
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;

@@ -198,17 +198,36 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
     return;
   }
 
-  // Controlled component: JavaScript owns the value. Setting it must not look
-  // like typing, or the change we report provokes a re-render that sets it
-  // again, and the two chase each other.
-  const char *currentUtf8 = entry.field.stringValue.UTF8String;
-  const std::string current = currentUtf8 != nullptr ? currentUtf8 : "";
-  if (props->text != current) {
-    entry.applying = true;
-    NSString *incoming = [NSString stringWithUTF8String:props->text.c_str()];
-    entry.field.stringValue = incoming != nil ? incoming : @"";
-    entry.applying = false;
-    entry.lastReportedText = props->text;
+  // Controlled component: JavaScript owns the value. Three things have to be
+  // true at once, and each fails differently.
+  //
+  // Setting it must not look like typing, or the change we report provokes a
+  // re-render that sets it again and the two chase each other -- `applying`.
+  //
+  // A prop older than what the user has since typed must not be applied at all,
+  // or a fast typist watches characters reorder themselves. That is what
+  // React Native counts events for, and dropping such a value *without
+  // recording it* is deliberate: the next render, once JavaScript has caught
+  // up, applies it.
+  //
+  // And it is applied when the prop *changes*, not when it differs from the
+  // field, which is the only thing that tells a controlled field from an
+  // uncontrolled one. See the header.
+  const bool stale = props->mostRecentEventCount < entry.eventCount;
+  const bool changed = !entry.sawProps || props->text != entry.lastPropText;
+  if (changed && !stale) {
+    entry.lastPropText = props->text;
+    entry.sawProps = true;
+
+    const char *currentUtf8 = entry.field.stringValue.UTF8String;
+    const std::string current = currentUtf8 != nullptr ? currentUtf8 : "";
+    if (props->text != current) {
+      entry.applying = true;
+      NSString *incoming = [NSString stringWithUTF8String:props->text.c_str()];
+      entry.field.stringValue = incoming != nil ? incoming : @"";
+      entry.applying = false;
+      entry.lastReportedText = props->text;
+    }
   }
 
   // The field renders in AppKit's own font and colour, which has nothing to do

@@ -101,6 +101,28 @@ NSTextField *fieldOf(RnAppKitView *view) {
   return view.rnEditable;
 }
 
+// What a person typing does, as far as the manager is concerned: the field's
+// value changes and the delegate is told. AppKit posts that notification from
+// NSControl and there is no field editor here to post it, so the test does what
+// AppKit would -- which is also exactly the path a real keystroke takes.
+void typeInto(NSTextField *field, NSString *text) {
+  field.stringValue = [field.stringValue stringByAppendingString:text];
+  [field.delegate
+      controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
+                                                         object:field]];
+}
+
+// One Update mutation for a field, which is what every re-render produces.
+void updateField(basalt::AppKitMountingManager &manager,
+                 Tag tag,
+                 folly::dynamic before,
+                 folly::dynamic after) {
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::UpdateMutation(
+      makeTextInput(tag, std::move(before)), makeTextInput(tag, std::move(after)), kSurfaceId));
+  apply(manager, std::move(mutations));
+}
+
 } // namespace
 
 TEST(textinput_mounts_a_real_field) {
@@ -147,6 +169,61 @@ TEST(textinput_applying_a_prop_is_not_typing) {
 // The field is placed inside the content inset, so paddingHorizontal on a field
 // means what it means on a <View>. Without this the text sits flush against the
 // border, ignoring the style.
+// An uncontrolled field keeps what was typed into it.
+//
+// React Native re-sends `mostRecentEventCount` on every change, which is an
+// Update mutation on its own, and `text` for an uncontrolled field is the empty
+// string forever -- `TextInput.js` sends `text={value ?? defaultValue}` and an
+// uncontrolled field with no default sends undefined. So a manager that applies
+// the prop whenever it differs from the field wipes it on the user's second
+// keystroke. Applying it only when the *prop* changes is what makes this work;
+// found on Windows in phase 46, and this platform had the same bug.
+TEST(textinput_keeps_what_was_typed_into_an_uncontrolled_field) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager, 30, folly::dynamic::object("text", ""));
+
+    typeInto(fieldOf(view), @"abc");
+    EXPECT([fieldOf(view).stringValue isEqualToString:@"abc"]);
+
+    // The re-render an uncontrolled field produces: no text, a bumped count.
+    updateField(manager,
+                30,
+                folly::dynamic::object("text", ""),
+                folly::dynamic::object("text", "")("mostRecentEventCount", 1));
+    EXPECT([fieldOf(view).stringValue isEqualToString:@"abc"]);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// The same staleness rule the commands already follow, applied to the prop. A
+// value React rendered before the user's latest keystroke must not be applied,
+// or a fast typist watches characters reorder themselves -- and it must not be
+// *forgotten* either, or the value is lost once JavaScript catches up.
+TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager, 31, folly::dynamic::object("text", ""));
+
+    typeInto(fieldOf(view), @"fast");
+
+    updateField(manager,
+                31,
+                folly::dynamic::object("text", ""),
+                folly::dynamic::object("text", "F")("mostRecentEventCount", 0));
+    EXPECT([fieldOf(view).stringValue isEqualToString:@"fast"]);
+
+    updateField(manager,
+                31,
+                folly::dynamic::object("text", ""),
+                folly::dynamic::object("text", "F")("mostRecentEventCount", 1));
+    EXPECT([fieldOf(view).stringValue isEqualToString:@"F"]);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
 TEST(textinput_sits_inside_the_content_inset) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;

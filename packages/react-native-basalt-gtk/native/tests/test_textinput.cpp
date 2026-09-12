@@ -170,6 +170,58 @@ TEST(textinput_drops_a_command_older_than_what_was_typed) {
   g_object_unref(view);
 }
 
+// An uncontrolled field keeps what was typed into it.
+//
+// React Native re-sends `mostRecentEventCount` on every change, which is an
+// Update mutation on its own, and `text` for an uncontrolled field is the empty
+// string forever -- `TextInput.js` sends `text={value ?? defaultValue}` and an
+// uncontrolled field with no default sends undefined. So a manager that applies
+// the prop whenever it differs from the widget wipes the field on the user's
+// second keystroke. Applying it only when the *prop* changes is what makes this
+// work; found on Windows in phase 46, and this platform had the same bug.
+TEST(textinput_keeps_what_was_typed_into_an_uncontrolled_field) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "")));
+  typeInto(view, "abc", 0);
+  EXPECT_EQ(std::string(textOf(view)), std::string("abc"));
+
+  // The re-render an uncontrolled field produces: no text, a bumped count.
+  manager.update(
+      view,
+      makeTextInput(10, folly::dynamic::object("text", "")("mostRecentEventCount", 1)));
+  EXPECT_EQ(std::string(textOf(view)), std::string("abc"));
+
+  g_object_unref(view);
+}
+
+// The same staleness rule the commands already follow, applied to the prop. A
+// value React rendered before the user's latest keystroke must not be applied,
+// or a fast typist watches characters reorder themselves -- and it must not be
+// *forgotten* either, or the value is lost once JavaScript catches up.
+TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "")));
+  typeInto(view, "fast", 0);
+
+  manager.update(
+      view,
+      makeTextInput(10, folly::dynamic::object("text", "F")("mostRecentEventCount", 0)));
+  EXPECT_EQ(std::string(textOf(view)), std::string("fast"));
+
+  manager.update(
+      view,
+      makeTextInput(10, folly::dynamic::object("text", "F")("mostRecentEventCount", 1)));
+  EXPECT_EQ(std::string(textOf(view)), std::string("F"));
+
+  g_object_unref(view);
+}
+
 TEST(textinput_honours_editable_and_secure_entry) {
   RnView *view = rn_view_new(10);
   g_object_ref_sink(view);

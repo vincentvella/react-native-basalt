@@ -3,6 +3,7 @@
 #include "RnWin32Image.h"
 #include "RnWin32TextLayout.h"
 #include "Win32Clip.h"
+#include "Win32Strings.h"
 
 // Before d2d1.h, which wants the base Windows types and does not pull them in
 // itself. NOMINMAX and WIN32_LEAN_AND_MEAN come from the package's CMakeLists;
@@ -527,7 +528,26 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
     }
   }
 
-  // editable= and focused go here, and arrive with <TextInput>.
+  // A text field's content lives in its EDIT peer, not in a layout, so it would
+  // otherwise be invisible to every test that reads this tree -- and the dump
+  // would differ from the other two hosts' for a field that was working.
+  if (editablePeer_ != nullptr) {
+    const int length = GetWindowTextLength(editablePeer_);
+    std::wstring wide(static_cast<size_t>(length) + 1, L'\0');
+    GetWindowText(editablePeer_, wide.data(), length + 1);
+    wide.resize(static_cast<size_t>(length));
+
+    out += " editable=\"";
+    appendEscaped(out, narrow(wide));
+    out += "\"";
+
+    // GetFocus is per-thread rather than global, which is the right question
+    // here: this runs on the thread that owns the window, and what is being
+    // asked is whether the field has the keyboard within it.
+    if (GetFocus() == editablePeer_) {
+      out += " focused";
+    }
+  }
 
   // React Native's role name, not UIA's. This dump is compared line by line
   // across three platforms, and each reporting its own toolkit's vocabulary

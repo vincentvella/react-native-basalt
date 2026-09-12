@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# Runs the same app through both hosts and diffs the view tree each produced.
+# Runs the same app through every host that is built and diffs the view tree
+# each produced.
 #
 # This is the check the whole architecture is for. The same React, the same
-# Fabric, the same Yoga, and two completely different view layers underneath --
-# if the trees differ, one of the platforms is wrong, and which one is a
+# Fabric, the same Yoga, and three completely different view layers underneath
+# -- if the trees differ, one of the platforms is wrong, and which one is a
 # question the diff answers before anybody looks at a screenshot.
 #
 # It checks two things, because they fail differently. The trees have to match,
@@ -13,91 +14,145 @@
 # `Platform.OS` guards.
 #
 # Text is the exception, and BASALT_COMPARE_IGNORE_FRAMES=1 is how to say so.
-# Pango over the system sans and Core Text over San Francisco are different
-# shapers over different fonts: the same paragraph is a few points taller on one
-# than the other, and every frame below it shifts. Demanding equality there
-# would mean the check could never be turned on for text at all. With frames
-# ignored what is still compared is everything that must match -- the tree
-# shape, the strings, the colours, the clip and opacity flags -- which is where
-# a real bug would show up.
+# Pango over the system sans, Core Text over San Francisco and DirectWrite over
+# Segoe UI are different shapers over different fonts: the same paragraph is a
+# few points taller on one than another, and every frame below it shifts.
+# Demanding equality there would mean the check could never be turned on for
+# text at all. With frames ignored what is still compared is everything that
+# must match -- the tree shape, the strings, the colours, the clip and opacity
+# flags -- which is where a real bug would show up.
 #
-# Needs both toolkits present, so it runs on a Mac with GTK installed rather
-# than in CI, where each host only exists on its own side.
+# ## Which hosts run
 #
-# Usage:
+# Whichever are built, and at least two are needed for there to be a
+# comparison. That is deliberately lenient: no machine has all three. A Mac with
+# GTK installed has two, a Linux box has one, and a Windows box has one -- so in
+# practice this runs on a developer's machine rather than in CI, where each host
+# only exists on its own side.
 #
-#   scripts/compare_hosts.sh                        # the views-only React app
-#   scripts/compare_hosts.sh <linux-bundle> <macos-bundle> [moduleName]
+# ## Usage
+#
+#   scripts/compare_hosts.sh                       # the views-only React app
+#   scripts/compare_hosts.sh <app> [moduleName]    # build/<app>.<platform>.jsbundle.js
+#   scripts/compare_hosts.sh js/demo.js ''         # one file, every host
 #
 # A React app needs a bundle per platform, because the platform is baked in at
-# bundle time. A raw-Fabric script does not, and the same file can be passed
-# twice:
+# bundle time, so an app name is given rather than a path and the per-platform
+# bundles are found by convention. A raw-Fabric script does not, so a path to
+# one is used for every host as it stands.
 #
-#   scripts/compare_hosts.sh js/demo.js js/demo.js ''
+# BASALT_BUILD_DIR moves where both the hosts and the bundles are looked for,
+# which is what a second build tree needs -- testing against another React
+# Native version means a second configure, and the hosts land beside it.
 
-set -euo pipefail
+set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-linux_bundle="${1:-build/views.linux.jsbundle.js}"
-mac_bundle="${2:-build/views.macos.jsbundle.js}"
-module="${3-BasaltViews}"
-quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-4000}"
+build="${BASALT_BUILD_DIR:-build}"
+app="${1:-views}"
+module="${2-BasaltViews}"
 
-# Taps, in surface-root coordinates, forwarded to both hosts. They read the same
+# Taps, in surface-root coordinates, forwarded to every host. They read the same
 # variable, which is one of the things one env-var prefix bought. Each tap is a
 # second apart and the first is at 1500ms, so a run with taps needs a longer
 # quit than the default.
 taps="${BASALT_COMPARE_TAP:-}"
+quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-4000}"
 
-for host in build/basalt_gtk build/basalt_appkit; do
-  if [[ ! -x "$host" ]]; then
-    echo "missing $host -- build both hosts first:" >&2
-    echo "  cmake --build build" >&2
-    exit 1
-  fi
+# A path rather than an app name means a raw-Fabric script, used unchanged by
+# every host. Told apart by being a file that exists, which is exact: no app is
+# named after a path that is already on disk.
+single_bundle=""
+if [[ -f "$app" ]]; then
+  single_bundle="$app"
+  # A script talking to nativeFabricUIManager registers no module, and the
+  # second argument defaults to a module name that would be wrong for it.
+  [[ $# -ge 2 ]] || module=""
+fi
+
+# name : host binary : bundle suffix
+HOSTS=(
+  "linux:$build/basalt_gtk:linux"
+  "macos:$build/basalt_appkit:macos"
+  "windows:$build/basalt_win32.exe:windows"
+)
+
+present=()
+for host in "${HOSTS[@]}"; do
+  name="${host%%:*}"
+  rest="${host#*:}"
+  binary="${rest%%:*}"
+  # Without .exe too: a Windows host built by a generator that does not append
+  # it, and a hypothetical cross-compile, are both still this host.
+  [[ -x "$binary" ]] || binary="${binary%.exe}"
+  [[ -x "$binary" ]] || continue
+  present+=("$name:$binary")
 done
 
-for bundle in "$linux_bundle" "$mac_bundle"; do
-  if [[ ! -f "$bundle" ]]; then
-    echo "missing $bundle -- build it with:" >&2
-    echo "  scripts/bundle.sh --platform <p> --entry views.js --out views.<p>.jsbundle" >&2
-    exit 1
-  fi
-done
+if [[ ${#present[@]} -lt 2 ]]; then
+  echo "need at least two hosts built to compare; found ${#present[@]}" >&2
+  echo "  looked in $build for basalt_gtk, basalt_appkit and basalt_win32" >&2
+  echo "  build them with: cmake --build $build" >&2
+  exit 1
+fi
 
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
-echo "running the GTK host..."
-BASALT_TEST_TAP="$taps" BASALT_DUMP_TREE="$out/linux.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
-  build/basalt_gtk "$linux_bundle" "$module" >"$out/linux.log" 2>&1 || true
-
-echo "running the macOS host..."
-BASALT_TEST_TAP="$taps" BASALT_DUMP_TREE="$out/macos.txt" BASALT_QUIT_AFTER_MS="$quit_after" \
-  build/basalt_appkit "$mac_bundle" "$module" >"$out/macos.log" 2>&1 || true
+# A native Windows binary cannot read an MSYS path, and mktemp hands out one on
+# Git Bash. Everything else takes the path as it is.
+native_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
 
 status=0
 
-for side in linux macos; do
-  if [[ ! -s "$out/$side.txt" ]]; then
-    echo "the $side host wrote no tree; its log:" >&2
-    tail -20 "$out/$side.log" >&2
+for entry in "${present[@]}"; do
+  name="${entry%%:*}"
+  binary="${entry#*:}"
+
+  bundle="$single_bundle"
+  [[ -n "$bundle" ]] || bundle="$build/$app.$name.jsbundle.js"
+  if [[ ! -f "$bundle" ]]; then
+    echo "missing $bundle -- build it with:" >&2
+    echo "  scripts/bundle.sh --platform $name --entry $app.js --out $app.$name.jsbundle" >&2
+    exit 1
+  fi
+
+  echo "running the $name host..."
+  dump="$out/$name.txt"
+  [[ "$name" == "windows" ]] && dump="$(native_path "$dump")"
+  BASALT_TEST_TAP="$taps" BASALT_DUMP_TREE="$dump" BASALT_QUIT_AFTER_MS="$quit_after" \
+    "$binary" "$bundle" "$module" >"$out/$name.log" 2>&1 || true
+done
+
+for entry in "${present[@]}"; do
+  name="${entry%%:*}"
+  if [[ ! -s "$out/$name.txt" ]]; then
+    echo "the $name host wrote no tree; its log:" >&2
+    tail -20 "$out/$name.log" >&2
     exit 1
   fi
 done
 
 # Each host should have got the platform its bundle was built for. Only checked
-# when the app says so -- js/views.js logs it, a raw-Fabric script does not.
-for side in linux macos; do
-  if grep -q 'Platform.OS is' "$out/$side.log"; then
-    reported="$(sed -n 's/.*Platform\.OS is \([a-z]*\).*/\1/p' "$out/$side.log" | head -1)"
-    if [[ "$reported" != "$side" ]]; then
-      echo "the $side host reports Platform.OS === '$reported'" >&2
+# when the app says so -- js/views.js logs it, a raw-Fabric script does not, and
+# neither does a single bundle handed to every host.
+for entry in "${present[@]}"; do
+  name="${entry%%:*}"
+  if grep -q 'Platform.OS is' "$out/$name.log"; then
+    reported="$(sed -n 's/.*Platform\.OS is \([a-z]*\).*/\1/p' "$out/$name.log" | head -1)"
+    if [[ -z "$single_bundle" && "$reported" != "$name" ]]; then
+      echo "the $name host reports Platform.OS === '$reported'" >&2
       status=1
     else
-      echo "  $side: Platform.OS is $reported"
+      echo "  $name: Platform.OS is $reported"
     fi
   fi
 done
@@ -106,21 +161,32 @@ done
 # than a tolerance: "close enough" would need a number nobody can justify, and
 # the sizes that differ are the ones this cannot check anyway.
 if [[ -n "${BASALT_COMPARE_IGNORE_FRAMES:-}" ]]; then
-  for side in linux macos; do
-    sed -E 's/ frame=\([^)]*\)//' "$out/$side.txt" > "$out/$side.stripped"
-    mv "$out/$side.stripped" "$out/$side.txt"
+  for entry in "${present[@]}"; do
+    name="${entry%%:*}"
+    sed -E 's/ frame=\([^)]*\)//' "$out/$name.txt" > "$out/$name.stripped"
+    mv "$out/$name.stripped" "$out/$name.txt"
   done
   echo "  (frames ignored)"
 fi
 
-if diff -u "$out/linux.txt" "$out/macos.txt"; then
+# Every pair, against the first host. Comparing all of them to one rather than
+# to each other is the same check with fewer diffs to read: if A matches B and A
+# matches C then B matches C, and if two disagree the one that is odd is the one
+# named in the failure.
+reference="${present[0]%%:*}"
+for entry in "${present[@]:1}"; do
+  name="${entry%%:*}"
+  if ! diff -u "$out/$reference.txt" "$out/$name.txt"; then
+    echo >&2
+    echo "$reference and $name disagree." >&2
+    status=1
+  fi
+done
+
+if [[ $status -eq 0 ]]; then
   echo
-  echo "the two hosts produced the same tree:"
-  sed 's/^/  /' "$out/linux.txt"
-else
-  echo >&2
-  echo "the two hosts disagree." >&2
-  status=1
+  echo "all ${#present[@]} hosts produced the same tree:"
+  sed 's/^/  /' "$out/$reference.txt"
 fi
 
 exit $status

@@ -16,10 +16,11 @@ Taps arrive one of two ways:
   real       xdotool moves the pointer and clicks, so the event goes through
              the X server and GDK exactly as a person's click would. This is
              the only mode that exercises event delivery itself.
-  injected   BASALT_TEST_TAP calls the gesture callback directly, skipping
-             GDK. The fallback where a real event cannot be synthesised --
-             notably macOS, where it needs accessibility permission an
-             automated run does not have.
+  injected   BASALT_TEST_TAP enters at the touch dispatcher, skipping the
+             window system. The fallback where a real event cannot be
+             synthesised: macOS needs accessibility permission an automated run
+             does not have, and Windows needs SendInput, which moves the real
+             cursor and so cannot run beside anything else on the machine.
 
 The default picks real input when a display and xdotool are both present.
 
@@ -31,12 +32,21 @@ exited.
 
 Usage:  scripts/integration_test.py [--bundle build/main.jsbundle.js]
                                     [--input auto|real|injected]
+                                    [--platform auto|linux|macos|windows]
                                     [--build-dir build]
+
+Runs whichever host is built. The scenarios are the same on all three, because
+they are about React and Fabric rather than about a toolkit; what differs is
+which binary is launched and how a tap is delivered.
 
 Needs a display, like any GTK program. On a headless Linux box:
 
     Xvfb :99 -screen 0 1400x1000x24 &
     DISPLAY=:99 scripts/integration_test.py
+
+On Windows and macOS nothing has to be arranged -- the host makes its own
+window -- and input is injected, because neither can synthesise a real click
+without taking over the machine's cursor.
 """
 
 import argparse
@@ -53,8 +63,20 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-# Rebound by --build-dir. Testing against a second React Native version means a
-# second build tree, and the suite has to run the host from it.
+# Which host, and therefore which binary and which bundle. Rebound by
+# --platform and --build-dir: testing against a second React Native version
+# means a second build tree, and the suite has to run the host from it.
+#
+# One suite for three platforms rather than three, because the scenarios are
+# about React and Fabric rather than about a toolkit -- the tree a tap produces
+# is the same tree on all three, which is the claim scripts/compare_hosts.sh
+# makes and this one relies on.
+HOSTS = {
+    "linux": "basalt_gtk",
+    "macos": "basalt_appkit",
+    "windows": "basalt_win32.exe",
+}
+PLATFORM = "linux"
 HOST = REPO / "build" / "basalt_gtk"
 MODULE = "BasaltDemo"
 
@@ -254,8 +276,8 @@ def test_initial_render(bundle: Path) -> None:
     # tree differ between the two desktops for a reason that was not a bug, and
     # that tree is the thing scripts/compare_all.sh compares.
     expect_logged(
-        "Platform.OS is linux",
-        "the app did not see Platform.OS === 'linux'; was it bundled for linux?",
+        f"Platform.OS is {PLATFORM}",
+        f"the app did not see Platform.OS === {PLATFORM!r}; was it bundled for {PLATFORM}?",
     )
     expect_contains(tree, "texture=160x100", "the image never loaded or decoded")
     expect_contains(tree, 'text="row 0"', "the list did not render")
@@ -461,6 +483,13 @@ def test_fast_refresh(bundle: Path) -> None:
         raise Skipped(
             "Metro does not notice file edits on this machine; see docs/TESTING.md"
         )
+    if PLATFORM == "windows":
+        # scripts/metro.sh is a shell script, and this scenario is the only one
+        # that shells out at all. Everything it would prove about the *host* --
+        # dev mode, the DevSettings TurboModule, the websocket -- is the same
+        # code on every platform; what would be platform-specific is Metro's
+        # file watching, which is Metro's.
+        raise Skipped("scripts/metro.sh has no Windows path")
 
     source = REPO / "js" / "index.js"
     original = source.read_text()
@@ -632,10 +661,34 @@ def main() -> int:
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--bundle", default=None)
     parser.add_argument("--input", choices=["auto", "real", "injected"], default="auto")
+    parser.add_argument(
+        "--platform",
+        choices=["auto", *HOSTS],
+        default="auto",
+        help="which host to run; auto picks the one that is built",
+    )
     arguments = parser.parse_args()
 
-    global INPUT_MODE, HOST
-    HOST = REPO / arguments.build_dir / "basalt_gtk"
+    global INPUT_MODE, HOST, PLATFORM
+    build = REPO / arguments.build_dir
+
+    if arguments.platform == "auto":
+        # Whichever is built. No machine has more than one -- a host needs its
+        # toolkit -- so there is nothing to disambiguate in practice, and
+        # --platform is there for the case where there somehow is.
+        built = [name for name, binary in HOSTS.items() if (build / binary).exists()]
+        if not built:
+            print(
+                f"error: no host built in {build}\n"
+                f"       looked for {', '.join(HOSTS.values())}",
+                file=sys.stderr,
+            )
+            return 1
+        PLATFORM = built[0]
+    else:
+        PLATFORM = arguments.platform
+
+    HOST = build / HOSTS[PLATFORM]
     if arguments.bundle is None:
         arguments.bundle = f"{arguments.build_dir}/main.jsbundle.js"
     if arguments.input == "auto":
@@ -661,9 +714,9 @@ def main() -> int:
     note = (
         "real pointer events through the X server"
         if INPUT_MODE == "real"
-        else "taps injected at the gesture callback, skipping GDK"
+        else "taps injected at the dispatcher, skipping the window system"
     )
-    print(f"running {len(SCENARIOS)} scenarios against {bundle.name}")
+    print(f"running {len(SCENARIOS)} scenarios against {bundle.name} on {PLATFORM}")
     print(f"input: {INPUT_MODE} -- {note}")
     failed = 0
     skipped = 0

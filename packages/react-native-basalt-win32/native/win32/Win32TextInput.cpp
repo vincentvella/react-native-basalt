@@ -168,6 +168,11 @@ void Win32TextInputManager::update(RnWin32View *view, const ShadowView &shadowVi
     if (entry.control != nullptr) {
       SetWindowSubclass(entry.control, editProc, kSubclassId, reinterpret_cast<DWORD_PTR>(&entry));
     }
+    // So describeTree can report the field content. The view neither owns the
+    // control nor draws it; see RnWin32View::setEditablePeer.
+    if (view != nullptr) {
+      view->setEditablePeer(entry.control);
+    }
   }
 
   if (props == nullptr) {
@@ -350,6 +355,19 @@ void Win32TextInputManager::applyProps(Entry &entry, const TextInputProps &props
 }
 
 void Win32TextInputManager::destroyPeer(Entry &entry) {
+  // Deliberately does not clear the view's back pointer, and must not: by the
+  // time this runs the view is already gone. MountingWalk's Delete calls
+  // `destroyView` *before* `forgetTag`, and `releaseAllViews` runs before this
+  // object's own destructor -- so both paths free the view first and touching
+  // it here is a use-after-free. It was one, until the end-to-end suite caught
+  // the process exiting 0xC0000005.
+  //
+  // Nothing needs clearing anyway: the view never outlives its peer. The only
+  // moment a live view holds a dead HWND is between the host window being
+  // destroyed and the views being freed, and reading a dead HWND's text
+  // reports nothing rather than crashing -- which is why `captureBeforeTeardown`
+  // takes the dump before the window goes.
+  entry.view = nullptr;
   if (entry.control != nullptr) {
     RemoveWindowSubclass(entry.control, editProc, kSubclassId);
     DestroyWindow(entry.control);

@@ -66,6 +66,25 @@ class GtkTextInputManager {
     bool applying{false};
 
     std::string lastReportedText;
+
+    // The last `text` prop actually seen, and whether one has been seen at all.
+    //
+    // This is what tells a *controlled* field from an uncontrolled one, which
+    // props alone cannot: React Native's TextInput.js sends
+    // `text={value ?? defaultValue}`, and an uncontrolled field with no default
+    // sends undefined, which arrives here as the empty string -- exactly what a
+    // controlled field that JavaScript has cleared sends. Applying it whenever
+    // it differs from the widget therefore wipes an uncontrolled field the
+    // moment anything else in the tree re-renders, because React Native
+    // re-sends `mostRecentEventCount` on every change and that alone produces
+    // an Update mutation.
+    //
+    // So the prop is applied when it *changes*, not when it differs from the
+    // widget. A controlled field's value changes as the user types; an
+    // uncontrolled one's never does. Found on Windows in phase 46; see
+    // plan/46-windows-textinput.md.
+    std::string lastPropText;
+    bool sawProps{false};
   };
 
   static void onChanged(GtkEditable *editable, gpointer userData);

@@ -637,10 +637,32 @@ UINT scheduleTestScrolls(const char *spec, UINT delayMs) {
   return delayMs;
 }
 
-void shutdown() {
-  // Before the surface stops, which tears the tree down.
+// The two escape hatches, run once, before anything is torn down.
+//
+// "Before anything" has to include the *window*, which is why this is not
+// simply the first thing `shutdown` does. Destroying the host window destroys
+// every child window with it, and a <TextInput>'s peer is one -- so a tree
+// dumped after that reports every field as empty and unfocused, which reads as
+// a broken text field and is a dead HWND being asked a question. WM_CLOSE is
+// where nothing has been destroyed yet.
+//
+// Idempotent, because both callers are real: a window closed by the user or by
+// BASALT_QUIT_AFTER_MS arrives through WM_CLOSE, and a run that fails before
+// the window exists only reaches `shutdown`.
+void captureBeforeTeardown() {
+  static bool captured = false;
+  if (captured) {
+    return;
+  }
+  captured = true;
   dumpTreeIfRequested();
   snapshotIfRequested();
+}
+
+void shutdown() {
+  // Before the surface stops, which tears the tree down -- and before the
+  // window goes, which takes every text field's peer with it.
+  captureBeforeTeardown();
 
   if (gHost.choreographer != nullptr) {
     gHost.choreographer->detach();
@@ -843,6 +865,13 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
     }
 
+    // Before DestroyWindow, which takes every <TextInput>'s peer with it. See
+    // captureBeforeTeardown.
+    case WM_CLOSE:
+      captureBeforeTeardown();
+      DestroyWindow(hwnd);
+      return 0;
+
     case WM_DESTROY:
       PostQuitMessage(0);
       return 0;
@@ -905,6 +934,18 @@ int main(int argc, char **argv) {
   // an installed one. Without it Windows scales the window's bitmap and every
   // line goes soft on a high-DPI display.
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+  // COM, on the thread that will outlive every other one.
+  //
+  // WIC decodes an <Image> on a worker, and the IWICBitmap it produces is
+  // released here when the view holding it is deleted. A release in a thread
+  // with no apartment at all is what that used to be, and the process exited
+  // 0xC0000005 every time an app rendered an image. ShellExecute wants an
+  // initialised thread too, and that is how core/PlatformServices opens a URL.
+  //
+  // Apartment-threaded because this thread owns a window and pumps messages,
+  // which is what an STA is for.
+  CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   // Before anything posts: this is what makes postToUiThread marshal rather
   // than run inline, and the mounting manager depends on it. See
@@ -1105,6 +1146,8 @@ int main(int argc, char **argv) {
   const int exitCode = basalt::runMessageLoopWithBeat(gHost.runLoopObserverManager);
 
   shutdown();
+  // After shutdown, which is where the last WIC bitmap is released.
+  CoUninitialize();
   return exitCode;
 }
 

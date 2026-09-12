@@ -492,20 +492,22 @@ has gone unrecorded until now.
 
 ## TextInput
 
-- **An uncontrolled field loses what was typed into it, on GTK and macOS.**
-  Found on Windows in phase 46 and fixed there; the other two still apply the
-  `text` prop whenever it differs from the widget, which is wrong for a field
-  JavaScript does not own. React Native's `TextInput.js` sends
-  `text={value ?? defaultValue}`, so an uncontrolled field with no default sends
-  `undefined` -- the empty string by the time it is C++, indistinguishable from
-  a controlled field that was just cleared -- and it re-sends
+- ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
+  in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
+  sends `text={value ?? defaultValue}`, so an uncontrolled field with no default
+  sends `undefined` -- the empty string by the time it is C++, indistinguishable
+  from a controlled field that was just cleared -- and it re-sends
   `mostRecentEventCount` on every change, which is an Update mutation on its
-  own. So the second keystroke wipes the first. The fix is one line: apply the
-  prop when the *prop* changes, not when it differs from the widget, because a
-  controlled field's value changes as the user types and an uncontrolled one's
-  never does. iOS avoids it by reading the shadow state rather than the prop and
-  writing the typed text into that state, which is the larger correct answer.
-  Nobody noticed because `js/input.js` asserts on its *controlled* field.
+  own. Applying the prop whenever it differed from the widget therefore wiped
+  the field on the user's second keystroke. It is now applied when the *prop*
+  changes, because a controlled field's value changes as the user types and an
+  uncontrolled one's never does, and a prop older than the last keystroke is
+  dropped without being forgotten. Nobody had noticed because `js/input.js`
+  asserts on its *controlled* field.
+  - Still worth doing properly one day: iOS reads the shadow **state** rather
+    than the prop, and writes the typed text into that state, so applying it
+    back is a no-op and no heuristic is needed. That means a platform writing
+    `TextInputState`, which none of these three do.
 - No `multiline`. `RCTMultilineTextInputView` is not registered, and the C++
   side would need a `GtkTextView` peer rather than a `GtkText`.
 - `onKeyPress` and `onSelectionChange` are never emitted. Both are cheap -- a

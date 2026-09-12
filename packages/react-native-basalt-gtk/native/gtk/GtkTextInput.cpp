@@ -60,20 +60,39 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
     return;
   }
 
-  // Controlled component: JavaScript owns the value. Setting it must not look
-  // like typing, or the change we report provokes a re-render that sets it
-  // again, and the two chase each other.
-  const char *current = gtk_editable_get_text(GTK_EDITABLE(entry.editable));
-  if (props->text != (current != nullptr ? current : "")) {
-    entry.applying = true;
-    // Preserve the cursor: assigning the text resets it to the start, which
-    // sends the caret home on every keystroke of a controlled input.
-    const int cursor = gtk_editable_get_position(GTK_EDITABLE(entry.editable));
-    gtk_editable_set_text(GTK_EDITABLE(entry.editable), props->text.c_str());
-    gtk_editable_set_position(GTK_EDITABLE(entry.editable),
-                              MIN(cursor, static_cast<int>(props->text.size())));
-    entry.applying = false;
-    entry.lastReportedText = props->text;
+  // Controlled component: JavaScript owns the value. Three things have to be
+  // true at once, and each fails differently.
+  //
+  // Setting it must not look like typing, or the change we report provokes a
+  // re-render that sets it again and the two chase each other -- `applying`.
+  //
+  // A prop older than what the user has since typed must not be applied at all,
+  // or a fast typist watches characters reorder themselves. That is what
+  // React Native counts events for, and dropping such a value *without
+  // recording it* is deliberate: the next render, once JavaScript has caught
+  // up, applies it.
+  //
+  // And it is applied when the prop *changes*, not when it differs from the
+  // widget, which is the only thing that tells a controlled field from an
+  // uncontrolled one. See the header.
+  const bool stale = props->mostRecentEventCount < entry.eventCount;
+  const bool changed = !entry.sawProps || props->text != entry.lastPropText;
+  if (changed && !stale) {
+    entry.lastPropText = props->text;
+    entry.sawProps = true;
+
+    const char *current = gtk_editable_get_text(GTK_EDITABLE(entry.editable));
+    if (props->text != (current != nullptr ? current : "")) {
+      entry.applying = true;
+      // Preserve the cursor: assigning the text resets it to the start, which
+      // sends the caret home on every keystroke of a controlled input.
+      const int cursor = gtk_editable_get_position(GTK_EDITABLE(entry.editable));
+      gtk_editable_set_text(GTK_EDITABLE(entry.editable), props->text.c_str());
+      gtk_editable_set_position(GTK_EDITABLE(entry.editable),
+                                MIN(cursor, static_cast<int>(props->text.size())));
+      entry.applying = false;
+      entry.lastReportedText = props->text;
+    }
   }
 
   gtk_text_set_placeholder_text(entry.editable,
