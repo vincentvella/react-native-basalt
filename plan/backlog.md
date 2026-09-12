@@ -41,13 +41,20 @@ port took them, because that order was chosen once already and worked.
   them, so phase 41 strips them. Linux stays the build that guards upstream
   warning cleanliness. Restoring them properly means `/clang:-Wall` or an
   equivalent that survives the link graph, and has not been attempted.
-- **`native/bootstrap.sh` has no Windows path.** Every step of phase 41 was run
-  by hand -- vcpkg, the Node replacement, codegen, Hermes -- so there is no
-  single command that reproduces the core build. The script also checks for
-  `clang++`, `pkg-config` and gtk4, none of which exist here.
-- **Node 18 is too old and was replaced portably.** React Native 0.87 wants
-  `^22.13 || ^24.3 || >= 26`. Worth knowing because it is a machine-level
-  prerequisite the repository does not install.
+- ~~**`native/bootstrap.sh` has no Windows path.**~~ It has one, and it was run
+  end to end: it detects Git Bash, finds a vcpkg that actually has the packages,
+  patches Hermes, builds it with the three Windows flags, and prints a configure
+  line that works. What it does **not** do is install anything -- vcpkg and its
+  packages are still a manual prerequisite, and so is a Node new enough for
+  React Native 0.87, which wants `^22.13 || ^24.3 || >= 26` and is not what a
+  machine is likely to have.
+- **Nothing has run bootstrap from an empty `third_party`** on Windows. Every
+  step is exercised, but each one skipped its work because the output was
+  already there from doing it by hand -- so what is proven is that the checks
+  pass and the printed configure line works, not that the fetching and building
+  do. The Hermes patch was tested separately against a reverted copy of
+  `Callable.h`, applies cleanly and is a no-op on a second pass; that is the
+  part most worth proving properly, since `--force` deletes the tree it patches.
 - **`<Text>`**, over DirectWrite: an `IDWriteTextLayout` built in one place and
   shared by `TextLayoutManager::measure` and painting, for the reason
   `plan/decisions.md` gives for Pango. The fonts seam

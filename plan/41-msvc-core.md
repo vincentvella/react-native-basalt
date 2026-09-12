@@ -261,6 +261,23 @@ with `.so` files:
 - **`winmm` and `Boost::thread`**, for folly: `timeBeginPeriod`, and the
   thread-local storage its Windows `PThread.cpp` shim is written over.
 
+## One thing only a fresh build tree finds
+
+`CMAKE_BUILD_TYPE` is optional on Linux and macOS and mandatory here. Left
+unset, MSVC selects the *debug* C runtime -- and the vcpkg toolchain follows it
+to the debug packages -- while Hermes was built Release. Linking the two is
+refused:
+
+    lld-link: error: /failifmismatch: mismatch detected for '_ITERATOR_DEBUG_LEVEL':
+    >>> basalt_core.lib(SourceCodeModule.cpp.obj) has value 2
+    >>> hermesvm_a.lib(CDPAgent.cpp.obj)          has value 0
+
+which names neither the build type nor the decision that caused it. Every build
+in this phase passed `-DCMAKE_BUILD_TYPE=RelWithDebInfo` by habit, so it took
+running the line `bootstrap.sh` prints, in an empty directory, to find that the
+line was wrong. Worth remembering as an argument for the script printing a
+command and someone actually running it, rather than the two drifting.
+
 ## Toolchain notes
 
 The core build needs **clang-cl**, not cl -- cl does not understand `-Werror` or

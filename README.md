@@ -245,11 +245,13 @@ Omit `-DRN_DIR` to build only the widget layer and the demo.
 
 ### On Windows
 
-The view layer needs no React Native, no bootstrap and no third-party anything:
-Direct2D, DirectWrite and WIC ship with the operating system. What it needs is
-Visual Studio Build Tools with the C++ workload -- for MSVC's standard library
-and the Windows SDK -- plus CMake and Ninja. From a shell that has run
-`vcvars64.bat`:
+Two builds, and the smaller one is worth knowing about because it needs almost
+nothing.
+
+**The view layer alone** needs no React Native, no bootstrap and no third-party
+anything: Direct2D, DirectWrite, WIC and UI Automation all ship with the
+operating system. Visual Studio Build Tools with the C++ workload, CMake and
+Ninja, from a shell that has run `vcvars64.bat`:
 
     cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
       -DCMAKE_CXX_COMPILER=clang-cl
@@ -258,9 +260,27 @@ and the Windows SDK -- plus CMake and Ninja. From a shell that has run
 
 `clang-cl` because `plan/decisions.md` prefers clang where there is a choice; it
 is a component of the same Build Tools install, and dropping the flag builds
-with `cl` instead. There is no `-DRN_DIR` form yet -- React Native's C++ core
-has never been compiled with MSVC, which is the next real piece of work and is
-described in `plan/backlog.md`.
+that half with `cl` instead.
+
+**The whole thing** additionally needs what Linux gets from apt, which on
+Windows means vcpkg, and Node 24 -- React Native 0.87 refuses anything below
+`^22.13`. Run `scripts/bootstrap.sh` from Git Bash; it fetches folly and Hermes,
+patches Hermes, builds it, runs codegen, and prints the configure line. It
+refuses early and says what to install if vcpkg is missing its packages.
+
+    git clone https://github.com/microsoft/vcpkg ~/Tools/vcpkg
+    ~/Tools/vcpkg/bootstrap-vcpkg.bat
+    vcpkg install --triplet x64-windows glog fmt double-conversion \
+        boost-regex boost-beast boost-asio boost-thread openssl curl
+
+    scripts/bootstrap.sh ../react-native
+
+Unlike the view layer, the core build **requires** clang-cl rather than `cl`:
+React Native's own CMake sets clang-style flags that `cl` does not understand,
+and Static Hermes uses `__builtin_expect`, which it does not have. See
+`plan/41-msvc-core.md`, which also records the three fixes Hermes needs on
+Windows and why the prebuilt Hermes react-native-windows uses cannot be
+substituted.
 
 To run an app that uses Expo modules, Reanimated or worklets, point the build at
 that app's copies of them. Each is optional and each is compiled from the app's

@@ -46,6 +46,33 @@ NODE_VERSION="24"
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# --- which desktop is this ---------------------------------------------------
+#
+# Windows means Git Bash or MSYS, which is where this script runs there -- it is
+# a bash script and there is no reason for a second one in PowerShell that would
+# drift from it. `uname -s` reports MINGW64_NT-10.0 or MSYS_NT-10.0 under those.
+#
+# What differs on Windows is not the shape of the bootstrap but four details:
+# there is no pkg-config and no GTK, the compiler is clang-cl rather than
+# clang++, Hermes needs three extra flags and a one-word patch, and the library
+# it produces is called something else. Each is handled where it arises rather
+# than in a parallel branch.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) HOST_OS=windows ;;
+  Darwin)               HOST_OS=macos ;;
+  *)                    HOST_OS=linux ;;
+esac
+
+# `nice` is POSIX and Git Bash does not have it. Used to keep a long compile
+# from making the machine unusable, which is a courtesy rather than a
+# requirement, so on Windows it simply becomes nothing.
+if [ "$HOST_OS" = windows ]; then
+  NICE=()
+else
+  NICE=(nice -n 10)
+fi
+run_nice() { ${NICE[@]+"${NICE[@]}"} "$@"; }
+
 if [ -n "$FORCE" ]; then
   log "--force: removing fetched trees"
   rm -rf "$TP/folly" "$TP/fast_float" "$TP/nlohmann_json" "$TP/hermes" \
@@ -155,11 +182,68 @@ if [ "$RN_LAYOUT" = installed ] && [ ! -d "$RN_PKG/ReactCxxPlatform" ]; then
 fi
 
 # --- toolchain --------------------------------------------------------------
-for tool in cmake ninja clang++ pkg-config curl tar node; do
+#
+# The compiler differs by name rather than by kind. clang everywhere, because
+# React Native is a clang codebase built -Wall -Werror -Wpedantic and
+# plan/decisions.md declines to paper over its own warnings with -Wno-*; on
+# Windows that same compiler is called clang-cl and takes MSVC's command line.
+# cl is not an alternative for the core build -- it understands neither -Werror
+# nor clang's -Wall, and Static Hermes uses __builtin_expect, which it does not
+# have. See plan/41-msvc-core.md.
+if [ "$HOST_OS" = windows ]; then
+  BOOTSTRAP_TOOLS="cmake ninja clang-cl curl tar node"
+else
+  BOOTSTRAP_TOOLS="cmake ninja clang++ pkg-config curl tar node"
+fi
+for tool in $BOOTSTRAP_TOOLS; do
   command -v "$tool" >/dev/null || die "missing required tool: $tool"
 done
-pkg-config --exists gtk4 || die "gtk4 development files not found (pkg-config gtk4)"
-log "gtk4 $(pkg-config --modversion gtk4), pango $(pkg-config --modversion pango 2>/dev/null || echo '?')"
+
+if [ "$HOST_OS" = windows ]; then
+  # vcpkg is what Windows has instead of apt or Homebrew.
+  #
+  # Checked by looking for a header this build cannot do without, not by looking
+  # for vcpkg itself, and the difference is not pedantry: **vcvars64.bat sets
+  # VCPKG_ROOT** to the copy bundled with Visual Studio, which has nothing
+  # installed in it. A check for the directory passes against that one and hands
+  # back a toolchain file that finds no packages, which then fails much later
+  # inside CMake with a message about glog.
+  vcpkg_has_packages() {
+    [ -n "$1" ] && [ -f "$1/scripts/buildsystems/vcpkg.cmake" ] &&
+      [ -f "$1/installed/x64-windows/include/glog/logging.h" ]
+  }
+
+  for candidate in "${VCPKG_ROOT:-}" "$HOME/Tools/vcpkg" "$HOME/vcpkg" "C:/vcpkg"; do
+    if vcpkg_has_packages "$candidate"; then
+      VCPKG_ROOT="$candidate"
+      break
+    fi
+    VCPKG_ROOT=""
+  done
+
+  [ -n "$VCPKG_ROOT" ] || die \
+"no vcpkg with this build's packages installed in it.
+
+Note that vcvars64.bat sets VCPKG_ROOT to the copy bundled with Visual Studio,
+which is empty -- so having that variable set is not the same as having the
+packages. Set it to one that does, or clone your own:
+
+  git clone https://github.com/microsoft/vcpkg \$HOME/Tools/vcpkg
+  \$HOME/Tools/vcpkg/bootstrap-vcpkg.bat
+
+then install what React Native's C++ needs, which on Linux comes from apt:
+
+  vcpkg install --triplet x64-windows glog fmt double-conversion \\
+      boost-regex boost-beast boost-asio boost-thread openssl curl
+
+boost-thread is not on React Native's own list and is needed anyway: folly's
+Windows PThread.cpp shim is written over boost::thread."
+  export VCPKG_ROOT
+  log "vcpkg at $VCPKG_ROOT"
+else
+  pkg-config --exists gtk4 || die "gtk4 development files not found (pkg-config gtk4)"
+  log "gtk4 $(pkg-config --modversion gtk4), pango $(pkg-config --modversion pango 2>/dev/null || echo '?')"
+fi
 
 # mise is optional; without it, the ambient node must satisfy RN's engines.
 if command -v mise >/dev/null; then
@@ -239,18 +323,105 @@ if [ ! -d "$TP/hermes" ]; then
   echo "$HERMES_VERSION" > "$HERMES_STAMP"
 fi
 
-if ! ls "$TP"/hermes-build/lib/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1 && \
-   ! ls "$TP"/hermes-build/API/hermes/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1; then
+# --- the one patch this project applies to anything it downloads -------------
+#
+# Static Hermes asserts that its C++ `Environment` and its C `SHEnvironment`
+# have identical field offsets. `Environment` multiply-inherits from
+# `VariableSizeRuntimeCell` and an *empty* base, `llvh::TrailingObjects`, and
+# the MSVC ABI does not collapse empty bases the way the Itanium ABI does. So
+# sizeof matches, the offsets do not, and the build stops on a static_assert
+# that no flag can affect.
+#
+# Hermes already has the fix and does not use it. `Support/Compiler.h` defines
+#
+#     #define HERMES_EMPTY_BASES __declspec(empty_bases)
+#
+# with a comment saying it is "necessary for PointerBase alignment requirements
+# in some cases when using HERMESVM_CONTIGUOUS_HEAP" -- the mode this builds in
+# -- and applies it to nothing in the entire tree. This puts it on the one class
+# that needs it.
+#
+# Patching a download is not something this project does lightly, and it is
+# worth being clear about why this one is tolerable where patching React Native
+# is not: third_party/hermes is a tarball this script fetched, not a checkout
+# anybody works in, and --force deletes and refetches it. The real fix is
+# upstream and the backlog says so.
+if [ "$HOST_OS" = windows ]; then
+  HERMES_CALLABLE="$TP/hermes/include/hermes/VM/Callable.h"
+  if [ -f "$HERMES_CALLABLE" ] && ! grep -q "HERMES_EMPTY_BASES Environment" "$HERMES_CALLABLE"; then
+    log "patching Hermes: HERMES_EMPTY_BASES on VM::Environment (see plan/41-msvc-core.md)"
+    # The macro comes from a header Callable.h does not already include.
+    grep -q '#include "hermes/Support/Compiler.h"' "$HERMES_CALLABLE" || \
+      sed -i '/#include "hermes\/VM\/ArrayStorage.h"/i #include "hermes/Support/Compiler.h"' \
+        "$HERMES_CALLABLE"
+    sed -i 's|^class Environment final$|class HERMES_EMPTY_BASES Environment final|' \
+      "$HERMES_CALLABLE"
+    grep -q "HERMES_EMPTY_BASES Environment" "$HERMES_CALLABLE" || die \
+      "could not apply the HERMES_EMPTY_BASES patch to $HERMES_CALLABLE.
+  Hermes $HERMES_VERSION may have changed that declaration. See
+  plan/41-msvc-core.md for what the patch is and why."
+  fi
+fi
+
+# Whether Hermes is already built, asked in the naming convention of the
+# platform. A static archive on Windows is `hermesvm_a.lib` rather than
+# `libhermesvm.a`, and the `_a` is not decoration: the plain `hermesvm.lib` next
+# to it is a one-kilobyte import library for a DLL that exports nothing, because
+# a Windows DLL exports nothing without __declspec(dllexport) and Hermes does
+# not annotate. See ThirdParty.cmake, which picks the archive for the same
+# reason.
+hermes_is_built() {
+  if [ "$HOST_OS" = windows ]; then
+    ls "$TP"/hermes-build/lib/"${HERMES_TARGET#lib}"_a.lib >/dev/null 2>&1
+  else
+    ls "$TP"/hermes-build/lib/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1 || \
+    ls "$TP"/hermes-build/API/hermes/lib"${HERMES_TARGET#lib}".* >/dev/null 2>&1
+  fi
+}
+
+if ! hermes_is_built; then
   log "building Hermes (slow; RN's own host flags)"
-  cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-    -DJSI_DIR="$RN_PKG/ReactCommon/jsi" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DHERMES_ENABLE_DEBUGGER=True \
-    -DHERMESVM_HEAP_HV_MODE=HEAP_HV_PREFER32
+
+  # Three extra arguments on Windows, each answering something that only goes
+  # wrong there. plan/41-msvc-core.md has the detail; briefly:
+  #
+  #   HERMES_ALLOW_BOOST_CONTEXT=0  its vendored boost::context's *Windows*
+  #                                 stack allocator throws where the POSIX one
+  #                                 does not, and Hermes builds without
+  #                                 exceptions. Hermes' own option, the one its
+  #                                 ASAN and Emscripten builds use.
+  #   HERMES_ENABLE_EH / _RTTI      React Native's jsi throws, and arrives here
+  #                                 through JSI_DIR without passing through the
+  #                                 helper that would give it /EHsc. clang with
+  #                                 no flag defaults exceptions on; clang-cl
+  #                                 defaults them off, which is the whole bug.
+  #                                 The two must agree or Hermes refuses.
+  #   CMAKE_CXX_FLAGS               /EHs /EHc rather than /EHsc, because Hermes
+  #                                 string-REPLACEs the latter out of this
+  #                                 variable. /DWIN32 /D_WINDOWS are CMake's own
+  #                                 defaults and have to be repeated, because
+  #                                 setting this replaces them -- and Hermes'
+  #                                 OSCompat.h reaches for <unistd.h> without
+  #                                 _WINDOWS.
+  HERMES_ARGS=(-DJSI_DIR="$RN_PKG/ReactCommon/jsi"
+               -DCMAKE_BUILD_TYPE=Release
+               -DHERMES_ENABLE_DEBUGGER=True
+               -DHERMESVM_HEAP_HV_MODE=HEAP_HV_PREFER32)
+  if [ "$HOST_OS" = windows ]; then
+    HERMES_ARGS+=(-DCMAKE_C_COMPILER=clang-cl
+                  -DCMAKE_CXX_COMPILER=clang-cl
+                  -DHERMES_ALLOW_BOOST_CONTEXT=0
+                  -DHERMES_ENABLE_EH=ON
+                  -DHERMES_ENABLE_RTTI=ON
+                  "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHs /EHc")
+  else
+    HERMES_ARGS+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+  fi
+
+  cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" "${HERMES_ARGS[@]}"
   # -j is capped deliberately: a full-width build makes laptops unusable and
   # pins the fans for minutes afterwards.
-  nice -n 10 cmake --build "$TP/hermes-build" --target "$HERMES_TARGET" -j "${BUILD_JOBS:-12}"
+  run_nice cmake --build "$TP/hermes-build" --target "$HERMES_TARGET" -j "${BUILD_JOBS:-12}"
 fi
 
 # --- yarn -------------------------------------------------------------------
@@ -285,7 +456,7 @@ log "yarn $(yarn --version)"
 # third_party cache was warm.
 if [ "$RN_LAYOUT" = checkout ] && { [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; }; then
   log "installing React Native's monorepo dependencies"
-  (cd "$RN_DIR" && nice -n 10 ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
+  (cd "$RN_DIR" && run_nice ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
 fi
 
 # Codegen output belongs to one React Native version and to no other: the
@@ -340,7 +511,36 @@ fi
 cp "$HERE/cmake/codegen/CMakeLists.txt" "$TP/codegen/CMakeLists.txt"
 
 log "bootstrap complete, into $TP. Configure with:"
-cat <<EOF
+if [ "$HOST_OS" = windows ]; then
+  # CMake here is a native Windows program and this shell is not, so the paths
+  # have to change shape on the way out: it does not understand /c/Users/... and
+  # silently fails to find the toolchain file, then reports the confusing
+  # "unable to find a build program corresponding to Ninja". `cygpath -m` gives
+  # C:/Users/... -- drive letter, forward slashes -- which both understand.
+  winpath() { command -v cygpath >/dev/null && cygpath -m "$1" || printf '%s' "$1"; }
+
+  # From a shell that has run vcvars64.bat: the Windows SDK's headers and
+  # libraries are not on PATH otherwise, and clang-cl finds neither.
+  cat <<EOF
+
+  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \\
+    -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl \\
+    -DCMAKE_TOOLCHAIN_FILE=$(winpath "$VCPKG_ROOT")/scripts/buildsystems/vcpkg.cmake \\
+    -DRN_DIR=$(winpath "$RN_PKG")
+  cmake --build build -j \${BUILD_JOBS:-12}
+
+Run it from a shell that has run vcvars64.bat, or clang-cl will not find the
+Windows SDK. clang-cl rather than cl: see plan/41-msvc-core.md.
+
+CMAKE_BUILD_TYPE is not optional here, unlike on the other two desktops. Left
+unset, MSVC picks the debug C runtime -- and vcpkg follows it to the debug
+packages -- while Hermes above was built Release. The two cannot be linked
+together: the failure is lld-link reporting a mismatch on _ITERATOR_DEBUG_LEVEL,
+which names neither the build type nor the library that disagrees.
+
+EOF
+else
+  cat <<EOF
 
   cmake -B build -G Ninja \\
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\
@@ -348,3 +548,4 @@ cat <<EOF
   nice -n 10 cmake --build build -j \${BUILD_JOBS:-12}
 
 EOF
+fi
