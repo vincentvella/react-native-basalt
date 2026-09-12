@@ -207,3 +207,52 @@ TEST(text_draws_where_the_alignment_says) {
   EXPECT_EQ(leftInkWhenRight, 0);
   EXPECT(rightInkWhenRight > 0);
 }
+
+TEST(each_run_draws_in_its_own_colour) {
+  // `Hello <Text style={{color:'red'}}>world</Text>` is two runs of one
+  // paragraph, and DirectWrite carries colour as a *drawing effect* rather than
+  // as a range attribute -- so a layout built the obvious way renders the whole
+  // paragraph in the first run's colour. Both other desktops get this from
+  // their attributed string for free, which is why the gap here lasted as long
+  // as it did.
+  //
+  // Ink rather than an exact pixel: where a glyph lands depends on the font,
+  // and what is being asked is only which colours appear at all.
+  RnTextStyle red;
+  red.fontSize = 32.0f;
+  red.color[0] = 1.0f;
+  red.color[1] = 0.0f;
+  red.color[2] = 0.0f;
+
+  RnTextStyle blue = red;
+  blue.color[0] = 0.0f;
+  blue.color[2] = 1.0f;
+
+  auto root = std::make_unique<RnWin32View>(1);
+  root->setFrame(0, 0, 400, 60);
+  root->setTextLayout(RnWin32TextLayout::createFromRuns(
+      {basalt::win32::RnTextRun{"IIII", red}, basalt::win32::RnTextRun{"IIII", blue}}, 0));
+
+  const basalt::win32::RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+
+  int reddish = 0;
+  int bluish = 0;
+  for (unsigned y = 0; y < pixels.height(); y++) {
+    for (unsigned x = 0; x < pixels.width(); x++) {
+      const auto pixel = pixels.at(x, y);
+      if (pixel.alpha < 128) {
+        continue;
+      }
+      if (pixel.red > pixel.blue + 64) {
+        reddish++;
+      }
+      if (pixel.blue > pixel.red + 64) {
+        bluish++;
+      }
+    }
+  }
+
+  EXPECT(reddish > 0);
+  EXPECT(bluish > 0);
+}

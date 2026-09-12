@@ -87,10 +87,13 @@ class RnWin32TextLayout {
   create(std::string utf8Text, const RnTextStyle &style, int maximumNumberOfLines);
 
   // The same thing for a paragraph of differently styled spans. The first run's
-  // style sets the paragraph defaults -- alignment, line height and the colour,
-  // which DirectWrite carries per drawing effect rather than per range and
-  // which this does not vary yet -- and each run's font family, size, weight
-  // and slant are applied over its own character range.
+  // style sets the paragraph defaults -- alignment and line height, which
+  // DirectWrite has no per-range form of -- and each run's font family, size,
+  // weight, slant and colour are applied over its own character range.
+  //
+  // Colour is the odd one, and `draw` is where it happens: DirectWrite carries
+  // it as a drawing effect rather than as a range attribute, and a drawing
+  // effect is only meaningful to whoever renders the layout.
   static std::shared_ptr<RnWin32TextLayout>
   createFromRuns(const std::vector<RnTextRun> &runs, int maximumNumberOfLines);
 

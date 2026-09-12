@@ -9,6 +9,7 @@
     ".": "./src/index.js",
     "./metro-config": "./metro-config.js",
     "./cli/bundleWithAssets": "./cli/bundleWithAssets.js",
+    "./cli/desktop": "./cli/desktop.js",
     "./cli/metro": "./cli/metro.js",
     "./package.json": "./package.json"
   },

@@ -11,21 +11,22 @@ stand on them separately. Nothing is forked, which is why this can track the
 current Expo instead of trailing a rebase -- and why it is on React Native
 0.87 while react-native-windows is on 0.84 and react-native-macos on 0.81.
 
-Today: Linux runs real Expo apps -- text, images, scrolling, text input,
-accessibility, fonts, assets. macOS mounts all four of the components an
-ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
-`<TextInput>` -- responds to a press and a wheel, and reports itself to a screen
-reader. The demo app written for GTK runs on it unchanged, and the two hosts
-produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
-says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows mounts the same
-five components: Hermes evaluates a bundle, Fabric diffs a shadow tree,
-`<View>`, `<Text>`, `<Image>` and `<ScrollView>` are painted in an HWND by
-Direct2D, `<TextInput>` is a real EDIT control, a click on a `<Pressable>` runs
-its `onPress`, a wheel scrolls a list, and a character typed into a field
-reaches React and comes back. It reports itself to UI Automation, and it is
-where this project first asserts on pixels rather than on a tree, because
-Direct2D renders offscreen with no window and neither other toolkit does.
+Today all three desktops mount the five components an ordinary app is built
+from -- `<View>`, `<Text>`, `<Image>`, `<ScrollView>` and `<TextInput>` --
+respond to a press, a wheel and a keystroke, and report themselves to a screen
+reader. The demo app written for GTK runs on each of them unchanged, and
+`react-native run-linux`, `run-macos` and `run-windows` are one command with
+three names.
+
+Linux is the most finished: it runs real Expo apps, with fonts and assets, and
+CI builds and tests it in full. macOS and Linux produce a byte-identical view
+tree for all eight test apps; `scripts/compare_all.sh` is what says so, and
+`scripts/compare_hosts.sh` is the single-app version. Windows joined that check
+in phase 47 but no machine has yet run two hosts at once to complete it.
+
+Windows is where this project first asserts on pixels rather than on a tree,
+because Direct2D renders offscreen with no window and neither other toolkit
+does.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -68,9 +69,9 @@ cannot compile, so a Mac with no GTK builds the AppKit half alone, a Linux box
 never asks for an Objective-C++ compiler, and a Windows box with neither builds
 the Win32 half.
 
-Both hosts produce a byte-identical view tree from the same script;
-`scripts/compare_hosts.sh` is what says so. See `plan/17-shared-core.md` through
-`plan/22-the-name.md`.
+Every host produces a byte-identical view tree from the same script;
+`scripts/compare_hosts.sh` is what says so, for whichever of them are built.
+See `plan/17-shared-core.md` through `plan/22-the-name.md`.
 
 Inside the shared package, under `native/`:
 
@@ -96,7 +97,8 @@ Inside the shared package, under `native/`:
     src/overrides/              The JavaScript React Native cannot supply for a
                                 platform it has never heard of.
     metro-config.js             withDesktopPlatforms: linux, macos, windows.
-    cli/                        The bundler, and Metro.
+    cli/                        The bundler, Metro, and the desktop run command
+                                the three platform packages name.
 
 `react-native-basalt-gtk`, under `native/`:
 
@@ -120,14 +122,15 @@ Inside the shared package, under `native/`:
     gtk/main_gtk.cpp            The host: ReactHost, Hermes, one live surface.
     gtk/demo_layout_gtk.cpp     Hand-written frames; no RN needed.
     gtk/mount_harness_gtk.cpp   Hand-built mutations; no JS runtime.
-    cli/                        run-linux, and building a host from an app.
+    cli/                        run-linux. Four strings; the command itself is
+                                react-native-basalt/cli/desktop.js.
 
 `react-native-basalt-appkit`, under `native/`:
 
     appkit/RnAppKitView.h/.mm   AppKit view layer. Flipped, layer-backed.
-    appkit/AppKitMountingManager.*  The AppKit half of IMountingManager. Mounts
-                                <View>; everything else is unimplemented and says
-                                so.
+    appkit/AppKitMountingManager.*  The AppKit half of IMountingManager: making a
+                                view, parenting it, turning a ShadowView into
+                                view state. The walk is in the shared half.
     appkit/ComponentRegistryAppKit.mm  What macOS claims: View, Paragraph, Text,
                                 RawText, ScrollView, Image, TextInput. See
                                 core/ComponentRegistry.h.
@@ -149,6 +152,7 @@ Inside the shared package, under `native/`:
                                 NSWindow.
     appkit/demo_layout_appkit.mm    The same boxes as GTK's, on AppKit.
     appkit/mount_harness_appkit.mm  The same two transactions as GTK's.
+    cli/                        run-macos, the same four strings.
 
 `react-native-basalt-win32`, under `native/`:
 
@@ -191,6 +195,7 @@ Inside the shared package, under `native/`:
     win32/Win32AnimationChoreographer.*  Animation frames, on a timer.
     win32/main_win32.cpp        The host: ReactHost, Hermes, one surface in an
                                 HWND.
+    cli/                        run-windows, the same four strings.
 
 And at the repository root:
 
@@ -209,9 +214,14 @@ And at the repository root:
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.
     scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
-    scripts/compare_hosts.sh    Runs one script through both hosts and diffs the
-                                trees. Needs both toolkits, so not CI.
-    scripts/compare_all.sh      Every app in js/, through both. The summary.
+    scripts/compare_hosts.sh    Runs one app through every host that is built
+                                and diffs the trees. Needs two toolkits on one
+                                machine, so not CI.
+    scripts/compare_all.sh      Every app in js/, through all of them. The
+                                summary.
+    scripts/integration_test.py End to end, against whichever host is built.
+    scripts/test_cli.js         run-linux, run-macos and run-windows, which are
+                                one function with three names.
 
 `RnView` is a `GtkWidget` subclass paired with `RnLayout`, a `GtkLayoutManager`
 that performs no layout: Yoga has already resolved absolute frames by the time
@@ -565,32 +575,41 @@ Not yet done:
 - **Nothing desktop-shaped.** One window, no menus, no native file dialogs, no
   drag and drop, no tray. React Native has no cross-platform API for any of it,
   so each is a design decision before it is an implementation.
-- **No way for anyone else to use this.** No npm package, no `run-linux`
-  command, no packaging. And no third-party native module has been ported end to
-  end, so what porting one costs is still unknown.
+- **No way for anyone else to use this.** No npm package and no packaging. There
+  is a run command per desktop, and it can build a host, but it needs a React
+  Native *source checkout* to build against. And no third-party native module
+  has been ported end to end, so what porting one costs is still unknown.
 
 See `plan/backlog.md` for the per-component detail.
 
 ## Testing
 
-    ./build/basalt_gtk_tests                    # unit
+    ./build/basalt_gtk_tests            # unit, Linux
+    ./build/basalt_appkit_tests         # unit, on a Mac
+    ./build/basalt_win32_tests.exe      # unit, on Windows
     scripts/integration_test.py         # end to end, needs a built bundle
-    ./build/basalt_appkit_tests                # the macOS view layer and mounting, on a Mac
+    node --test scripts/test_cli.js     # the three run commands
 
-The first two need a display; on a headless machine prefix with `xvfb-run -a`.
-Both run in CI on Linux, where the end-to-end suite drives the app with real
-pointer events rather than injected ones. `basalt_appkit_tests` needs neither a display
-nor a window, and is only built where AppKit exists. See `docs/TESTING.md`.
+The GTK ones need a display; on a headless machine prefix with `xvfb-run -a`.
+CI runs them on Linux, where the end-to-end suite drives the app with real
+pointer events rather than injected ones. The other two suites need neither a
+display nor a window, and each is built only where its toolkit exists. The
+end-to-end suite runs against whichever host is built, which on Windows is four
+of its five scenarios. See `docs/TESTING.md`.
 
 ## Running it
 
 From an app, once a host binary exists:
 
     react-native run-linux
+    react-native run-macos
+    react-native run-windows
 
-That starts a packager if one is not running, launches the app, and stays
-attached. It does not build the host yet, and says how to build one when it
-cannot find it. `examples/demo` is a small app that exercises exactly this;
+One command with three names: everything a desktop run does is the same, so it
+is written once in `react-native-basalt/cli/desktop.js` and each platform
+package passes in four strings. It starts a packager if one is not running,
+launches the app, and stays attached. `--build` builds the host first, and
+without it the command says how to build one when it cannot find one. `examples/demo` is a small app that exercises exactly this;
 `examples/demo/setup.sh` links it against a React Native checkout.
 
 Directly, without the CLI. Build a bundle once, then run:

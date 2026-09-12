@@ -4,6 +4,11 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
+Since phase 47 Windows is a peer: it mounts every component the other two
+desktops do, it runs the same end-to-end suite, it has a `run-windows`, and
+`compare_hosts.sh` knows how to run it. What is left below is real and named,
+and none of it is a missing half.
+
 Since phase 46 Windows mounts every component the other two desktops do:
 `<View>`, `<Text>`, `<Image>`, `<ScrollView>` and `<TextInput>`. Hermes
 evaluates a bundle, Fabric diffs a shadow tree, Direct2D paints it in an HWND, a
@@ -109,22 +114,35 @@ the useful part.
   own, because `DwmFlush` blocks and a blocked UI thread is worse than a
   slightly wrong interval. The same gap already recorded for worklets and
   Reanimated on both other desktops.
-- **Text colour is per-paragraph, not per-run.** `RnWin32TextLayout` applies
-  family, size, weight and slant per fragment, but DirectWrite carries colour as
-  a drawing effect rather than a range attribute, so a `<Text>` containing two
-  colours renders entirely in the first.
-- **No `react-native run-windows`**, and no CLI. `packages/react-native-basalt-gtk/cli`
-  is the shape.
+- ~~**Text colour is per-paragraph, not per-run.**~~ Phase 47. DirectWrite
+  carries colour as a drawing effect rather than as a range attribute, which
+  looks like it needs a custom `IDWriteTextRenderer` -- but Direct2D's own
+  renderer has exactly one special case, and a drawing effect that is an
+  `ID2D1Brush` is it.
+- ~~**No `react-native run-windows`.**~~ Phase 47, and `run-macos` with it. All
+  three are one function in `react-native-basalt/cli/desktop.js` with four
+  strings passed in, which is the same split the C++ half makes.
 - ~~**CI has no Windows runner.**~~ Added in phase 39, and small: the view layer
   builds with MSBuild and needs no display, no React Native and no bootstrap.
-- **`scripts/compare_hosts.sh` has never seen Windows.** `describeTree` there is
-  written to be byte-for-byte what GTK and AppKit print, and the test that says
-  so compares against a string copied out of the AppKit suite -- which is a
-  claim about two files agreeing, not about two hosts agreeing. Nothing will
-  really check it until this machine can run one of the others: WSL2 will not
-  start here because virtualisation is disabled in firmware. There is now a
-  Windows host to run an app on, so the remaining blocker is only the second
-  half.
+- **No machine has run `scripts/compare_hosts.sh` with Windows in it.** The
+  script knows about three hosts as of phase 47 and runs whichever are built,
+  and the Windows leg was exercised on its own: it produces a tree, reports
+  `Platform.OS is windows`, and prints `editable="..."` where GTK does. What has
+  never happened is two hosts on one machine -- WSL2 will not start here because
+  virtualisation is disabled in firmware. A Mac with GTK installed could do it
+  today, and only that turns "the dumps are written to match" into "the dumps
+  match".
+- **`scripts/integration_test.py` skips Fast Refresh on Windows**, because
+  `scripts/metro.sh` is a shell script. Everything it would prove about the
+  *host* is the same code on every platform; what would be platform-specific is
+  Metro's file watching, which is Metro's. The other four scenarios run.
+- **CI does not build the Windows host.** Its job is the view layer only --
+  two minutes, no React Native, no Hermes -- so 63 of the 149 Windows tests run
+  there and the mounting manager, the input path, `<ScrollView>` and
+  `<TextInput>` are covered by a developer's machine alone. A full job means
+  vcpkg, a React Native checkout and a Hermes build on a Windows runner: an
+  hour cold, and worth doing once the caching is understood well enough not to
+  pay it every run.
 
 ## macOS
 

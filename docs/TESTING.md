@@ -1,18 +1,25 @@
 # Testing
 
-Four suites. The two Linux ones need a display, because everything in them is a
-GTK program, and both run in CI on Linux, which is where they matter: see
+Five suites. The Linux ones need a display, because everything in them is a GTK
+program, and CI runs them on Linux, which is where they matter: see
 `.github/workflows/ci.yml`.
 
 ```bash
-./build/basalt_gtk_tests                    # unit
-scripts/bundle.sh ../react-native --prod
-scripts/integration_test.py         # end to end
+./build/basalt_gtk_tests            # unit, Linux
+./build/basalt_appkit_tests         # unit, on a Mac
+./build/basalt_win32_tests.exe      # unit, on Windows
 
-./build/basalt_appkit_tests                # the macOS view layer and mounting, on a Mac
-./build/basalt_win32_tests.exe             # the Windows view layer, on Windows
-scripts/compare_hosts.sh            # both hosts, same script, diffed
+scripts/bundle.sh ../react-native --prod
+scripts/integration_test.py         # end to end, on whichever host is built
+
+scripts/compare_hosts.sh            # every host built, same app, diffed
+node --test scripts/test_cli.js     # run-linux, run-macos and run-windows
 ```
+
+`integration_test.py` picks whichever host it finds and runs the same scenarios
+against it, because they are about React and Fabric rather than about a
+toolkit -- `--platform` overrides the guess. Windows skips the Fast Refresh
+scenario, which needs `scripts/metro.sh`.
 
 On a headless machine, run either under a virtual display:
 
@@ -122,13 +129,18 @@ still compared there.
 
 `scripts/compare_hosts.sh` is the single-app version, and the one that cannot
 run in CI. It runs `js/views.js` -- a real React app made only of `<View>` --
-through `basalt_gtk` and `basalt_appkit`, and checks two things that fail
-differently: that the view trees match, and that each host's log reports the
-`Platform.OS` its bundle was built for. A bundle built for the wrong platform
-can render perfectly and be wrong about everything `Platform.OS` guards.
+through every host that is built, and checks two things that fail differently:
+that the view trees match, and that each host's log reports the `Platform.OS`
+its bundle was built for. A bundle built for the wrong platform can render
+perfectly and be wrong about everything `Platform.OS` guards.
 
-It needs both toolkits installed, so it runs on a developer's Mac rather than on
-CI, where each host only exists on its own side. Build the bundles first:
+It takes an app name rather than a bundle path per platform, and finds
+`build/<app>.<platform>.jsbundle.js` for each host it is going to run. Three
+paths on a command line was one too many.
+
+It needs at least two toolkits installed, so it runs on a developer's Mac rather
+than on CI, where each host only exists on its own side. Build the bundles
+first:
 
 ```bash
 scripts/bundle.sh --platform linux --entry views.js --out views.linux.jsbundle
@@ -136,15 +148,14 @@ scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
 scripts/compare_hosts.sh
 ```
 
-`BASALT_COMPARE_TAP="x,y;x,y"` forwards taps to both hosts -- they read the same
+`BASALT_COMPARE_TAP="x,y;x,y"` forwards taps to every host -- they read the same
 variable -- so the input path is compared too, not just the initial render.
 `js/press.js` is the app for that, and needs a longer quit than the default
 since the first tap is at 1500ms:
 
 ```bash
 BASALT_COMPARE_TAP="400,100;400,100;400,100" BASALT_COMPARE_QUIT_AFTER_MS=5000 \
-  scripts/compare_hosts.sh \
-  build/press.linux.jsbundle.js build/press.macos.jsbundle.js BasaltPress
+  scripts/compare_hosts.sh press BasaltPress
 ```
 
 `js/scroll.js` scrolls itself through `scrollTo` on a ref, which is how both
@@ -154,8 +165,7 @@ platform and a command does not -- and is the only test of the command path:
 ```bash
 scripts/bundle.sh --platform linux --entry scroll.js --out scroll.linux.jsbundle
 scripts/bundle.sh --platform macos --entry scroll.js --out scroll.macos.jsbundle
-BASALT_COMPARE_QUIT_AFTER_MS=3000 scripts/compare_hosts.sh \
-  build/scroll.linux.jsbundle.js build/scroll.macos.jsbundle.js BasaltScroll
+BASALT_COMPARE_QUIT_AFTER_MS=3000 scripts/compare_hosts.sh scroll BasaltScroll
 ```
 
 For `js/text.js` and `js/image.js`, frames have to be ignored:
@@ -163,8 +173,7 @@ For `js/text.js` and `js/image.js`, frames have to be ignored:
 ```bash
 scripts/bundle.sh --platform linux --entry text.js --out text.linux.jsbundle
 scripts/bundle.sh --platform macos --entry text.js --out text.macos.jsbundle
-BASALT_COMPARE_IGNORE_FRAMES=1 scripts/compare_hosts.sh \
-  build/text.linux.jsbundle.js build/text.macos.jsbundle.js BasaltText
+BASALT_COMPARE_IGNORE_FRAMES=1 scripts/compare_hosts.sh text BasaltText
 ```
 
 Pango over the system sans and Core Text over San Francisco are different
@@ -294,18 +303,26 @@ the X server and GDK exactly as a person's would. This is the only mode that
 exercises event delivery itself. Chosen automatically when `DISPLAY` is set and
 `xdotool` is installed.
 
-**`injected`** — `BASALT_TEST_TAP` calls the gesture callback directly,
-skipping GDK. The fallback where a real event cannot be synthesised, which
-notably includes macOS: doing it there needs accessibility permission an
-automated run does not have.
+**`injected`** — `BASALT_TEST_TAP` enters at the touch dispatcher, skipping the
+window system. The fallback where a real event cannot be synthesised, which is
+both of the other desktops: macOS needs accessibility permission an automated
+run does not have, and Windows needs `SendInput`, which moves the real cursor
+and so cannot run beside anything else on the machine.
 
 Force either with `--input real` or `--input injected`.
 
 Typing splits the same way. In `real` mode `xdotool type` sends key events
 through the X server, so GDK and the input method see them. In `injected` mode
-`BASALT_TEST_TYPE` inserts through `GtkEditable` on whatever field has focus,
-which skips the key controller and the input method and exercises everything
-above them.
+`BASALT_TEST_TYPE` reaches whatever field has focus: through `GtkEditable` on
+Linux, the field editor on macOS, and real `WM_CHAR` messages on Windows, which
+is the closest of the three -- what it skips there is the keyboard driver and
+nothing above it.
+
+Windows is the exception to the exception in one place. A real click on a
+`<TextInput>` never reaches the touch dispatcher at all, because the field's
+peer is a child window and USER32 routes the click to it; so `BASALT_TEST_TAP`
+focuses the field under the point as well as dispatching the touch. That step
+exists only for the injected path.
 
 ## Running on Linux
 

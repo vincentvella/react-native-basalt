@@ -16,6 +16,13 @@ using Microsoft::WRL::ComPtr;
 namespace basalt::win32 {
 namespace {
 
+// Whether a run needs a brush of its own. Exact rather than tolerant: these
+// numbers come from the same ColorComponents on both sides of the comparison,
+// so anything but equality would be inventing a tolerance to hide a bug.
+bool sameColour(const float a[4], const float b[4]) {
+  return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
+}
+
 // One shared DirectWrite factory for the process.
 //
 // DWRITE_FACTORY_TYPE_SHARED rather than ISOLATED: the shared factory caches
@@ -267,6 +274,33 @@ void RnWin32TextLayout::draw(ID2D1RenderTarget *target, float width, float heigh
       D2D1::ColorF(style_.color[0], style_.color[1], style_.color[2], style_.color[3]);
   if (FAILED(target->CreateSolidColorBrush(colour, brush.GetAddressOf()))) {
     return;
+  }
+
+  // Per-run colour, which DirectWrite carries as a *drawing effect* rather than
+  // as a range attribute like family or weight. That sounds like it needs a
+  // custom IDWriteTextRenderer, and it does for anything else you might attach
+  // -- but Direct2D's own renderer has one special case, and this is it: a
+  // drawing effect that is an ID2D1Brush is used to paint that range.
+  //
+  // So `Hello <Text style={{color:'red'}}>world</Text>` renders in two colours
+  // here as it does on the other two desktops, without this file learning what
+  // a glyph run is.
+  //
+  // The brushes have to outlive DrawTextLayout, which is why they are held
+  // rather than created and dropped in the loop.
+  std::vector<ComPtr<ID2D1SolidColorBrush>> runBrushes;
+  for (const ResolvedRun &run : runs_) {
+    if (run.length == 0 || sameColour(run.style.color, style_.color)) {
+      continue;
+    }
+    ComPtr<ID2D1SolidColorBrush> runBrush;
+    const D2D1_COLOR_F runColour = D2D1::ColorF(
+        run.style.color[0], run.style.color[1], run.style.color[2], run.style.color[3]);
+    if (FAILED(target->CreateSolidColorBrush(runColour, runBrush.GetAddressOf()))) {
+      continue;
+    }
+    layout->SetDrawingEffect(runBrush.Get(), DWRITE_TEXT_RANGE{run.start, run.length});
+    runBrushes.push_back(std::move(runBrush));
   }
 
   target->DrawTextLayout(

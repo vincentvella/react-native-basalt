@@ -21,11 +21,25 @@ RnTextAlign toAlign(const TextAttributes &attributes) {
     case facebook::react::TextAlignment::Center:
       return RnTextAlign::Center;
     case facebook::react::TextAlignment::Right:
+#if BASALT_RN_MINOR >= 87
+    // React Native 0.87 added the writing-direction-relative spellings, and
+    // both other desktops already fold them in here. Left out of this switch,
+    // `textAlign: 'right'` written as `end` fell through to left-aligned --
+    // which clang said out loud, in a warning nobody had recompiled this file
+    // to see.
+    //
+    // Left-to-right only, like the other two: nothing on any of these
+    // platforms resolves a writing direction yet.
+    case facebook::react::TextAlignment::End:
+#endif
       return RnTextAlign::Right;
     case facebook::react::TextAlignment::Justified:
       return RnTextAlign::Justified;
     case facebook::react::TextAlignment::Natural:
     case facebook::react::TextAlignment::Left:
+#if BASALT_RN_MINOR >= 87
+    case facebook::react::TextAlignment::Start:
+#endif
       break;
   }
   return RnTextAlign::Left;

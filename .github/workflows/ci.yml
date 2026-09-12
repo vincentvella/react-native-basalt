@@ -147,6 +147,12 @@ jobs:
       - name: Unit tests
         run: ./build/basalt_gtk_tests
 
+      - name: CLI tests
+        # `run-linux`, `run-macos` and `run-windows` are one function with three
+        # names, so this checks all three wherever it runs -- which is why the
+        # Windows job runs it too. Needs nothing built.
+        run: node --test scripts/test_cli.js
+
       - name: Bundle the demo
         run: scripts/bundle.sh react-native-src --prod
 
@@ -223,6 +229,17 @@ jobs:
 
       - name: Unit tests
         run: ./build/basalt_win32_tests.exe
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: CLI tests
+        # The same three commands the Linux job checks. Here for the half that
+        # only Windows can be wrong about: `basalt_win32.exe` carries an
+        # extension, and `isExecutable` has to answer a different question on a
+        # filesystem with no executable bit.
+        run: node --test scripts/test_cli.js
 
       - name: The demo's tree, and its picture
         # Both modes of demo_layout_win32, because they fail differently: the
