@@ -40,6 +40,7 @@ only on Windows; CMake omits the target elsewhere.
 | `native/tests/test_win32_hittest.cpp` | Picking. Depth, sibling order, zIndex, misses, scroll offsets, hidden views, and that a press follows a `transform` — which this platform has to invert itself, having no toolkit picking to inherit. |
 | `native/tests/test_win32_text.cpp` | DirectWrite measurement. Wrapping, `numberOfLines`, that a bigger font measures bigger, that alignment does not change the measured size, and two regression tests carried over from the other hosts: that font sizes are absolute rather than points, and that the default ellipsize mode does not collapse a wrapping paragraph. Plus one they cannot make — that the glyphs actually move when the alignment does. |
 | `native/tests/test_win32_image.cpp` | The four resize modes, against a real bitmap and real pixels rather than against the destination rect: `cover` that scales correctly and forgets to clip looks right in a rect and wrong on a screen. Also the WIC decode, round-tripped through the snapshot encoder. |
+| `native/tests/test_win32_accessibility.cpp` | The UI Automation mapping, asked the way a screen reader asks it: build the provider and read property ids. Roles, the group fallback, that a plain `<View>` stays out of the tree, labels and hints, the tri-state states, and that a role can change after mount — which GTK cannot do, because a GtkAccessible role is construct-only. |
 
 ## `build/basalt_gtk_tests` — the unit suite
 

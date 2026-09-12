@@ -225,6 +225,16 @@ void RnWin32View::setImage(std::shared_ptr<RnWin32Image> image, RnImageFit fit) 
   imageFit_ = fit;
 }
 
+// --- Accessibility ----------------------------------------------------------
+
+void RnWin32View::setAccessibleInfo(const RnAccessibleInfo &info) {
+  accessible_ = info;
+}
+
+IRawElementProviderSimple *RnWin32View::createAccessibleProvider() const {
+  return basalt::win32::createAccessibleProvider(accessible_);
+}
+
 // --- Geometry, resolved -----------------------------------------------------
 
 void RnWin32View::localToParent(float out[6]) const {
@@ -517,8 +527,17 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
     }
   }
 
-  // editable=, focused and role= follow, in that order, and arrive with the
-  // phases that give this platform a <TextInput> and a UI Automation provider.
+  // editable= and focused go here, and arrive with <TextInput>.
+
+  // React Native's role name, not UIA's. This dump is compared line by line
+  // across three platforms, and each reporting its own toolkit's vocabulary
+  // would make every accessible view look like a difference. That the *UIA*
+  // control type was really applied is asserted in
+  // tests/test_win32_accessibility.cpp, which is where a platform question
+  // belongs.
+  if (!accessible_.role.empty()) {
+    appendFormat(out, " role=%s", accessible_.role.c_str());
+  }
 
   out += "\n";
 

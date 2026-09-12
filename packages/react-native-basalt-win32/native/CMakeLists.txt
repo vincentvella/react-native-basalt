@@ -108,13 +108,17 @@ add_library(basalt_win32_view STATIC
   # feeds it is core/ImageBytes.cpp in the shared half, because a URI means the
   # same thing on every desktop.
   win32/RnWin32Image.cpp
+  # UI Automation. Windows inverts what the other two do -- a provider answers
+  # questions rather than a widget carrying properties; see the header.
+  win32/RnWin32Accessible.cpp
   # Offscreen rendering, to a PNG or to pixels a test can read. The second is
   # why this is in the view target rather than beside the demo: it is what the
   # rendering assertions in tests/test_win32_paint.cpp are built on.
   win32/Win32Snapshot.cpp)
 target_compile_options(basalt_win32_view PRIVATE ${BASALT_WIN32_WARNINGS})
 target_include_directories(basalt_win32_view PUBLIC win32)
-target_link_libraries(basalt_win32_view PUBLIC d2d1 dwrite windowscodecs ole32 user32)
+target_link_libraries(basalt_win32_view PUBLIC
+  d2d1 dwrite windowscodecs uiautomationcore ole32 oleaut32 user32)
 
 add_executable(demo_layout_win32 win32/demo_layout_win32.cpp)
 target_compile_options(demo_layout_win32 PRIVATE ${BASALT_WIN32_WARNINGS})
@@ -137,7 +141,10 @@ set(BASALT_WIN32_TEST_SOURCES
   # DirectWrite measurement, against RnWin32TextLayout alone.
   tests/test_win32_text.cpp
   # The resize modes, against a real bitmap and real pixels.
-  tests/test_win32_image.cpp)
+  tests/test_win32_image.cpp
+  # The UIA mapping. The React Native role name is what the cross-platform diff
+  # compares; this is where the platform half is checked.
+  tests/test_win32_accessibility.cpp)
 
 # ---------------------------------------------------------------------------
 # Still to come, in the order the macOS port took them:

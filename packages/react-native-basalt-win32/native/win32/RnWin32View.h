@@ -45,8 +45,9 @@
 #include <string>
 #include <vector>
 
-// For RnImageFit, which a view stores by value. Nothing heavy: that header
-// forward-declares its own Direct2D and WIC types too.
+// For RnImageFit and RnAccessibleInfo, both of which a view stores by value.
+// Nothing heavy: each forward-declares its own Windows types.
+#include "RnWin32Accessible.h"
 #include "RnWin32Image.h"
 
 // Direct2D's interfaces are structs, so the paint entry point can be declared
@@ -154,6 +155,20 @@ class RnWin32View {
   const std::shared_ptr<RnWin32Image> &image() const { return image_; }
   RnImageFit imageFit() const { return imageFit_; }
 
+  // --- Accessibility ---------------------------------------------------------
+
+  // What a screen reader is told. Unlike GTK, where the role is a
+  // construct-only property and so cannot change after mount, every field here
+  // is free to change at any time -- UI Automation pulls rather than being
+  // pushed to, so the provider simply reads the current value. See
+  // RnWin32Accessible.h.
+  void setAccessibleInfo(const RnAccessibleInfo &info);
+  const RnAccessibleInfo &accessibleInfo() const { return accessible_; }
+
+  // A UIA provider over this view, or null when the view is not an
+  // accessibility element. The caller owns a reference and must Release it.
+  IRawElementProviderSimple *createAccessibleProvider() const;
+
   // --- Tree ----------------------------------------------------------------
   //
   // A view does not own its children. The mounting registry owns every view,
@@ -233,6 +248,7 @@ class RnWin32View {
   std::shared_ptr<RnWin32TextLayout> textLayout_;
   std::shared_ptr<RnWin32Image> image_;
   RnImageFit imageFit_ = RnImageFit::Cover;
+  RnAccessibleInfo accessible_;
   bool hasTransform_ = false;
   // The 2D affine part, in the order Direct2D's Matrix3x2F stores it:
   // _11, _12, _21, _22, _31, _32 -- which is also the order CSS writes a

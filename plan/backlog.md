@@ -53,6 +53,16 @@ port took them, because that order was chosen once already and worked.
 
 ## macOS
 
+- **Hit testing ignores `transform`.** `RnAppKitHitTest` walks `child.frame` and
+  never consults the layer transform, so a rotated view is clickable where it
+  used to be and not where it is drawn. GTK does not have this bug, because it
+  composes the transform into the widget's allocation and `gtk_widget_pick`
+  follows -- which is the reason `plan/decisions.md` gives for putting it there
+  rather than in the paint. Windows does not have it either, because it inverts
+  each view's matrix on the way down. Found in phase 40 while writing the
+  Windows equivalent; not fixed, because there is no Mac to check a fix on. The
+  test that would catch it is `hit_test_follows_a_transform` in
+  `packages/react-native-basalt-win32/native/tests/test_win32_hittest.cpp`.
 - **No accessibility.** AppKit views carry no role, so a screen reader sees a
   tree of untyped views. It is also the only thing `scripts/compare_hosts.sh`
   finds different between the two hosts on a text-heavy app: GTK emits
