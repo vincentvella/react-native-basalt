@@ -5,6 +5,55 @@
 # React Native normally gets these from its Android build (gradle downloads and
 # unpacks each one under third-party-ndk). A host build has no such step, so we
 # supply equivalents here. Fantom does the same thing for its tester.
+#
+# Two ways of finding the same four libraries, and the split is Windows.
+#
+# On Linux and macOS they come from the system -- apt or Homebrew -- and
+# `find_library` is the right tool, because a distro's package installs a bare
+# `libglog.so` in a directory the linker already searches. On Windows there is
+# no system to install them into. vcpkg is the equivalent, and it ships proper
+# CMake config packages, which is a better answer than `find_library` even
+# where both would work: a config package carries the include directories, the
+# transitive dependencies and the debug/release split, and a bare
+# `find_library` on `boost_regex` would not even match the name vcpkg gives it
+# (`boost_regex-vc143-mt-x64-1_89.lib`).
+#
+# The target names below -- `glog`, `boost`, `double-conversion`, `fmt` -- are
+# not ours to choose either way. They are what React Native's own CMakeLists
+# link against.
+if(WIN32)
+  find_package(glog CONFIG REQUIRED)
+  find_package(Boost CONFIG REQUIRED COMPONENTS regex)
+  find_package(double-conversion CONFIG REQUIRED)
+  find_package(fmt CONFIG REQUIRED)
+
+  # React Native's CMakeLists link the bare names; vcpkg's config packages
+  # define namespaced ones. These INTERFACE targets stand in the middle.
+  # Guarded on the name not already existing, because a config package is
+  # entitled to define the bare name too and CMake refuses a duplicate.
+  if(NOT TARGET glog)
+    add_library(glog INTERFACE)
+    target_link_libraries(glog INTERFACE glog::glog)
+  endif()
+  target_compile_definitions(glog INTERFACE GLOG_USE_GLOG_EXPORT)
+
+  add_library(boost INTERFACE)
+  target_link_libraries(boost INTERFACE Boost::regex Boost::headers)
+
+  if(NOT TARGET double-conversion)
+    add_library(double-conversion INTERFACE)
+    target_link_libraries(double-conversion INTERFACE double-conversion::double-conversion)
+  endif()
+
+  if(NOT TARGET fmt)
+    add_library(fmt INTERFACE)
+    target_link_libraries(fmt INTERFACE fmt::fmt)
+  endif()
+
+  # As on the other platforms: nothing on a host build needs glog's signal
+  # handlers, and React Native's Android build is the only thing that has them.
+  add_library(glog_init INTERFACE)
+else()
 
 # --- glog ------------------------------------------------------------------
 # RN pins glog 0.3.5; distros ship 0.7.x, which added a guard requiring
@@ -48,6 +97,8 @@ add_library(fmt INTERFACE)
 target_link_libraries(fmt INTERFACE ${FMT_LIBRARY})
 target_include_directories(fmt INTERFACE ${FMT_INCLUDE_DIR})
 
+endif() # WIN32 -- everything below is the same on all three platforms.
+
 # --- fast_float (vendored, header-only) ------------------------------------
 add_library(fast_float INTERFACE)
 target_include_directories(fast_float INTERFACE ${FAST_FLOAT_DIR}/include)
@@ -56,14 +107,26 @@ target_include_directories(fast_float INTERFACE ${FAST_FLOAT_DIR}/include)
 # The trimmed folly RN actually builds: ~30 translation units, no config step,
 # no coroutines. Source list and flags mirror
 # private/react-native-fantom/tester/third-party/folly/CMakeLists.txt.
+# Three of these are claims about POSIX and are false on Windows. folly reads
+# them as "the platform has this", not as "please provide it", so leaving them
+# defined on Windows makes it call recvmmsg, pthread_setname_np and the XSI
+# strerror_r, none of which exist -- and it fails at link rather than at
+# configure, which is a worse place to find out.
+#
+# FOLLY_HAVE_CLOCK_GETTIME is the interesting one. Windows has no
+# clock_gettime, but folly's portability layer *provides* one, and defining the
+# flag is how folly is told to use its own rather than expect the system's.
 set(folly_FLAGS
         -DFOLLY_NO_CONFIG=1
         -DFOLLY_HAVE_CLOCK_GETTIME=1
         -DFOLLY_CFG_NO_COROUTINES=1
-        -DFOLLY_MOBILE=0
+        -DFOLLY_MOBILE=0)
+if(NOT WIN32)
+  list(APPEND folly_FLAGS
         -DFOLLY_HAVE_RECVMMSG=1
         -DFOLLY_HAVE_PTHREAD=1
         -DFOLLY_HAVE_XSI_STRERROR_R=1)
+endif()
 
 set(folly_runtime_SRC
         Conv.cpp Demangle.cpp FileUtil.cpp Format.cpp ScopeGuard.cpp
@@ -85,12 +148,48 @@ set(folly_runtime_SRC
         portability/SysUio.cpp
         synchronization/SanitizeThread.cpp synchronization/ParkingLot.cpp
         system/AtFork.cpp system/ThreadId.cpp system/ThreadName.cpp)
+# folly's Windows portability layer, which React Native's own source list does
+# not carry because React Native does not build folly on Windows -- it consumes
+# a prebuilt one. These are not shims this project wrote: nineteen of folly's
+# twenty-one portability sources already have `_WIN32` branches, and this is the
+# subset the translation units above reach. Without them the build gets all the
+# way to the linker and fails on `open`, `pthread_key_create`, `gettimeofday`
+# and thirty more.
+if(WIN32)
+  list(APPEND folly_runtime_SRC
+        portability/Dirent.cpp
+        portability/Fcntl.cpp
+        portability/Malloc.cpp
+        portability/PThread.cpp
+        portability/Sched.cpp
+        portability/Sockets.cpp
+        portability/Stdio.cpp
+        portability/Stdlib.cpp
+        portability/String.cpp
+        portability/SysFile.cpp
+        portability/SysMembarrier.cpp
+        portability/SysMman.cpp
+        portability/SysResource.cpp
+        portability/SysStat.cpp
+        portability/SysTime.cpp
+        portability/Time.cpp
+        portability/Unistd.cpp)
+endif()
+
 list(TRANSFORM folly_runtime_SRC PREPEND ${FOLLY_DIR}/folly/)
 
 add_library(folly_runtime STATIC ${folly_runtime_SRC})
 target_compile_options(folly_runtime PRIVATE
-        -fexceptions -fno-omit-frame-pointer -frtti -Wno-sign-compare ${folly_FLAGS})
+        ${BASALT_EXCEPTIONS_FLAG} ${BASALT_FRAME_POINTER_FLAG} ${BASALT_RTTI_FLAG}
+        ${BASALT_NO_SIGN_COMPARE_FLAG} ${folly_FLAGS})
 target_compile_options(folly_runtime PUBLIC ${folly_FLAGS})
+if(WIN32)
+  # ws2_32 for the sockets folly's net layer wraps, and NOMINMAX because folly
+  # uses std::min and std::max in headers that windows.h has already redefined
+  # as macros by the time they are reached.
+  target_link_libraries(folly_runtime ws2_32)
+  target_compile_definitions(folly_runtime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 target_include_directories(folly_runtime PUBLIC ${FOLLY_DIR})
 target_link_libraries(folly_runtime glog double-conversion boost fmt fast_float)
 

@@ -14,13 +14,33 @@ port took them, because that order was chosen once already and worked.
   `hasComponent` come with it, and the two must agree -- when they do not,
   Fabric builds shadow nodes nothing can mount and the app renders blank
   rectangles rather than an error.
-- **React Native's C++ core has never been compiled with MSVC.** This is the
-  real unknown in the Windows port, and it is behind the view layer rather than
-  in it: folly, glog, boost, double-conversion, Hermes and ReactCommon all build
-  on Windows for react-native-windows, so it is known-possible, but nothing in
-  `packages/react-native-basalt` has been through it and `native/bootstrap.sh`
-  is a shell script. Until that is done there is no `basalt_core` on Windows and
-  so no host, whatever the view layer can draw.
+- ~~**React Native's C++ core has never been compiled with MSVC.**~~ It has, in
+  phase 41: 442 objects, `basalt_core.lib`, every translation unit in
+  ReactCommon, ReactCxxPlatform, folly and Yoga under clang-cl. What is left of
+  it is below.
+- **Hermes does not build from source on Windows, and should not have to.**
+  `cl` stops on `__builtin_expect` in Static Hermes; clang-cl gets further and
+  stops on static assertions requiring `hermes::vm::Environment` and the C
+  `SHEnvironment` to be layout-identical, which the MSVC ABI does not make them.
+  No flag fixes a struct layout. The answer is the one `supported-versions.json`
+  already states -- Windows is one of the four platforms Meta publishes a
+  prebuilt Hermes for, and building from source is a Linux necessity -- so the
+  work is consuming a prebuilt, as react-native-windows does. Until then
+  `basalt_core_probe` compiles and does not link, on `makeHermesRuntime` and
+  about forty JSI symbols.
+- **React Native's own warnings are not enforced on Windows.** Its CMake applies
+  `-Wall -Werror -Wpedantic`, all of which clang-cl either misreads or takes
+  from an INTERFACE property that lands after anything that could counteract
+  them, so phase 41 strips them. Linux stays the build that guards upstream
+  warning cleanliness. Restoring them properly means `/clang:-Wall` or an
+  equivalent that survives the link graph, and has not been attempted.
+- **`native/bootstrap.sh` has no Windows path.** Every step of phase 41 was run
+  by hand -- vcpkg, the Node replacement, codegen, Hermes -- so there is no
+  single command that reproduces the core build. The script also checks for
+  `clang++`, `pkg-config` and gtk4, none of which exist here.
+- **Node 18 is too old and was replaced portably.** React Native 0.87 wants
+  `^22.13 || ^24.3 || >= 26`. Worth knowing because it is a machine-level
+  prerequisite the repository does not install.
 - **`<Text>`**, over DirectWrite: an `IDWriteTextLayout` built in one place and
   shared by `TextLayoutManager::measure` and painting, for the reason
   `plan/decisions.md` gives for Pango. The fonts seam
@@ -524,7 +544,21 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   `ReactCommon/react/nativemodule/cputime`'s C++ while its codegen spec lives
   under `src/private/testing/fantom` and does not ship, so that module cannot be
   compiled from the package. This platform stopped building it.
-- Report the `HttpUtils.h` missing-`<cstdint>` bug.
+- Report the `HttpUtils.h` missing-`<cstdint>` bug. Since phase 41 there is a
+  second of exactly the same shape and they should go together:
+  `react/renderer/components/view/conversions.h` uses `M_PI` seven times, and
+  `M_PI` is a POSIX extension rather than standard C++ -- MSVC's `<cmath>`
+  defines it only behind `_USE_MATH_DEFINES`. Both compile on Meta's toolchains
+  through luck rather than intent.
+- **`ReactCommon/cmake-utils/react-native-flags.cmake` hardcodes clang's command
+  line** -- `-Wall -Werror -fexceptions -frtti -std=c++20` -- and carries
+  `TODO T228344694 improve this so that it works for all platforms` directly
+  beneath. Worth attaching a concrete report to: MSVC's front end has none of
+  those spellings, `-Wall` is actively misread by clang-cl as `/Wall` (which it
+  maps to `-Weverything`), and because `-Wpedantic` is applied `INTERFACE` on
+  `callinvoker` and `react_cxxstableapi` there is no flag a consumer can add
+  that lands late enough to counteract it. Phase 41 works around it by stripping
+  the flags from every target after `add_subdirectory`.
 - Report that `ReactCxxPlatform`'s `PlatformConstantsModule` hardcodes a React
   Native version of 1000.0.0 in every version, releases included, so nothing
   built on it can ever satisfy React Native's own development-mode version

@@ -19,5 +19,7 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `37-gesture-handler.md` — a library with no portable C++, so the contract was the port
 - `38-reanimated.md` — worklets, Reanimated, and a mount React Native never reported
 - `39-windows-view-layer.md` — a third desktop, and the first assertions about pixels
+- `40-windows-parity.md` — the Windows suite catches the other two
+- `41-msvc-core.md` — React Native's C++ core on MSVC, and the one thing that does not build
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

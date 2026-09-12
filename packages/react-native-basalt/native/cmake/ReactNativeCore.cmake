@@ -354,10 +354,85 @@ set(RN_CORE_OBJECT_TARGETS ${RN_PRESENT_TARGETS})
 # libc++ would avoid it, but every other dependency on a Linux distro
 # (glog, fmt, boost_regex, double-conversion) is built against libstdc++, and
 # mixing the two is an ABI hazard for anything passing a std::string.
-set(RN_EXTRA_FLAGS -include cstdint)
-if(NOT APPLE)
-  list(APPEND RN_EXTRA_FLAGS -Wno-deprecated-declarations)
+set(RN_EXTRA_FLAGS ${BASALT_FORCE_INCLUDE_CSTDINT_FLAG})
+if(NOT APPLE AND NOT WIN32)
+  list(APPEND RN_EXTRA_FLAGS ${BASALT_NO_DEPRECATED_FLAG})
 endif()
+
+# --- React Native's own flags, on a compiler they were not written for -------
+#
+# ReactCommon/cmake-utils/react-native-flags.cmake puts this on every target it
+# touches:
+#
+#     -Wall -Werror -fexceptions -frtti -std=c++20
+#
+# and immediately below it says `TODO T228344694 improve this so that it works
+# for all platforms`, which is this problem, acknowledged upstream and not yet
+# fixed. Three of those five are clang command-line spellings that MSVC's front
+# end does not have, and `-std=c++20` is actively harmful: clang-cl discards it
+# with a warning, and cl would take it as a filename.
+#
+# Patching the checkout is not an option -- nothing here modifies React Native,
+# which is the property that lets this platform track it. Removing the flags
+# from each target afterwards was tried and does not work either: React Native
+# applies them PUBLIC, so every copy also lives in the INTERFACE_COMPILE_OPTIONS
+# of everything a target links, and they come back on the command line *after*
+# the ones taken off. Chasing them through the link graph would be a fight with
+# the build system on every upstream bump.
+#
+# So the flags are left alone and clang-cl is told not to treat its own
+# "I ignored this" as an error. That is the honest reading of the situation:
+# clang-cl is right to ignore them, and nothing is lost by it. `-std=c++20` is
+# already supplied as `/std:c++20` from CXX_STANDARD, and exceptions and RTTI
+# are added below in MSVC's spelling -- so all three are in force, just spelled
+# the other way. `-Wall -Werror` are understood by clang-cl and kept, because
+# building React Native's C++ warning-free is what catches an upstream change
+# early.
+#
+# This is also why the core build needs clang-cl rather than cl. cl does not
+# understand `-Werror` or clang's `-Wall` at all, and its own `/Wall` is a
+# different and far noisier set; the Windows *view layer* builds fine with
+# either, and CI uses cl for it.
+if(WIN32)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(WARNING
+      "The Windows core build expects clang-cl. React Native's own CMake sets "
+      "clang-style flags (see ReactCommon/cmake-utils/react-native-flags.cmake "
+      "and its TODO T228344694), which cl does not understand. Configure with "
+      "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl.")
+  endif()
+  # And `-Wall` is worse than ignored -- it is misread. To clang-cl the token
+  # `-Wall` is MSVC's `/Wall`, which it maps to clang's `-Weverything`: not
+  # "the usual warnings" but *every* warning clang has, including
+  # -Wc++98-compat, which fires on every nested namespace and defaulted
+  # constructor in a C++20 codebase. React Native's own header for the event
+  # beat produces about forty errors from that alone.
+  #
+  # `-Wno-everything` undoes the misreading. What it does not do is restore
+  # what React Native meant, so React Native's C++ is compiled here with its
+  # warnings off -- which is a real loss, because warning-free upstream code is
+  # what catches an API change early, and it is why the Linux build stays the
+  # one that guards that. Recorded in plan/backlog.md rather than papered over.
+  #
+  # This project's *own* sources are unaffected: they are held to /W4
+  # /permissive- by the platform package, and none of this reaches them.
+  # Applied at the bottom of this file, to every target in the build graph
+  # rather than to a list -- see the walk there for why.
+  set(RN_WINDOWS_FLAGS
+    -Wno-unknown-argument
+    -Wno-everything
+    # M_PI is a POSIX extension, not standard C++, and MSVC's <cmath> defines
+    # it only behind this. React Native's
+    # react/renderer/components/view/conversions.h uses it unguarded, seven
+    # times, to convert degrees for `transform: rotate`. The same shape of
+    # upstream portability bug as the missing <cstdint> above -- code that
+    # compiles on Meta's toolchains and nowhere else -- and the same kind of
+    # fix, on the command line rather than in their tree.
+    -D_USE_MATH_DEFINES
+    ${BASALT_EXCEPTIONS_FLAG}
+    ${BASALT_RTTI_FLAG})
+endif()
+
 
 foreach(target ${RN_CORE_OBJECT_TARGETS} yogacore)
   if(TARGET ${target})
@@ -416,7 +491,7 @@ target_link_libraries(rn_textinput
         react_renderer_core react_renderer_graphics react_renderer_imagemanager
         react_renderer_mounting react_renderer_textlayoutmanager
         react_renderer_uimanager react_utils rrc_image rrc_text rrc_view yoga)
-target_compile_options(rn_textinput PRIVATE -Wno-unknown-pragmas ${RN_EXTRA_FLAGS})
+target_compile_options(rn_textinput PRIVATE ${BASALT_NO_UNKNOWN_PRAGMAS_FLAG} ${RN_EXTRA_FLAGS})
 target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_textinput>)
 target_link_libraries(rn_core INTERFACE rn_textinput)
 
@@ -460,7 +535,7 @@ if(EXISTS ${RN_WEBSOCKET_SRC})
   target_include_directories(rn_websocket PUBLIC
           ${REACT_CXX_PLATFORM_DIR} ${REACT_COMMON_DIR} ${FOLLY_DIR})
   target_link_libraries(rn_websocket folly_runtime glog boost fmt double-conversion)
-  target_compile_options(rn_websocket PRIVATE -Wno-unknown-pragmas)
+  target_compile_options(rn_websocket PRIVATE ${BASALT_NO_UNKNOWN_PRAGMAS_FLAG})
   target_sources(rn_core INTERFACE $<TARGET_OBJECTS:rn_websocket>)
 else()
   message(STATUS "React Native ${RN_VERSION} bundles no websocket client; "
@@ -474,4 +549,64 @@ target_link_libraries(rn_core INTERFACE yogacore folly_runtime glog boost fmt
 # Fantom's tester CMakeLists carries the same `if(UNIX AND NOT APPLE)` branch.
 if(UNIX AND NOT APPLE)
   target_link_libraries(rn_core INTERFACE atomic)
+endif()
+
+# --- The Windows flags, applied to everything React Native added -------------
+#
+# `-Wno-unknown-argument` and `-Wno-everything` have to land *after* React
+# Native's own `-Wall -Werror -fexceptions -frtti -std=c++20`, and a compiler
+# command line is built in a fixed order: CMAKE_CXX_FLAGS, then the directory's
+# options, then the target's, then those a linked target exports. Only the last
+# two are after React Native's, and React Native applies its flags to every
+# target it defines -- ReactCxxPlatform's as much as ReactCommon's.
+#
+# So this walks every target in the build graph rather than a list. A list was
+# tried first and covered ReactCommon but not ReactCxxPlatform, which failed
+# seventy-three translation units later on -Wlanguage-extension-token inside
+# folly's F14Table.h -- the same -Weverything, arriving by a route the list did
+# not know about. Walking is the version that does not need updating when
+# upstream adds a directory.
+# Counteracting the flags was tried before removing them, and cannot work.
+# `-Wno-everything` does undo `-Wall`, but React Native also applies
+# `-Wpedantic`, and applies it INTERFACE on callinvoker and react_cxxstableapi
+# -- so it arrives from the link graph, after every PRIVATE option, and
+# re-enables -Wlanguage-extension-token on top of whatever came before. There
+# is no flag that reliably lands last. Removing is the only order-independent
+# answer.
+#
+# Both property sets, because INTERFACE_COMPILE_OPTIONS is how the ones that
+# arrive last get there in the first place.
+if(WIN32)
+  set(RN_CLANG_ONLY_FLAGS -Wall -Werror -Wpedantic -fexceptions -frtti -std=c++20)
+
+  function(basalt_strip_clang_flags target property)
+    get_target_property(options ${target} ${property})
+    if(NOT options)
+      return()
+    endif()
+    list(REMOVE_ITEM options ${RN_CLANG_ONLY_FLAGS})
+    set_target_properties(${target} PROPERTIES ${property} "${options}")
+  endfunction()
+
+  function(basalt_apply_windows_flags directory)
+    get_property(targets DIRECTORY ${directory} PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target ${targets})
+      get_target_property(target_type ${target} TYPE)
+      if(target_type STREQUAL "UTILITY")
+        continue()
+      endif()
+      basalt_strip_clang_flags(${target} INTERFACE_COMPILE_OPTIONS)
+      # An INTERFACE library has no compilation of its own, so it has no
+      # COMPILE_OPTIONS to strip and nothing to add them to.
+      if(NOT target_type STREQUAL "INTERFACE_LIBRARY")
+        basalt_strip_clang_flags(${target} COMPILE_OPTIONS)
+        target_compile_options(${target} PRIVATE ${RN_WINDOWS_FLAGS})
+      endif()
+    endforeach()
+    get_property(children DIRECTORY ${directory} PROPERTY SUBDIRECTORIES)
+    foreach(child ${children})
+      basalt_apply_windows_flags(${child})
+    endforeach()
+  endfunction()
+  basalt_apply_windows_flags(${CMAKE_CURRENT_SOURCE_DIR})
 endif()

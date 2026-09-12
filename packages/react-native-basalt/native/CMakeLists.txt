@@ -104,6 +104,9 @@ if(DEFINED RN_DIR)
   # first import exactly as before, and a plain React Native app is unaffected.
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Expo.cmake)
 
+  # First: everything below spells compiler flags through the names this
+  # defines, because clang's command line and MSVC's share almost none of them.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompilerFlags.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdParty.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReactNativeCore.cmake)
 
