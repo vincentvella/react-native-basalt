@@ -21,6 +21,7 @@
 
 #include "RnWin32Image.h"
 #include "RnWin32View.h"
+#include "Win32ImageLoader.h"
 
 #include "MountingWalk.h"
 
@@ -99,10 +100,9 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // whenever its parent resizes. Both other platforms keep the same map.
   std::unordered_map<facebook::react::Tag, std::string> imageUris_;
 
-  // Decoded pixels, by URI. Small and unbounded, which is wrong for a
-  // long-running app that scrolls through many remote images and is the same
-  // gap plan/backlog.md records for GTK.
-  std::unordered_map<std::string, std::shared_ptr<win32::RnWin32Image>> imageCache_;
+  // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
+  // too, and outlives this object while a load is in flight -- see the header.
+  win32::Win32ImageLoader imageLoader_;
 };
 
 } // namespace basalt

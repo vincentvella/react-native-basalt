@@ -42,6 +42,7 @@ only on Windows; CMake omits the target elsewhere.
 | `native/tests/test_win32_image.cpp` | The four resize modes, against a real bitmap and real pixels rather than against the destination rect: `cover` that scales correctly and forgets to clip looks right in a rect and wrong on a screen. Also the WIC decode, round-tripped through the snapshot encoder. |
 | `native/tests/test_win32_accessibility.cpp` | The UI Automation mapping, asked the way a screen reader asks it: build the provider and read property ids. Roles, the group fallback, that a plain `<View>` stays out of the tree, labels and hints, the tri-state states, and that a role can change after mount — which GTK cannot do, because a GtkAccessible role is construct-only. |
 | `native/tests/test_win32_mounting.cpp` | The mutation walk, through the real Win32MountingManager. Deliberately the same nine questions asked of GTK and AppKit, in the same order with the same tags, so a divergence in the shared walk fails here rather than in an app. Built only when the build was pointed at a React Native. |
+| `native/tests/test_win32_imageloader.cpp` | The image loader. Decoding a file URI, the cache answering without going back to disk, the three ways a load can fail, and that a decoded image survives the loader that produced it. Built only when the build was pointed at a React Native, because the fetch is core/ImageBytes.cpp. |
 
 ## `build/basalt_gtk_tests` — the unit suite
 

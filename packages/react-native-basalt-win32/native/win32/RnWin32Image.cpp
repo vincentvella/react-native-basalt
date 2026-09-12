@@ -21,10 +21,16 @@ bool ensureCom() {
 }
 
 IWICImagingFactory *wicFactory() {
+  // Every call, not only the first: decoding happens on whichever worker thread
+  // the image loader put it on, and COM is per-thread. The factory itself is
+  // agile -- WIC registers it "Both" -- so one instance serves every thread,
+  // but a thread that has never called CoInitializeEx cannot use it.
+  // CoInitializeEx on an already-initialised thread returns S_FALSE and costs
+  // nothing.
+  if (!ensureCom()) {
+    return nullptr;
+  }
   static IWICImagingFactory *factory = [] {
-    if (!ensureCom()) {
-      return static_cast<IWICImagingFactory *>(nullptr);
-    }
     IWICImagingFactory *created = nullptr;
     CoCreateInstance(
         CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&created));

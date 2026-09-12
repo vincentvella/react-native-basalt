@@ -173,6 +173,26 @@ bool fetchImageBytes(const std::string &uri, std::string *out, std::string *erro
       *error = "remote file: URIs are not supported: " + uri;
       return false;
     }
+
+#ifdef _WIN32
+    // On Windows the leading slash is not part of the path.
+    //
+    // `file:///C:/x` has the URI path `/C:/x`, and on a POSIX system that is
+    // also the filesystem path -- which is why this went unnoticed until a
+    // third desktop. Windows has no root above the drive letter, so `/C:/x`
+    // does not open and the slash has to come off. Every browser and every URI
+    // library does the same.
+    //
+    // Guarded rather than written portably, even though a POSIX directory
+    // literally named `C:` is not a thing anyone has: this file is shared, the
+    // other two desktops cannot be tested from here, and a shared behaviour
+    // change is not worth making blind for a case that cannot arise.
+    if (path.size() >= 3 && path[0] == '/' &&
+        ((path[1] >= 'A' && path[1] <= 'Z') || (path[1] >= 'a' && path[1] <= 'z')) &&
+        path[2] == ':') {
+      path.erase(0, 1);
+    }
+#endif
   }
 
   if (!readFile(path, out, error)) {

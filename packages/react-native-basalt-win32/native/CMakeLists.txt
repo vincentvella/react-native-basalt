@@ -159,6 +159,9 @@ set(BASALT_WIN32_TEST_SOURCES
 if(TARGET basalt_core)
   add_library(basalt_win32_mounting STATIC
     win32/Win32MountingManager.cpp
+    # <Image> pixels: the fetch and the decode, both off the UI thread. The
+    # fetch itself is core/ImageBytes.cpp in the shared half.
+    win32/Win32ImageLoader.cpp
     # Which components this platform claims. See core/ComponentRegistry.h, and
     # note this and Win32MountingManager::hasComponent must agree.
     win32/ComponentRegistryWin32.cpp
@@ -194,7 +197,10 @@ if(TARGET basalt_core)
     # Deliberately the same nine questions tests/test_mounting.cpp asks of GTK
     # and tests/test_appkit_mounting.mm asks of AppKit, in the same order with
     # the same tags. Most of what they test is whether the sharing still holds.
-    tests/test_win32_mounting.cpp)
+    tests/test_win32_mounting.cpp
+    # The image loader: the cache, the failure paths, and the two lifetimes.
+    # In the RN-dependent set because the fetch is core/ImageBytes.cpp.
+    tests/test_win32_imageloader.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

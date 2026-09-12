@@ -302,32 +302,39 @@ void Win32MountingManager::applyImage(RnWin32View *view, const ShadowView &shado
     return;
   }
 
-  const auto cached = imageCache_.find(uri);
-  if (cached != imageCache_.end()) {
-    view->setImage(cached->second, fit);
-    return;
-  }
+  // Clear whatever was showing: the source changed, and leaving the old picture
+  // up while the new one loads is worse than a blank box, because it looks like
+  // the change did not take.
+  view->setImage(nullptr, fit);
 
-  // Fetched through the shared half, which knows file, data: and http URIs --
-  // a URI means the same thing on every desktop, so only the decode is here.
+  // The fetch is in the shared half, which knows file, data: and http URIs --
+  // a URI means the same thing on every desktop -- and the loader puts both it
+  // and the decode on a worker thread.
   //
-  // Synchronous, which is wrong and is the next thing to fix: a remote image
-  // stalls the UI thread. GTK reads on a worker and decodes back on the main
-  // thread; doing the same needs the load to be able to complete after the view
-  // it names has been deleted, which is why it is a change rather than a move.
-  std::string bytes;
-  std::string error;
-  if (!fetchImageBytes(uri, &bytes, &error) || bytes.empty()) {
-    view->setImage(nullptr, fit);
-    return;
-  }
-
-  auto image = win32::RnWin32Image::fromEncodedBytes(
-      reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size());
-  if (image != nullptr) {
-    imageCache_[uri] = image;
-  }
-  view->setImage(image, fit);
+  // The completion captures the *tag*, not the view. A view can be deleted
+  // while its bytes are in flight, and capturing the pointer would be a
+  // use-after-free on a slow network; looking it up again is the arrangement
+  // GTK settled on for the same reason. `this` is safe to capture because the
+  // loader is a member and cannot outlive the manager -- and the loader itself
+  // guards the case where the manager goes first.
+  const Tag tag = shadowView.tag;
+  imageLoader_.load(uri, [this, tag, uri, fit](std::shared_ptr<win32::RnWin32Image> image,
+                                               const std::string &error) {
+    (void)error;
+    RnWin32View *target = viewForTag(tag);
+    if (target == nullptr) {
+      // Deleted while loading. Not an error, and not worth logging: scrolling a
+      // list past an image faster than it arrives does exactly this.
+      return;
+    }
+    // And the source may have changed *again* while this one was loading, in
+    // which case a later load owns the view and this result is stale.
+    const auto current = imageUris_.find(tag);
+    if (current == imageUris_.end() || current->second != uri) {
+      return;
+    }
+    target->setImage(std::move(image), fit);
+  });
 }
 
 namespace {

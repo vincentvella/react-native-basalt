@@ -7,6 +7,7 @@
 #include "PlatformServices.h"
 
 #include "Win32Strings.h"
+#include "Win32UiThread.h"
 
 #include <windows.h>
 
@@ -74,8 +75,8 @@ LRESULT CALLBACK uiThreadProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
 
 } // namespace
 
-// Called by the host, from the thread that owns its message loop. Without it
-// every postToUiThread runs inline; see below.
+// See Win32UiThread.h.
+
 void installUiThread() {
   if (uiThread().window != nullptr) {
     return;
@@ -103,6 +104,10 @@ void installUiThread() {
                                       nullptr,
                                       GetModuleHandleW(nullptr),
                                       nullptr);
+}
+
+bool hasUiThread() {
+  return uiThread().window != nullptr;
 }
 
 bool isUiThread() {
