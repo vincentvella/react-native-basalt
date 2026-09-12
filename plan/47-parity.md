@@ -133,11 +133,11 @@ alone is an Update mutation, and an uncontrolled field's `text` is the empty
 string forever. Neither had a staleness guard on the prop either, only on the
 command.
 
-## And CI had been red for thirteen commits
+## And CI had been red for twenty-three commits
 
 Nobody had looked. The last green run was "Blob, File and FileReader", and every
 commit after it failed the Linux job -- including all nine Windows phases, which
-is thirteen commits of work landing on a build that was already broken.
+is twenty-three commits of work landing on a build that was already broken.
 
 That is a process failure before it is a technical one, and the technical part
 is only interesting because of *why* it was invisible. Both causes are things

@@ -20,7 +20,7 @@ three names.
 
 Linux is the most finished: it runs real Expo apps, with fonts and assets, and
 CI builds and tests it in full. macOS and Linux produce a byte-identical view
-tree for all eight test apps; `scripts/compare_all.sh` is what says so, and
+tree for every app in `js/`; `scripts/compare_all.sh` is what says so, and
 `scripts/compare_hosts.sh` is the single-app version. Windows joined that check
 in phase 47 but no machine has yet run two hosts at once to complete it.
 

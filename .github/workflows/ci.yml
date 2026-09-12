@@ -156,7 +156,7 @@ jobs:
       - name: Include hygiene
         # On both jobs, and it cannot fail on one and pass on the other -- it
         # reads text. That is the point: a header reaching <cstdint> through
-        # windows.h took this job down for thirteen commits, and nobody
+        # windows.h took this job down for twenty-three commits, and nobody
         # developing on Windows could see it. See the file.
         run: node scripts/check_includes.js
 

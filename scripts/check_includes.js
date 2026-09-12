@@ -1,7 +1,7 @@
 /**
  * Finds a standard header a file uses and does not include.
  *
- * This exists because of one bug that took CI down for thirteen commits.
+ * This exists because of one bug that took CI down for twenty-three commits.
  * `core/DevBundle.h` declared a function taking a `uint32_t` and included
  * `<optional>` and `<string>`. It compiled on Windows, because windows.h had
  * already been pulled in behind it, and on macOS for a similar reason. On Linux

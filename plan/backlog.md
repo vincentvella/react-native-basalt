@@ -4,18 +4,17 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
-Since phase 47 Windows is a peer: it mounts every component the other two
-desktops do, it runs the same end-to-end suite, it has a `run-windows`, and
-`compare_hosts.sh` knows how to run it. What is left below is real and named,
-and none of it is a missing half.
+Since phase 47 Windows is a peer rather than a port in progress. It mounts every
+component the other two desktops do -- `<View>`, `<Text>`, `<Image>`,
+`<ScrollView>` and `<TextInput>` -- and Hermes evaluates a bundle, Fabric diffs
+a shadow tree, Direct2D paints it in an HWND, a click on a `<Pressable>` runs
+its `onPress`, a wheel scrolls a list, and a character typed into a field
+reaches React and comes back. It runs the same end-to-end suite, it has a
+`run-windows`, and `compare_hosts.sh` knows how to run it.
 
-Since phase 46 Windows mounts every component the other two desktops do:
-`<View>`, `<Text>`, `<Image>`, `<ScrollView>` and `<TextInput>`. Hermes
-evaluates a bundle, Fabric diffs a shadow tree, Direct2D paints it in an HWND, a
-click on a `<Pressable>` runs its `onPress`, a wheel scrolls a list, and a
-character typed into a field reaches React and comes back. Struck-through
-entries below are what that took, kept because the order they were done in is
-the useful part.
+Struck-through entries below are what that took, kept because the order they
+were done in is the useful part. What is not struck through is real and named,
+and none of it is a missing half.
 
 - ~~**No mounting manager.**~~ Phase 42. Phase 19 had already done the expensive
   part: the mutation walk is portable, so what Windows owed was seven operations
@@ -143,7 +142,7 @@ the useful part.
   vcpkg, a React Native checkout and a Hermes build on a Windows runner: an
   hour cold, and worth doing once the caching is understood well enough not to
   pay it every run.
-- ~~**CI had been red for thirteen commits.**~~ Fixed in phase 47, and worth
+- ~~**CI had been red for twenty-three commits.**~~ Fixed in phase 47, and worth
   keeping written down. The last green run was "Blob, File and FileReader"; the
   Linux job failed on every commit after it, including all nine Windows phases,
   and nobody looked. Both causes were invisible from a Windows desk -- a static
