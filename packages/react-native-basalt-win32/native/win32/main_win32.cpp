@@ -16,9 +16,7 @@
 //   ContextContainer         http + websocket client factories, below
 //   ComponentRegistryFactory ComponentRegistryWin32       (via the mounting manager)
 //   FontRegistry             FontRegistryDirectWrite      (this repo, link-time seam)
-//
-// Input is the one entry missing from that table. There is no touch dispatcher
-// yet, so nothing on screen is pressable -- see the note at the bottom.
+//   input                    Win32TouchDispatcher         (this repo, hostProc)
 //
 // Threading: this thread owns the window and the message loop. ReactHost spins
 // up its own JS thread, and every mount is marshalled back here by
@@ -36,6 +34,7 @@
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
+#include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
 #include "RnWin32View.h"
 
@@ -69,6 +68,8 @@
 #include <react/utils/RunLoopObserverManager.h>
 
 #include <windows.h>
+// GET_X_LPARAM. Its own header, and not pulled in by WIN32_LEAN_AND_MEAN.
+#include <windowsx.h>
 
 #include <d2d1.h>
 #include <wrl/client.h>
@@ -78,6 +79,7 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 using facebook::react::ContextContainer;
@@ -118,6 +120,7 @@ struct Host {
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::Win32AnimationChoreographer> choreographer;
   std::unique_ptr<ReactHost> reactHost;
+  std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
 
   std::string bundlePath;
   // Empty means the bundle is a raw Fabric script rather than a React app.
@@ -397,6 +400,125 @@ void snapshotIfRequested() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Scripted input
+// ---------------------------------------------------------------------------
+
+// BASALT_TEST_TAP and BASALT_TEST_DRAG, the same two escape hatches both other
+// hosts have and for the same reason: the input path is otherwise untestable in
+// automation. Synthesising a real click on Windows means SendInput, which moves
+// the actual cursor and so cannot run beside anything else on the machine --
+// the same objection CGEvent raises on macOS.
+//
+// They enter at the dispatcher rather than at the window procedure, so what
+// they prove is hit testing, emitter lookup and delivery through the event
+// beat, and what they leave unproven is that Windows routes WM_LBUTTONDOWN to
+// `hostProc` at all. A person clicking the window is still the only check on
+// that half, on all three platforms.
+struct ScriptedInput {
+  bool isDrag{false};
+  double fromX{0};
+  double fromY{0};
+  double toX{0};
+  double toY{0};
+};
+
+// Fired from timers keyed by index, so the vector has to outlive the loop.
+std::vector<ScriptedInput> gScriptedInput;
+
+constexpr UINT_PTR kScriptedInputTimerBase = 200;
+
+// The numbers in "10,20,30" -- however many there are, which is what lets one
+// parser read both a tap's pair and a drag's four.
+std::vector<double> parseNumbers(const std::string &spec) {
+  std::vector<double> numbers;
+  size_t start = 0;
+  while (start <= spec.size()) {
+    const size_t comma = spec.find(',', start);
+    const std::string piece =
+        spec.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+    if (!piece.empty()) {
+      numbers.push_back(std::strtod(piece.c_str(), nullptr));
+    }
+    if (comma == std::string::npos) {
+      break;
+    }
+    start = comma + 1;
+  }
+  return numbers;
+}
+
+void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+  KillTimer(hwnd, id);
+  const size_t index = static_cast<size_t>(id - kScriptedInputTimerBase);
+  if (index >= gScriptedInput.size() || gHost.touchDispatcher == nullptr) {
+    return;
+  }
+  const ScriptedInput &action = gScriptedInput[index];
+  if (action.isDrag) {
+    std::fprintf(stderr,
+                 "BASALT_TEST_DRAG: (%.0f, %.0f) -> (%.0f, %.0f)\n",
+                 action.fromX,
+                 action.fromY,
+                 action.toX,
+                 action.toY);
+    gHost.touchDispatcher->synthesiseDrag(
+        action.fromX, action.fromY, action.toX, action.toY, 20);
+  } else {
+    std::fprintf(stderr, "BASALT_TEST_TAP: tapping (%.0f, %.0f)\n", action.fromX, action.fromY);
+    gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+  }
+}
+
+// Queues one action a second, starting a second and a half in -- late enough
+// that the first tree has been committed and mounted. Returns the delay after
+// the last one, so a drag can be scheduled behind the taps.
+UINT scheduleScriptedInput(const ScriptedInput &action, UINT delayMs) {
+  gScriptedInput.push_back(action);
+  SetTimer(gHost.window,
+           kScriptedInputTimerBase + gScriptedInput.size() - 1,
+           delayMs,
+           fireScriptedInput);
+  return delayMs + 1000;
+}
+
+// BASALT_TEST_TAP: "x,y" pairs separated by ';'.
+UINT scheduleTestTaps(const char *spec, UINT delayMs) {
+  const std::string all(spec);
+  size_t start = 0;
+  while (start <= all.size()) {
+    const size_t semicolon = all.find(';', start);
+    const std::string point =
+        all.substr(start, semicolon == std::string::npos ? std::string::npos : semicolon - start);
+    const std::vector<double> numbers = parseNumbers(point);
+    if (numbers.size() == 2) {
+      delayMs = scheduleScriptedInput(
+          ScriptedInput{.isDrag = false, .fromX = numbers[0], .fromY = numbers[1]}, delayMs);
+    }
+    if (semicolon == std::string::npos) {
+      break;
+    }
+    start = semicolon + 1;
+  }
+  return delayMs;
+}
+
+// BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release, for
+// the gestures a tap cannot reach. A pan is defined by the movement between
+// press and release, so a tap can never exercise one.
+UINT scheduleTestDrag(const char *spec, UINT delayMs) {
+  const std::vector<double> numbers = parseNumbers(std::string(spec));
+  if (numbers.size() != 4) {
+    return delayMs;
+  }
+  return scheduleScriptedInput(ScriptedInput{.isDrag = true,
+                                             .fromX = numbers[0],
+                                             .fromY = numbers[1],
+                                             .toX = numbers[2],
+                                             .toY = numbers[3]},
+                               delayMs);
+}
+
 void shutdown() {
   // Before the surface stops, which tears the tree down.
   dumpTreeIfRequested();
@@ -415,6 +537,10 @@ void shutdown() {
   }
   gHost.choreographer.reset();
   gHost.runLoopObserverManager.reset();
+  // Before the manager it holds a raw pointer into. Nothing can reach it by
+  // now -- the message loop has already returned -- but the order is the part
+  // that stays true if that ever stops being so.
+  gHost.touchDispatcher.reset();
   gHost.mountingManager.reset();
   gHost.target.Reset();
 }
@@ -462,6 +588,55 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       }
       return 0;
     }
+
+    // Mouse coordinates arrive in client-area pixels, which are the surface
+    // root's own coordinates: WM_SIZE sizes the root to the client rectangle,
+    // so the two spaces are the same one and nothing has to be converted.
+    case WM_LBUTTONDOWN: {
+      if (gHost.touchDispatcher == nullptr) {
+        break;
+      }
+      // Capture, or a drag that leaves the window stops being reported and the
+      // release never arrives -- which leaves the responder system believing a
+      // finger is still down and swallows every press after it. AppKit and GTK
+      // route a drag back to the view that took the press for free; here it has
+      // to be asked for.
+      SetCapture(hwnd);
+      gHost.touchDispatcher->dispatchTouchStart(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      return 0;
+    }
+
+    case WM_MOUSEMOVE:
+      // Motion with no button down is hover, and the dispatcher drops it; the
+      // check here is only to keep an idle mouse from walking the view tree
+      // sixty times a second.
+      if (gHost.touchDispatcher != nullptr && gHost.touchDispatcher->isDown()) {
+        gHost.touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      }
+      return 0;
+
+    case WM_LBUTTONUP: {
+      if (gHost.touchDispatcher == nullptr) {
+        break;
+      }
+      // The end first: ReleaseCapture sends WM_CAPTURECHANGED synchronously,
+      // and that is a cancel. Releasing first would turn every ordinary click
+      // into a cancelled touch, which is a press that never fires.
+      gHost.touchDispatcher->dispatchTouchEnd(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      if (GetCapture() == hwnd) {
+        ReleaseCapture();
+      }
+      return 0;
+    }
+
+    case WM_CAPTURECHANGED:
+      // Capture taken away by something else -- a modal dialog, Alt+Tab, the
+      // debugger. The release will never arrive, so the touch has to be
+      // cancelled here or the responder system waits for a finger that is gone.
+      if (gHost.touchDispatcher != nullptr) {
+        gHost.touchDispatcher->dispatchTouchCancel();
+      }
+      return 0;
 
     case WM_TIMER:
       if (wparam == kSecondTreeTimer) {
@@ -534,9 +709,10 @@ bool createWindow() {
 
 int main(int argc, char **argv) {
   gHost.bundlePath = argc > 1 ? argv[1] : "build/main.jsbundle.js";
-  // Defaults to the raw-Fabric script, because that is what this host can
-  // currently render without input: a React app needs components and a touch
-  // dispatcher Windows does not have yet.
+  // Defaults to the raw-Fabric script, because a React screen needs
+  // <ScrollView> and <TextInput> that Windows does not mount yet and would
+  // render with holes in it. A React app that stays inside <View>, <Text>,
+  // <Image> and <Pressable> -- js/press.js, say -- runs from here.
   gHost.moduleName = argc > 2 ? argv[2] : "";
   gHost.sourcePath = argc > 3 ? argv[3] : "";
 
@@ -650,6 +826,12 @@ int main(int argc, char **argv) {
   gHost.root = gHost.mountingManager->createSurfaceRoot(kSurfaceId);
   gHost.root->setFrame(0, 0, kInitialWidth, kInitialHeight);
 
+  // Before the script runs, so that a press arriving during the first commit
+  // has somewhere to go. The dispatcher holds the root, not a surface, so it
+  // outlives every transaction mounted into it.
+  gHost.touchDispatcher = std::make_unique<basalt::Win32TouchDispatcher>(
+      gHost.mountingManager.get(), gHost.root);
+
   // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
   // fails, which is right when nothing is listening and wrong when Metro
   // answered with an error: running the last bundle that built, while the
@@ -700,6 +882,14 @@ int main(int argc, char **argv) {
     SetTimer(gHost.window, kSecondTreeTimer, 2000, nullptr);
   }
 
+  UINT scriptedDelayMs = 1500;
+  if (const char *taps = std::getenv("BASALT_TEST_TAP")) {
+    scriptedDelayMs = scheduleTestTaps(taps, scriptedDelayMs);
+  }
+  if (const char *drag = std::getenv("BASALT_TEST_DRAG")) {
+    scriptedDelayMs = scheduleTestDrag(drag, scriptedDelayMs);
+  }
+
   // BASALT_QUIT_AFTER_MS, so an automated run terminates without anyone
   // clicking anything. The same escape hatch both other hosts have.
   if (const char *quitAfter = std::getenv("BASALT_QUIT_AFTER_MS")) {
@@ -720,10 +910,12 @@ int main(int argc, char **argv) {
   return exitCode;
 }
 
-// What is missing, and it is one thing rather than a list: **input**. There is
-// no Win32TouchDispatcher, so WM_LBUTTONDOWN reaches this window and stops
-// here. Hit testing is already written and tested -- `hitTest` in
-// RnWin32View.h, twelve tests -- so what is left is turning a mouse message
-// into a React Native touch and handing it to the event emitter the mounting
-// manager already keeps per tag. That is the next piece, and until it exists
-// nothing on screen is pressable.
+// What is missing is now two components rather than the whole of input:
+// <ScrollView> and <TextInput>. Both other hosts have them, and an ordinary
+// React screen renders with holes in it without them, which is why this host
+// still defaults to the raw-Fabric script rather than to a React app.
+//
+// Keyboard input is missing with <TextInput>, and for the same reason: there is
+// nothing yet that focus could belong to. WM_CHAR and WM_KEYDOWN reach this
+// window and stop here, which is the shape the mouse was in before
+// Win32TouchDispatcher.

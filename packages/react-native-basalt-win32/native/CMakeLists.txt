@@ -159,6 +159,10 @@ set(BASALT_WIN32_TEST_SOURCES
 if(TARGET basalt_core)
   add_library(basalt_win32_mounting STATIC
     win32/Win32MountingManager.cpp
+    # Mouse messages -> React Native touches. In the library rather than in the
+    # host so that tests can drive it, which is the only way the touch state
+    # machine is provable without a cursor.
+    win32/Win32TouchDispatcher.cpp
     # <Image> pixels: the fetch and the decode, both off the UI thread. The
     # fetch itself is core/ImageBytes.cpp in the shared half.
     win32/Win32ImageLoader.cpp
@@ -212,7 +216,10 @@ if(TARGET basalt_core)
     tests/test_win32_mounting.cpp
     # The image loader: the cache, the failure paths, and the two lifetimes.
     # In the RN-dependent set because the fetch is core/ImageBytes.cpp.
-    tests/test_win32_imageloader.cpp)
+    tests/test_win32_imageloader.cpp
+    # The touch state machine and the gesture handover, asking what
+    # tests/test_appkit_input.mm asks of AppKit.
+    tests/test_win32_input.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

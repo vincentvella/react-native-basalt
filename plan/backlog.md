@@ -4,10 +4,11 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
-Since phase 43 Windows runs JavaScript end to end: Hermes evaluates a bundle,
-Fabric diffs a shadow tree, and `<View>`, `<Text>` and `<Image>` are painted in
-an HWND. Struck-through entries below are what that took, kept because the
-order they were done in is the useful part.
+Since phase 44 Windows runs a React app end to end: Hermes evaluates a bundle,
+Fabric diffs a shadow tree, `<View>`, `<Text>` and `<Image>` are painted in an
+HWND, and a click on a `<Pressable>` runs its `onPress`. Struck-through entries
+below are what that took, kept because the order they were done in is the useful
+part.
 
 - ~~**No mounting manager.**~~ Phase 42. Phase 19 had already done the expensive
   part: the mutation walk is portable, so what Windows owed was seven operations
@@ -60,12 +61,21 @@ order they were done in is the useful part.
   provider object where GTK and AppKit take properties on a view. What is left
   of it is `IRawElementProviderFragment` and the control patterns, both of which
   need the HWND fragment root and so belong with a later phase of the host.
-- **No input at all.** There is no `Win32TouchDispatcher`, so nothing on screen
-  is pressable. Hit testing is done and tested -- twelve tests, including the
-  transform inversion neither other platform does -- so what is left is turning
-  a `WM_LBUTTONDOWN` into a React Native touch and handing it to the event
-  emitter the mounting manager already keeps per tag. The single largest thing
-  between the Windows host and a React app.
+- ~~**No input at all.**~~ Phase 44. `Win32TouchDispatcher` turns
+  `WM_LBUTTONDOWN`/`WM_MOUSEMOVE`/`WM_LBUTTONUP` into React Native touches, and
+  `js/press.js` counts presses on Windows. What is still missing is everything a
+  mouse has that a finger does not: **no hover**, so `onMouseEnter` and
+  `:hover`-style props never fire; **no right button and no wheel**, the second
+  of which `<ScrollView>` will want; **no keyboard**, which arrives with
+  `<TextInput>` because there is nothing yet that focus could belong to.
+- **`offsetPoint` is page coordinates on all three platforms.** A touch should
+  carry its position relative to the view it hit, and instead carries it
+  relative to the surface root. Pressability does not read it, which is why
+  nothing has noticed. On Windows the fix is cheap and was left out for
+  symmetry: the hit chain the dispatcher already builds for gestures carries
+  exactly the origin needed, so it only has to be built for touches too --
+  which means paying for it on every press rather than only when RNGH is
+  attached.
 - **No `<ScrollView>` or `<TextInput>` on Windows.** The first needs `onScroll`,
   scroll state and commands; the second an `EDIT` peer and the controlled-value
   loop. Until both exist an ordinary React screen renders with holes in it.
@@ -86,9 +96,10 @@ order they were done in is the useful part.
   written to be byte-for-byte what GTK and AppKit print, and the test that says
   so compares against a string copied out of the AppKit suite -- which is a
   claim about two files agreeing, not about two hosts agreeing. Nothing will
-  really check it until there is a Windows host to run an app on, and until this
-  machine can run one of the others: WSL2 will not start here because
-  virtualisation is disabled in firmware.
+  really check it until this machine can run one of the others: WSL2 will not
+  start here because virtualisation is disabled in firmware. There is now a
+  Windows host to run an app on, so the remaining blocker is only the second
+  half.
 
 ## macOS
 

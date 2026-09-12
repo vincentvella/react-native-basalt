@@ -85,8 +85,8 @@ touch and handing it to the event emitter the mounting manager already keeps per
 tag. Until that exists nothing on screen is pressable, which is also why the
 host defaults to the raw-Fabric script rather than to a React app.
 
-And a React app needs more than input: `<ScrollView>` and `<TextInput>` are
-unclaimed, so an ordinary screen would render with holes in it.
+That is phase 44, which is the next thing done. `<ScrollView>` and `<TextInput>`
+are still unclaimed, so an ordinary screen renders with holes in it.
 
 ## Two escape hatches, matching the other hosts
 

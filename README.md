@@ -18,14 +18,14 @@ ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
 reader. The demo app written for GTK runs on it unchanged, and the two hosts
 produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
 says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows runs JavaScript:
-Hermes evaluates a bundle, Fabric diffs a shadow tree, and `<View>`, `<Text>`
-and `<Image>` are painted in an HWND by Direct2D. It reports itself to UI
-Automation, and it is where this project first asserts on pixels rather than on
-a tree, because Direct2D renders offscreen with no window and neither other
-toolkit does. What it does not have is input -- nothing on screen is pressable
-yet -- and `<ScrollView>` and `<TextInput>`, so it runs the raw-Fabric demo
-rather than a React app.
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows runs a React app:
+Hermes evaluates a bundle, Fabric diffs a shadow tree, `<View>`, `<Text>` and
+`<Image>` are painted in an HWND by Direct2D, and a click on a `<Pressable>`
+runs its `onPress`. It reports itself to UI Automation, and it is where this
+project first asserts on pixels rather than on a tree, because Direct2D renders
+offscreen with no window and neither other toolkit does. What it does not have
+is `<ScrollView>` and `<TextInput>`, so an ordinary screen renders with holes in
+it and the host still defaults to the raw-Fabric demo.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -175,6 +175,9 @@ Inside the shared package, under `native/`:
     win32/demo_layout_win32.cpp The same six boxes as GTK's and AppKit's.
     win32/mount_harness_win32.cpp  The same two transactions as GTK's.
     win32/Win32ImageLoader.*    Fetch and decode off the UI thread.
+    win32/Win32TouchDispatcher.*  Mouse messages -> React Native touches, and
+                                the hit chain RNGH is offered. Capture is the
+                                host's, in main_win32.cpp.
     win32/Win32RunLoopObserver.*  The event beat. On Windows the message loop
                                 itself, because there is no hook to install.
     win32/Win32AnimationChoreographer.*  Animation frames, on a timer.
