@@ -185,8 +185,43 @@ void postDelayed(double milliseconds, std::function<void()> work) {
 
 // --- clipboard ---------------------------------------------------------------
 
+namespace {
+
+// The clipboard is one lock shared by every window on the desktop, and
+// OpenClipboard does not wait for it: if a window anywhere has it open, the
+// call fails at once with access denied. Clipboard listeners are windows, and
+// each is told of every change and opens the clipboard to read it, so a read or
+// a write that lands while one is reading is refused -- and before this, the
+// refusal was silent: a write simply did not happen.
+//
+// Found as js/modules.js failing "clipboard takes unicode", its second write in
+// a row, in 2 of 15 runs on the development machine, which compare_hosts.sh
+// reported as Windows disagreeing with Linux. What was holding the clipboard
+// was never caught: with this retry in place and logging on every refusal, 190
+// further runs saw none at all. So the retry is not proven to be what fixed
+// that; tests/test_win32_clipboard.cpp is what shows it is needed, by holding
+// the clipboard from a window and failing without it.
+//
+// A few short tries is what everyone does, Chromium included. Sleep(5) sleeps
+// a scheduler tick, about 15ms, so this is up to ~150ms on the UI thread --
+// only when somebody else has the clipboard, and a listener holds it for a
+// read rather than for long.
+bool openClipboard() {
+  constexpr int kAttempts = 10;
+  constexpr DWORD kPauseMs = 5;
+  for (int attempt = 0; attempt < kAttempts; ++attempt) {
+    if (OpenClipboard(nullptr)) {
+      return true;
+    }
+    Sleep(kPauseMs);
+  }
+  return false;
+}
+
+} // namespace
+
 std::string clipboardText() {
-  if (!OpenClipboard(nullptr)) {
+  if (!openClipboard()) {
     return {};
   }
   std::string result;
@@ -203,7 +238,7 @@ std::string clipboardText() {
 }
 
 void setClipboardText(const std::string &text) {
-  if (!OpenClipboard(nullptr)) {
+  if (!openClipboard()) {
     return;
   }
   EmptyClipboard();

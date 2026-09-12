@@ -235,7 +235,9 @@ if(TARGET basalt_core)
     tests/test_win32_scrollview.cpp
     # <TextInput>. The only tests here that make a window, because a text
     # field's peer is one -- see the file.
-    tests/test_win32_textinput.cpp)
+    tests/test_win32_textinput.cpp
+    # The clipboard, and what happens when another program has it open.
+    tests/test_win32_clipboard.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

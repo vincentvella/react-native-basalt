@@ -116,18 +116,26 @@ manager with no JavaScript anywhere. `BASALT_SNAPSHOT_DIR=/tmp/out
 tree after each; with no directory set it opens a window and applies the second
 transaction two seconds in, the way the GTK harness does.
 
-`scripts/compare_all.sh` runs every app in `js/` through both hosts and prints
-where the two platforms stand:
+`scripts/compare_all.sh` runs every app in `js/` through every host that is
+built and prints where the platforms stand. Windows against Linux in WSL:
 
 ```
-  views    identical, frames included
-  press    identical, frames included
-  scroll   identical, frames included
-  image    identical, frames included
-  text     identical, frames ignored
-  a11y     identical, frames ignored
-  input    identical, frames ignored
-  index    identical, frames ignored
+hosts: windows linux (linux in Ubuntu-24.04)
+
+  views        identical, frames included
+  press        identical, frames included
+  scroll       identical, frames included
+  image        identical, frames included
+  text         identical, frames ignored
+  a11y         identical, frames ignored
+  input        identical, frames ignored
+  appearance   identical, frames included
+  blob         identical, frames included
+  modules      identical, frames included
+  probe        identical, frames included
+  index        identical, frames ignored
+
+the 2 hosts agree on all 12 apps
 ```
 
 An app that only passes with frames ignored is one whose layout depends on text
@@ -145,15 +153,38 @@ It takes an app name rather than a bundle path per platform, and finds
 `build/<app>.<platform>.jsbundle.js` for each host it is going to run. Three
 paths on a command line was one too many.
 
-It needs at least two toolkits installed, so it runs on a developer's Mac rather
-than on CI, where each host only exists on its own side. Build the bundles
-first:
+It needs at least two hosts, so it runs on a developer's machine rather than on
+CI, where each host only exists on its own side. On a Mac with GTK installed,
+build the bundles first:
 
 ```bash
 scripts/bundle.sh --platform linux --entry views.js --out views.linux.jsbundle
 scripts/bundle.sh --platform macos --entry views.js --out views.macos.jsbundle
 scripts/compare_hosts.sh
 ```
+
+On Windows the second host is the GTK one, running inside WSL. Ubuntu 24.04,
+because the GTK host needs GTK 4.10 and 22.04 ships 4.6, installed beside any
+distro already there:
+
+```bash
+wsl --install -d Ubuntu-24.04 --no-launch
+wsl -d Ubuntu-24.04 -u root -e bash scripts/wsl_setup.sh
+BASALT_COMPARE_WSL=Ubuntu-24.04 scripts/compare_all.sh
+```
+
+`wsl_setup.sh` installs what the Linux CI job installs, clones this checkout
+onto the distro's own filesystem -- building across `/mnt/c` is too slow to be
+worth it -- and builds the host there the way CI does. So it compares the
+*committed* state: rerun it after committing. `compare_all.sh` builds any
+missing Linux bundles inside the distro, and runs the host under Xvfb rather
+than WSLg, because Xvfb is what CI uses.
+
+It also registers something to open `https` with. `Linking.canOpenURL` asks
+GIO whether anything handles the scheme, a bare distro has nothing, and
+`js/modules.js` then fails a check on Linux that a GitHub runner, which has a
+browser, passes -- which is exactly what the first comparison through WSL
+reported as a difference.
 
 `BASALT_COMPARE_TAP="x,y;x,y"` forwards taps to every host -- they read the same
 variable -- so the input path is compared too, not just the initial render.

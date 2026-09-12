@@ -78,9 +78,13 @@ a command line is one too many, and the convention —
 by hand anyway.
 
 The Windows leg was exercised on its own: it produces a tree, reports
-`Platform.OS is windows`, and prints `editable=""` where GTK does. What has
-still never happened is two hosts on one machine, and only that turns "the dumps
-are written to match" into "the dumps match".
+`Platform.OS is windows`, and prints `editable=""` where GTK does. What had
+still never happened was two hosts on one machine, and only that turns "the
+dumps are written to match" into "the dumps match".
+
+It has since: once WSL2 started, the GTK host in Ubuntu 24.04 and the Windows
+host agree on all twelve apps in `js/`. See `plan/backlog.md` for the two things
+that took.
 
 ## `run-windows`, and `run-macos`, and one command with three names
 
@@ -191,10 +195,8 @@ the React tree — it is hidden when it leaves a scrolled ancestor instead.
 And the choreographer is a sixteen-millisecond timer rather than a display link,
 which needs `DwmFlush` on a thread of its own.
 
-One gap is about this repository rather than about Windows. **CI does not build
-the Windows host.** Its job is the view layer only — two minutes, no React
-Native, no Hermes — so 63 of the 149 Windows tests run there, and the mounting
-manager, the input path, `<ScrollView>` and `<TextInput>` are covered by a
-developer's machine alone. A full job means vcpkg, a React Native checkout and a
-Hermes build on a Windows runner: an hour cold, and worth doing once its caching
-is understood well enough not to pay that every run.
+One gap was about this repository rather than about Windows: CI built the
+view layer only, so 63 of the 150 Windows tests ran there and the mounting
+manager, the input path, `<ScrollView>` and `<TextInput>` were covered by a
+developer's machine alone. It has since been closed by the `windows-full` job;
+see `plan/backlog.md`.

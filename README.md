@@ -21,8 +21,9 @@ three names.
 Linux is the most finished: it runs real Expo apps, with fonts and assets, and
 CI builds and tests it in full. macOS and Linux produce a byte-identical view
 tree for every app in `js/`; `scripts/compare_all.sh` is what says so, and
-`scripts/compare_hosts.sh` is the single-app version. Windows joined that check
-in phase 47 but no machine has yet run two hosts at once to complete it.
+`scripts/compare_hosts.sh` is the single-app version. Windows and Linux agree on
+all of them too, run side by side on one Windows machine with the GTK host in
+WSL -- see `docs/TESTING.md`.
 
 Windows is where this project first asserts on pixels rather than on a tree,
 because Direct2D renders offscreen with no window and neither other toolkit

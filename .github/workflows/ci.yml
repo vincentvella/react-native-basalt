@@ -11,11 +11,27 @@ name: CI
 # `windows-full`, which builds and tests the whole stack. macOS has no job at
 # all and is still covered by whoever is developing, which now means nobody.
 # See plan/backlog.md.
+#
+# ## Caches
+#
+# Every expensive thing is cached, and every cache is saved by its own step
+# straight after the step that produced it, not by actions/cache's post-job
+# hook. That hook saves only when the *whole job* succeeds, so one failing test
+# threw away a Hermes build, a vcpkg install and a compile -- the better part of
+# an hour on Windows -- and the run that fixed the test paid all of it again.
+#
+# Cold, the Windows job is about an hour: vcpkg 20 minutes, Hermes 13, the build
+# 17. Warm it should be a small fraction of that, and a step that takes as long
+# warm as cold is a key that is wrong.
 
 on:
   push:
     branches: [main, ci]
+    # Prose needs no compiler. Most commits here are a plan/ write-up or a
+    # README line, and each one was paying for all three build jobs.
+    paths-ignore: ["plan/**", "docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["plan/**", "docs/**", "**/*.md"]
   workflow_dispatch:
     inputs:
       drift:
@@ -85,42 +101,64 @@ jobs:
           git checkout -q FETCH_HEAD
           git log --oneline -1
 
-      - name: Cache React Native's node_modules
-        uses: actions/cache@v4
+      - name: Restore React Native's node_modules
+        id: node-modules
+        uses: actions/cache/restore@v4
         with:
           path: react-native-src/node_modules
           # Keyed on the commit alone: a fixed commit has a fixed yarn.lock.
           key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
-      - name: Cache third_party
-        uses: actions/cache@v4
+      - name: Restore third_party
+        id: third-party
+        uses: actions/cache/restore@v4
         with:
-          # Hermes is the expensive one -- 400 objects, and it changes only when
-          # the pin in bootstrap.sh does. Codegen output depends on the React
-          # Native commit, so that is in the key too.
-          #
-          # Hashing the whole script over-invalidates: editing a comment costs a
-          # Hermes rebuild. That is the safe direction to be wrong in, and
-          # bootstrap.sh changes rarely now. It is the one inside the package
-          # that matters; scripts/bootstrap.sh is a forwarder and hashing it
-          # would stop invalidating when the real script changed.
+          # Hermes is the expensive one -- 400 objects, sixteen minutes here --
+          # and it changes only when React Native's Hermes pin does.
           path: third_party
           key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+          # The fallback is what stops an edit to bootstrap.sh costing a Hermes
+          # rebuild, which it used to: the exact key still misses, the last
+          # third_party comes back anyway, and bootstrap.sh decides what in it
+          # is stale. It already stamps both halves -- Hermes with its version,
+          # codegen with React Native's -- and rebuilds only the one whose stamp
+          # disagrees, so a different pin restoring here is also safe.
+          #
+          # What no stamp can see is a change to *how* Hermes is built: a new
+          # flag or patch in bootstrap.sh, same version. That needs the cache
+          # deleting by hand (`gh cache delete`), and is rare enough to be worth
+          # the trade.
+          restore-keys: third-party-${{ runner.os }}-
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-${{ github.sha }}
           restore-keys: ccache-${{ runner.os }}-
 
       - name: Bootstrap
+        id: bootstrap
         run: |
           ccache --zero-stats
           BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
           # A run that rebuilds Hermes is a run whose cache key is wrong, and
           # the only symptom otherwise is that CI is slow.
           du -sh third_party react-native-src/node_modules
+
+      - name: Save third_party
+        if: steps.bootstrap.outcome == 'success' && steps.third-party.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party
+          key: ${{ steps.third-party.outputs.cache-primary-key }}
+
+      - name: Save React Native's node_modules
+        if: steps.bootstrap.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: react-native-src/node_modules
+          key: ${{ steps.node-modules.outputs.cache-primary-key }}
 
       - name: Configure
         run: |
@@ -130,9 +168,19 @@ jobs:
             -DRN_DIR=react-native-src/packages/react-native
 
       - name: Build
+        id: build
         run: |
           cmake --build build -j "$(nproc)"
           ccache --show-stats
+
+      - name: Save ccache
+        # Even from a build that failed: every object it did compile is still
+        # right, and the next run is the one that needs them.
+        if: always() && steps.build.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
 
       - name: Start a display
         # Both suites need one. No window manager is involved: the tests map
@@ -284,8 +332,17 @@ jobs:
     #
     # It is the Linux job's shape on purpose, step for step, so that a reader
     # who knows one knows the other. What differs is what Windows needs that
-    # apt would otherwise supply, and the three traps below that each cost a
-    # run to find.
+    # apt would otherwise supply, and the traps below that each cost a run to
+    # find.
+
+    env:
+      CCACHE_DIR: ${{ github.workspace }}\ccache
+      # With debug info embedded in every object (see Configure) the objects are
+      # large, and GitHub gives a repository 10GB of cache in all, evicting the
+      # oldest entry first. A ccache that grew without bound would push out the
+      # vcpkg and Hermes caches, which are the ones that cost twenty minutes to
+      # replace rather than two.
+      CCACHE_MAXSIZE: 2G
 
     steps:
       - uses: actions/checkout@v4
@@ -337,18 +394,41 @@ jobs:
           }
           "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Cache vcpkg's binaries
-        uses: actions/cache@v4
+      - name: ccache
+        # Linux gets it from apt; the Windows image does not have it. A pinned
+        # release, checked against its hash, rather than a package manager or an
+        # action -- the same reason as the step above.
+        shell: pwsh
+        run: |
+          $version = "4.14"
+          $expected = "2568347a697e103ca1b073981c704ad76fb2507d066c38dba038dd73399d968f"
+          $zip = "$env:RUNNER_TEMP\ccache.zip"
+          Invoke-WebRequest "https://github.com/ccache/ccache/releases/download/v$version/ccache-$version-windows-x86_64.zip" -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "ccache download hash $actual, expected $expected" }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ccache"
+          "$env:RUNNER_TEMP\ccache\ccache-$version-windows-x86_64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Restore vcpkg's binaries
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           # vcpkg's own binary cache rather than its `installed` tree. The tree
           # is what vcpkg decides from, and restoring one it did not write is
           # how a cache hit turns into a rebuild anyway; the binary cache is
           # meant to be carried between machines.
+          #
+          # A new key per run, found by prefix. vcpkg's cache is addressed by
+          # ABI hash, which includes the compiler, so a runner image update
+          # makes every entry miss -- and a fixed key would then be a permanent
+          # hit on a cache that no longer contains anything usable, never saved
+          # again, rebuilding every package on every run.
           path: ${{ github.workspace }}\vcpkg-binaries
-          key: vcpkg-${{ runner.os }}-glog-fmt-double-conversion-boost-openssl-curl-v1
+          key: vcpkg-${{ runner.os }}-${{ github.run_id }}
           restore-keys: vcpkg-${{ runner.os }}-
 
       - name: Install what Linux gets from apt
+        id: vcpkg
         # The list bootstrap.sh prints when they are missing, which is also the
         # list in the README. boost-thread is not on React Native's own list and
         # is needed anyway: folly's Windows PThread.cpp shim is written over it.
@@ -356,10 +436,25 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\vcpkg-binaries,readwrite
         run: |
-          New-Item -ItemType Directory -Force "${{ github.workspace }}\vcpkg-binaries" | Out-Null
+          $cache = "${{ github.workspace }}\vcpkg-binaries"
+          New-Item -ItemType Directory -Force $cache | Out-Null
+          $before = (Get-ChildItem $cache -Recurse -File).Count
           & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows `
             glog fmt double-conversion boost-regex boost-beast boost-asio boost-thread openssl curl
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+          # Saved only when something was built, which is what put new files
+          # in the cache. Uploading an unchanged cache on every run is time
+          # spent for nothing.
+          $after = (Get-ChildItem $cache -Recurse -File).Count
+          "built=$($after -gt $before)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "vcpkg binary cache: $before files before, $after after"
+
+      - name: Save vcpkg's binaries
+        if: steps.vcpkg.outputs.built == 'True'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-binaries
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Fetch React Native at the pinned release
         shell: bash
@@ -371,22 +466,33 @@ jobs:
           git checkout -q FETCH_HEAD
           git log --oneline -1
 
-      - name: Cache React Native's node_modules
-        uses: actions/cache@v4
+      - name: Restore React Native's node_modules
+        id: node-modules
+        uses: actions/cache/restore@v4
         with:
           path: react-native-src/node_modules
           key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
-      - name: Cache third_party
-        uses: actions/cache@v4
+      - name: Restore third_party
+        id: third-party
+        uses: actions/cache/restore@v4
         with:
-          # Keyed exactly as the Linux job keys it, with the OS in front: Hermes
-          # built with clang-cl is not Hermes built with clang, and a key that
-          # did not say so would restore the wrong one.
+          # Keyed as the Linux job keys it, with the OS in front: Hermes built
+          # with clang-cl is not Hermes built with clang, and a key that did not
+          # say so would restore the wrong one. The fallback is explained there.
           path: third_party
           key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+          restore-keys: third-party-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}\ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
 
       - name: Bootstrap
+        id: bootstrap
         # From Git Bash, which is what bootstrap.sh detects and expects, and
         # which inherits the MSVC environment the step above exported.
         #
@@ -398,24 +504,59 @@ jobs:
           BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
           du -sh third_party react-native-src/node_modules
 
+      - name: Save third_party
+        if: steps.bootstrap.outcome == 'success' && steps.third-party.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party
+          key: ${{ steps.third-party.outputs.cache-primary-key }}
+
+      - name: Save React Native's node_modules
+        if: steps.bootstrap.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: react-native-src/node_modules
+          key: ${{ steps.node-modules.outputs.cache-primary-key }}
+
       - name: Configure
         # CMAKE_BUILD_TYPE is not optional here, unlike on the other two
         # desktops. Left unset, MSVC picks the debug C runtime and vcpkg follows
         # it to the debug packages, while Hermes was built Release; lld-link
         # then reports a mismatch on _ITERATOR_DEBUG_LEVEL that names neither.
+        #
+        # **Debug info goes in the object, not a shared PDB.** RelWithDebInfo
+        # means /Zi, where every compile in a target writes into one .pdb, and
+        # ccache cannot cache a compile whose output is half of a shared file.
+        # /Z7 puts it in the .obj. CMake only honours the setting under policy
+        # CMP0141, which this project's cmake_minimum_required predates, hence
+        # the policy default; checked locally, it leaves no /Zi in any of the
+        # 463 compiles, React Native's included.
         shell: pwsh
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
             "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DRN_DIR=react-native-src/packages/react-native
           if ($LASTEXITCODE -ne 0) { throw "configure failed" }
 
       - name: Build
+        id: build
         shell: pwsh
         run: |
+          ccache --zero-stats | Out-Null
           cmake --build build -j $env:NUMBER_OF_PROCESSORS
-          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          $status = $LASTEXITCODE
+          ccache --show-stats
+          if ($status -ne 0) { throw "build failed" }
+
+      - name: Save ccache
+        if: always() && steps.build.outcome != 'skipped'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}\ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
 
       - name: Unit tests
         # All of them this time: the RN-dependent half that the view-layer job

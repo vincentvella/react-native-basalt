@@ -128,25 +128,29 @@ and none of it is a missing half.
   strings passed in, which is the same split the C++ half makes.
 - ~~**CI has no Windows runner.**~~ Added in phase 39, and small: the view layer
   builds with MSBuild and needs no display, no React Native and no bootstrap.
-- **No machine has run `scripts/compare_hosts.sh` with Windows in it.** The
-  script knows about three hosts as of phase 47 and runs whichever are built,
-  and the Windows leg was exercised on its own: it produces a tree, reports
-  `Platform.OS is windows`, and prints `editable="..."` where GTK does. What has
-  never happened is two hosts on one machine -- WSL2 will not start here because
-  virtualisation is disabled in firmware. A Mac with GTK installed could do it
-  today, and only that turns "the dumps are written to match" into "the dumps
-  match".
+- ~~**No machine has run `scripts/compare_hosts.sh` with Windows in it.**~~ It
+  has, once WSL2 worked: the GTK host built in Ubuntu 24.04 by
+  `scripts/wsl_setup.sh`, beside the Windows host, and `compare_all.sh` says the
+  two agree on all twelve apps. Getting there found two things, neither of them
+  in a view layer. The distro had nothing registered for `https`, so Linux
+  honestly failed a `canOpenURL` check a GitHub runner passes -- an environment
+  gap, now covered by the setup script. And Windows failed a clipboard check in
+  2 runs of 15, because a refused `OpenClipboard` silently dropped the write.
+  It retries now, with a test that holds the clipboard from a window and fails
+  without the retry; what was holding it was never caught, and 190 runs with
+  logging on every refusal saw none.
 - **`scripts/integration_test.py` skips Fast Refresh on Windows**, because
   `scripts/metro.sh` is a shell script. Everything it would prove about the
   *host* is the same code on every platform; what would be platform-specific is
   Metro's file watching, which is Metro's. The other four scenarios run.
-- **CI does not build the Windows host.** Its job is the view layer only --
-  two minutes, no React Native, no Hermes -- so 63 of the 150 Windows tests run
-  there and the mounting manager, the input path, `<ScrollView>` and
-  `<TextInput>` are covered by a developer's machine alone. A full job means
-  vcpkg, a React Native checkout and a Hermes build on a Windows runner: an
-  hour cold, and worth doing once the caching is understood well enough not to
-  pay it every run.
+- ~~**CI does not build the Windows host.**~~ It does, as `windows-full`:
+  vcpkg, Hermes from source, React Native's core under clang-cl, every Windows
+  test, the demo bundle and the end-to-end suite. Green on its first run, and
+  51 minutes cold -- vcpkg 20, Hermes 13, the build 17. What that cost is
+  what the caching around it is for: every cache is now saved by its own step
+  as soon as it exists rather than when the whole job succeeds, the Windows
+  build goes through ccache, and a change to `bootstrap.sh` no longer throws
+  away Hermes. Pushes that touch only prose start no jobs at all.
 - ~~**CI had been red for twenty-three commits.**~~ Fixed in phase 47, and worth
   keeping written down. The last green run was "Blob, File and FileReader"; the
   Linux job failed on every commit after it, including all nine Windows phases,

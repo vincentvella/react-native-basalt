@@ -26,9 +26,9 @@
 #
 # Whichever are built, and at least two are needed for there to be a
 # comparison. That is deliberately lenient: no machine has all three. A Mac with
-# GTK installed has two, a Linux box has one, and a Windows box has one -- so in
-# practice this runs on a developer's machine rather than in CI, where each host
-# only exists on its own side.
+# GTK installed has two, a Linux box has one, and a Windows box has two once WSL
+# has a Linux host built (below) -- so in practice this runs on a developer's
+# machine rather than in CI, where each host only exists on its own side.
 #
 # ## Usage
 #
@@ -91,6 +91,47 @@ for host in "${HOSTS[@]}"; do
   present+=("$name:$binary")
 done
 
+# A Linux host inside WSL, from Windows. Opt in by naming the distro:
+#
+#   BASALT_COMPARE_WSL=Ubuntu-24.04 scripts/compare_hosts.sh
+#
+# This is the only way one machine runs two of these hosts at once -- a Windows
+# box cannot run AppKit, and GTK on Windows is not what CI builds -- which is
+# why the comparison was never completed before WSL worked here. The Linux host
+# and its bundles live in a checkout inside the distro (BASALT_COMPARE_WSL_REPO),
+# because building under /mnt/c crosses WSL's 9p bridge on every file read.
+# scripts/wsl_setup.sh makes that checkout and builds it the way the Linux CI
+# job does.
+wsl_distro="${BASALT_COMPARE_WSL:-}"
+wsl_repo="${BASALT_COMPARE_WSL_REPO:-/root/react-native-basalt}"
+
+# Every argument handed to wsl.exe is a path *inside* the distro, and Git
+# Bash's MSYS runtime rewrites anything shaped like an absolute POSIX path on
+# its way to a native program: /root/... arrives as C:/Program Files/Git/root/...,
+# and `test -x` quietly answers no about a binary that is sitting right there.
+#
+# The same bug class bootstrap.sh hit with /DWIN32, and the opposite fix.
+# There one argument had to be excluded and the paths beside it *needed*
+# converting; here every argument is a Linux path by construction, so
+# conversion is off for all of them.
+wsl_run() {
+  MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 wsl.exe -d "$wsl_distro" -u root -e "$@"
+}
+if [[ -n "$wsl_distro" ]]; then
+  already_linux=""
+  for entry in "${present[@]}"; do
+    [[ "${entry%%:*}" == linux ]] && already_linux=1
+  done
+  if [[ -z "$already_linux" ]] && command -v wsl.exe >/dev/null 2>&1; then
+    if wsl_run test -x "$wsl_repo/build/basalt_gtk" 2>/dev/null; then
+      present+=("linux:wsl")
+    else
+      echo "BASALT_COMPARE_WSL is set but $wsl_repo/build/basalt_gtk is not built in $wsl_distro" >&2
+      exit 1
+    fi
+  fi
+fi
+
 if [[ ${#present[@]} -lt 2 ]]; then
   echo "need at least two hosts built to compare; found ${#present[@]}" >&2
   echo "  looked in $build for basalt_gtk, basalt_appkit and basalt_win32" >&2
@@ -116,6 +157,37 @@ status=0
 for entry in "${present[@]}"; do
   name="${entry%%:*}"
   binary="${entry#*:}"
+
+  if [[ "$binary" == wsl ]]; then
+    # Everything on the far side of wsl.exe is a path inside the distro: the
+    # bundle is the one the WSL checkout built, and the tree is written into
+    # this run's temp directory through /mnt/c so the diff below can read it.
+    # Xvfb because the host is a GTK program and the Linux CI job uses Xvfb --
+    # a pass under WSLg's display server would not be the same claim.
+    wsl_bundle="$wsl_repo/build/$app.linux.jsbundle.js"
+    [[ -n "$single_bundle" ]] && wsl_bundle="$wsl_repo/$single_bundle"
+    wsl_dump=$(wsl_run wslpath -u "$(native_path "$out/$name.txt")" | tr -d '\r')
+
+    echo "running the $name host, in $wsl_distro..."
+    wsl_run env \
+      BUNDLE="$wsl_bundle" MODULE="$module" DUMP="$wsl_dump" REPO="$wsl_repo" \
+      TAPS="$taps" QUIT="$quit_after" \
+      bash -c '
+        if [ ! -f "$BUNDLE" ]; then
+          echo "missing $BUNDLE -- build it inside the distro with:" >&2
+          echo "  scripts/bundle.sh react-native-src --platform linux --entry <app>.js --out <app>.linux.jsbundle" >&2
+          exit 1
+        fi
+        if ! xdpyinfo -display :99 >/dev/null 2>&1; then
+          Xvfb :99 -screen 0 1400x1000x24 >/tmp/xvfb.log 2>&1 &
+          for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
+        fi
+        cd "$REPO"
+        DISPLAY=:99 GDK_BACKEND=x11 BASALT_TEST_TAP="$TAPS" BASALT_DUMP_TREE="$DUMP" \
+          BASALT_QUIT_AFTER_MS="$QUIT" ./build/basalt_gtk "$BUNDLE" "$MODULE"
+      ' >"$out/$name.log" 2>&1 || true
+    continue
+  fi
 
   bundle="$single_bundle"
   [[ -n "$bundle" ]] || bundle="$build/$app.$name.jsbundle.js"
