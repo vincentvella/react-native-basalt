@@ -17,6 +17,7 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
@@ -44,14 +45,17 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // which is what Android does too.
       registry->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
 
+      // ScrollView's content child arrives as "ScrollContentView", which
+      // React Native's own registry rewrites to "View" before it reaches here,
+      // so it needs no entry of its own. What the descriptor is really for is
+      // ScrollViewState: without it the substituted UnimplementedNativeView has
+      // nowhere to keep a content offset, so a ScrollView renders and never
+      // scrolls -- silently, which is why the absence used to be worth naming.
+      registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+
       // Deliberately absent, and each absence is a decision rather than an
       // oversight:
       //
-      //   ScrollView  needs onScroll, scroll state and commands, none of which
-      //               exist here yet. Leaving it out does not fail loudly --
-      //               the registry substitutes UnimplementedNativeView, which
-      //               has no ScrollViewState, so a ScrollView renders and never
-      //               scrolls. Worth knowing before wondering why.
       //   TextInput   needs an EDIT peer and the controlled-value loop.
       //   ExpoImage   the seam exists in core/ExpoImageComponent.h and the
       //               props class is portable, but nothing here mounts one yet.

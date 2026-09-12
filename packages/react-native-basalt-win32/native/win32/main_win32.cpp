@@ -24,10 +24,11 @@
 // this thread.
 //
 // What this host can render is what Win32MountingManager can mount: <View>,
-// <Text> and <Image>. `js/demo.js` -- a surface driven straight through
-// nativeFabricUIManager, with no React and no react-native JavaScript -- is
-// therefore the bundle this runs by default, and is the same first light-up
-// both other hosts had.
+// <Text>, <Image> and <ScrollView>. `js/demo.js` -- a surface driven straight
+// through nativeFabricUIManager, with no React and no react-native JavaScript
+// -- is the bundle this runs by default, and is the same first light-up both
+// other hosts had. A React app that stays inside those four components runs
+// from here too.
 
 #include "Win32AnimationChoreographer.h"
 #include "Win32MountingManager.h"
@@ -416,11 +417,17 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  bool isDrag{false};
+  enum class Kind { Tap, Drag, Wheel };
+
+  Kind kind{Kind::Tap};
   double fromX{0};
   double fromY{0};
   double toX{0};
   double toY{0};
+  // Wheel only: notches, positive being a turn towards the user, which scrolls
+  // content down. The sign is the one BASALT_TEST_SCROLL takes on the other
+  // hosts, not the one WM_MOUSEWHEEL uses.
+  double lines{0};
 };
 
 // Fired from timers keyed by index, so the vector has to outlive the loop.
@@ -451,22 +458,56 @@ std::vector<double> parseNumbers(const std::string &spec) {
 void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
   KillTimer(hwnd, id);
   const size_t index = static_cast<size_t>(id - kScriptedInputTimerBase);
-  if (index >= gScriptedInput.size() || gHost.touchDispatcher == nullptr) {
+  if (index >= gScriptedInput.size()) {
     return;
   }
   const ScriptedInput &action = gScriptedInput[index];
-  if (action.isDrag) {
-    std::fprintf(stderr,
-                 "BASALT_TEST_DRAG: (%.0f, %.0f) -> (%.0f, %.0f)\n",
-                 action.fromX,
-                 action.fromY,
-                 action.toX,
-                 action.toY);
-    gHost.touchDispatcher->synthesiseDrag(
-        action.fromX, action.fromY, action.toX, action.toY, 20);
-  } else {
-    std::fprintf(stderr, "BASALT_TEST_TAP: tapping (%.0f, %.0f)\n", action.fromX, action.fromY);
-    gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+  switch (action.kind) {
+    case ScriptedInput::Kind::Tap:
+      std::fprintf(stderr, "BASALT_TEST_TAP: tapping (%.0f, %.0f)\n", action.fromX, action.fromY);
+      gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+      break;
+
+    case ScriptedInput::Kind::Drag:
+      std::fprintf(stderr,
+                   "BASALT_TEST_DRAG: (%.0f, %.0f) -> (%.0f, %.0f)\n",
+                   action.fromX,
+                   action.fromY,
+                   action.toX,
+                   action.toY);
+      gHost.touchDispatcher->synthesiseDrag(
+          action.fromX, action.fromY, action.toX, action.toY, 20);
+      break;
+
+    case ScriptedInput::Kind::Wheel: {
+      // A real WM_MOUSEWHEEL through the real window procedure, unlike the tap
+      // and the drag above -- because the two things most likely to be wrong
+      // about a wheel on Windows are the ones a dispatcher-level injection
+      // would skip. Its coordinates are in screen space and its sign is
+      // inverted against a contentOffset, and either mistake produces a wheel
+      // that scrolls the wrong thing or the wrong way rather than one that does
+      // nothing. So the point is converted back out to screen coordinates here
+      // for `hostProc` to convert in again, and the notches are negated for it
+      // to negate back.
+      //
+      // Sent rather than posted: a WM_TIMER callback is already on the UI
+      // thread, so this reaches hostProc synchronously and stays ordered with
+      // the actions around it.
+      POINT screen{static_cast<LONG>(action.fromX), static_cast<LONG>(action.fromY)};
+      ClientToScreen(hwnd, &screen);
+
+      const int delta = static_cast<int>(-action.lines * WHEEL_DELTA);
+      std::fprintf(stderr,
+                   "BASALT_TEST_SCROLL: %.0f lines at (%.0f, %.0f)\n",
+                   action.lines,
+                   action.fromX,
+                   action.fromY);
+      SendMessage(hwnd,
+                  WM_MOUSEWHEEL,
+                  MAKEWPARAM(0, delta),
+                  MAKELPARAM(static_cast<WORD>(screen.x), static_cast<WORD>(screen.y)));
+      break;
+    }
   }
 }
 
@@ -493,7 +534,8 @@ UINT scheduleTestTaps(const char *spec, UINT delayMs) {
     const std::vector<double> numbers = parseNumbers(point);
     if (numbers.size() == 2) {
       delayMs = scheduleScriptedInput(
-          ScriptedInput{.isDrag = false, .fromX = numbers[0], .fromY = numbers[1]}, delayMs);
+          ScriptedInput{.kind = ScriptedInput::Kind::Tap, .fromX = numbers[0], .fromY = numbers[1]},
+          delayMs);
     }
     if (semicolon == std::string::npos) {
       break;
@@ -511,12 +553,38 @@ UINT scheduleTestDrag(const char *spec, UINT delayMs) {
   if (numbers.size() != 4) {
     return delayMs;
   }
-  return scheduleScriptedInput(ScriptedInput{.isDrag = true,
+  return scheduleScriptedInput(ScriptedInput{.kind = ScriptedInput::Kind::Drag,
                                              .fromX = numbers[0],
                                              .fromY = numbers[1],
                                              .toX = numbers[2],
                                              .toY = numbers[3]},
                                delayMs);
+}
+
+// BASALT_TEST_SCROLL: "x,y,lines" triples separated by ';'. Positive lines
+// scroll down, as a contentOffset does -- the same spelling the macOS host
+// takes, so one variable drives a comparison across both.
+UINT scheduleTestScrolls(const char *spec, UINT delayMs) {
+  const std::string all(spec);
+  size_t start = 0;
+  while (start <= all.size()) {
+    const size_t semicolon = all.find(';', start);
+    const std::string step =
+        all.substr(start, semicolon == std::string::npos ? std::string::npos : semicolon - start);
+    const std::vector<double> numbers = parseNumbers(step);
+    if (numbers.size() == 3) {
+      delayMs = scheduleScriptedInput(ScriptedInput{.kind = ScriptedInput::Kind::Wheel,
+                                                    .fromX = numbers[0],
+                                                    .fromY = numbers[1],
+                                                    .lines = numbers[2]},
+                                      delayMs);
+    }
+    if (semicolon == std::string::npos) {
+      break;
+    }
+    start = semicolon + 1;
+  }
+  return delayMs;
 }
 
 void shutdown() {
@@ -627,6 +695,41 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         ReleaseCapture();
       }
       return 0;
+    }
+
+    // The wheel. Unlike every other mouse message, its coordinates are in
+    // *screen* space -- the message is sent to the focused window rather than
+    // to the one under the pointer, so a client-relative position would be
+    // meaningless. Forgetting ScreenToClient gives a wheel that scrolls the
+    // wrong list, or nothing, depending on where the window is on the desktop.
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL: {
+      if (gHost.mountingManager == nullptr || gHost.root == nullptr) {
+        break;
+      }
+      POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      ScreenToClient(hwnd, &point);
+
+      const double notches =
+          static_cast<double>(GET_WHEEL_DELTA_WPARAM(wparam)) / static_cast<double>(WHEEL_DELTA);
+      const double step = notches * basalt::Win32ScrollViewManager::kWheelStepPixels;
+
+      // Both axes are inverted against React Native's, and for different
+      // reasons. A positive WM_MOUSEWHEEL delta is a turn away from the user,
+      // which moves content down and so *reduces* contentOffset; a positive
+      // WM_MOUSEHWHEEL delta is a tilt to the right, which is the direction
+      // contentOffset already grows in. Getting either wrong gives a list that
+      // scrolls backwards, which is the kind of bug nobody reports as a bug.
+      const double dx = message == WM_MOUSEHWHEEL ? step : 0.0;
+      const double dy = message == WM_MOUSEWHEEL ? -step : 0.0;
+
+      if (gHost.mountingManager->scrollAt(gHost.root, point.x, point.y, dx, dy)) {
+        // Nothing else asks for this: a scroll changes no view's frame, so no
+        // transaction is mounted and setOnDidMount never fires.
+        requestRepaint();
+        return 0;
+      }
+      break;
     }
 
     case WM_CAPTURECHANGED:
@@ -888,6 +991,9 @@ int main(int argc, char **argv) {
   }
   if (const char *drag = std::getenv("BASALT_TEST_DRAG")) {
     scriptedDelayMs = scheduleTestDrag(drag, scriptedDelayMs);
+  }
+  if (const char *scrolls = std::getenv("BASALT_TEST_SCROLL")) {
+    scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
   }
 
   // BASALT_QUIT_AFTER_MS, so an automated run terminates without anyone

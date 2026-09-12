@@ -1,0 +1,154 @@
+// <ScrollView> on Win32.
+//
+// Yoga does the hard part. A ScrollView's Yoga node carries `overflow: scroll`,
+// which lets its child exceed the viewport instead of being clamped to it, so
+// by the time a mutation arrives the content is already laid out at its full
+// size and the only thing missing is the offset.
+//
+// Structure: a mounted ScrollView has exactly **one** child, a content view.
+// React Native's JS wraps the children in an `RCTScrollContentView`, which the
+// C++ registry rewrites to a plain `View`, so no extra descriptor is needed and
+// nothing here should expect N children.
+//
+// Scrolling is `RnWin32View::setScrollOffset`, which shifts children while
+// painting rather than moving them. The frames the mounting manager wrote stay
+// exactly the ones Yoga produced, nothing has to be undone on the next
+// mutation, and `hitTest` adds the same offset back on the way down -- so
+// picking follows the scroll without knowing what a ScrollView is. GTK reaches
+// the same place by shifting children in its layout manager and AppKit by
+// moving `bounds.origin`.
+//
+// Two things must happen on every scroll, and they are not the same thing:
+//
+//   - `onScroll` goes to JavaScript, throttled by `scrollEventThrottle`. Without
+//     it VirtualizedList never renders past its first window.
+//   - `contentOffset` is written back into `ScrollViewState`, unthrottled.
+//     `ScrollViewShadowNode::getContentOriginOffset` reads it, and through that
+//     so do `measure`, `measureLayout`, C++ hit testing and view culling. Skip
+//     it and those all silently report unscrolled coordinates.
+//
+// All of that is the same on all three desktops, which is why this file reads
+// like GtkScrollView.cpp with different event plumbing.
+//
+// ## What is different here
+//
+// **Routing.** GTK attaches a `GtkEventControllerScroll` per widget and AppKit
+// walks the responder chain; both get "a wheel over a row scrolls the list
+// containing it, and a list inside a list scrolls the inner one first" for
+// free. A Win32 view has no window of its own and there is no chain to walk, so
+// `scrollAt` does it: hit test for the view under the pointer, then walk up
+// parents offering the wheel to each ScrollView until one takes it. The first
+// that does is the innermost, which is the same answer the other two get.
+//
+// **Drag phases.** GTK's controller reports scroll-begin and scroll-end, and
+// AppKit's NSEvent carries a phase. Win32 has neither: `WM_MOUSEWHEEL` is a
+// bare notch with nothing around it. So a run of wheel messages is treated as
+// one drag, ended by a short idle timeout -- see `kWheelIdleMs`. Without that
+// there would be no `onScrollBeginDrag` or `onScrollEndDrag` on this platform
+// at all, and the components that wait for them would wait forever.
+
+#pragma once
+
+#include "RnWin32View.h"
+
+#include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
+#include <react/renderer/core/EventEmitter.h>
+#include <react/renderer/mounting/ShadowView.h>
+
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <unordered_map>
+
+namespace basalt {
+
+class Win32ScrollViewManager {
+ public:
+  // Emitters live in the mounting manager's registry, which is also what owns
+  // this, so they are reached through a lookup rather than a second copy.
+  using EmitterLookup = std::function<facebook::react::EventEmitter::Shared(facebook::react::Tag)>;
+
+  explicit Win32ScrollViewManager(EmitterLookup lookup);
+  ~Win32ScrollViewManager();
+
+  Win32ScrollViewManager(const Win32ScrollViewManager &) = delete;
+  Win32ScrollViewManager &operator=(const Win32ScrollViewManager &) = delete;
+  Win32ScrollViewManager(Win32ScrollViewManager &&) = delete;
+  Win32ScrollViewManager &operator=(Win32ScrollViewManager &&) = delete;
+
+  // Called for every mutation touching a ScrollView. Registers the view the
+  // first time, and refreshes the geometry and props after.
+  void update(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
+
+  void remove(facebook::react::Tag tag);
+
+  // ScrollView's imperative commands: scrollTo, scrollToEnd. Returns false if
+  // the command is not one this handles.
+  bool dispatchCommand(facebook::react::Tag tag,
+                       const std::string &name,
+                       const folly::dynamic &args);
+
+  // The wheel, in pixels already: a notch is resolved against kWheelStepPixels
+  // by the caller, because only the message knows how many notches it was. The
+  // point is in `root`'s coordinates. Returns false when nothing under it
+  // scrolls, which is what lets the host leave the message to DefWindowProc.
+  bool scrollAt(win32::RnWin32View *root, double x, double y, double dx, double dy);
+
+  // A wheel notch carries no pixel distance of its own, so a step has to be
+  // chosen. Roughly three lines of 16pt text, which is what browsers and both
+  // other desktops settle on -- and, at 96 DPI, close to what Windows' own
+  // three-line default works out to. Public because the host resolves notches
+  // into pixels before calling, and the two must use one number.
+  //
+  // Deliberately not `SPI_GETWHEELSCROLLLINES`. Honouring it would be the more
+  // native thing and would make one notch move a different distance here than
+  // on the other two desktops, which is the trade this project keeps making the
+  // other way: matching the other platform matters more than matching the
+  // toolkit's own default.
+  static constexpr double kWheelStepPixels = 53.0;
+
+ private:
+  struct Entry {
+    win32::RnWin32View *view{nullptr};
+    facebook::react::Tag tag{0};
+
+    std::shared_ptr<const facebook::react::ScrollViewShadowNode::ConcreteState> state;
+
+    facebook::react::Size contentSize{};
+    facebook::react::Size containerSize{};
+    facebook::react::EdgeInsets contentInset{};
+
+    bool scrollEnabled{true};
+    // Milliseconds, as React Native's prop is. Zero means every scroll.
+    double eventThrottleMs{0};
+
+    double offsetX{0};
+    double offsetY{0};
+    double lastEmitMs{0};
+
+    bool dragging{false};
+    // Bumped on every wheel. An idle timer that wakes and finds a different
+    // value knows another notch arrived after it was scheduled, and leaves the
+    // drag alone.
+    std::uint64_t wheelGeneration{0};
+  };
+
+  bool scrollEntry(Entry &entry, double dx, double dy);
+  void endWheelDrag(facebook::react::Tag tag, std::uint64_t generation);
+
+  void applyOffset(Entry &entry, double x, double y, bool emitEvent);
+  void emitScrollEvent(Entry &entry, const char *which);
+  void writeStateOffset(const Entry &entry);
+
+  EmitterLookup lookup_;
+  std::unordered_map<facebook::react::Tag, Entry> entries_;
+
+  // Cleared by the destructor, and held by every idle timer in flight. A timer
+  // that outlives this object -- a surface torn down inside the 150ms after the
+  // last notch -- finds the flag false and does nothing, instead of calling
+  // through a dangling `this`. The same arrangement Win32ImageLoader uses for
+  // the same reason, which is that `postDelayed` has no cancel.
+  std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+};
+
+} // namespace basalt

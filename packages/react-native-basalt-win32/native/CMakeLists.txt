@@ -163,6 +163,10 @@ if(TARGET basalt_core)
     # host so that tests can drive it, which is the only way the touch state
     # machine is provable without a cursor.
     win32/Win32TouchDispatcher.cpp
+    # <ScrollView>: the offset, the unthrottled state write-back, the wheel and
+    # the commands. Routing the wheel is this platform's alone -- there is no
+    # responder chain and no per-widget controller to attach one to.
+    win32/Win32ScrollView.cpp
     # <Image> pixels: the fetch and the decode, both off the UI thread. The
     # fetch itself is core/ImageBytes.cpp in the shared half.
     win32/Win32ImageLoader.cpp
@@ -219,7 +223,10 @@ if(TARGET basalt_core)
     tests/test_win32_imageloader.cpp
     # The touch state machine and the gesture handover, asking what
     # tests/test_appkit_input.mm asks of AppKit.
-    tests/test_win32_input.cpp)
+    tests/test_win32_input.cpp
+    # <ScrollView>: the clamp, the throttle, the state write-back, the wheel's
+    # innermost-first routing and the commands.
+    tests/test_win32_scrollview.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -4,11 +4,11 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
-Since phase 44 Windows runs a React app end to end: Hermes evaluates a bundle,
-Fabric diffs a shadow tree, `<View>`, `<Text>` and `<Image>` are painted in an
-HWND, and a click on a `<Pressable>` runs its `onPress`. Struck-through entries
-below are what that took, kept because the order they were done in is the useful
-part.
+Since phase 45 Windows runs a React app end to end: Hermes evaluates a bundle,
+Fabric diffs a shadow tree, `<View>`, `<Text>`, `<Image>` and `<ScrollView>` are
+painted in an HWND, a click on a `<Pressable>` runs its `onPress`, and a wheel
+scrolls a list. Struck-through entries below are what that took, kept because
+the order they were done in is the useful part.
 
 - ~~**No mounting manager.**~~ Phase 42. Phase 19 had already done the expensive
   part: the mutation walk is portable, so what Windows owed was seven operations
@@ -63,11 +63,13 @@ part.
   need the HWND fragment root and so belong with a later phase of the host.
 - ~~**No input at all.**~~ Phase 44. `Win32TouchDispatcher` turns
   `WM_LBUTTONDOWN`/`WM_MOUSEMOVE`/`WM_LBUTTONUP` into React Native touches, and
-  `js/press.js` counts presses on Windows. What is still missing is everything a
-  mouse has that a finger does not: **no hover**, so `onMouseEnter` and
-  `:hover`-style props never fire; **no right button and no wheel**, the second
-  of which `<ScrollView>` will want; **no keyboard**, which arrives with
-  `<TextInput>` because there is nothing yet that focus could belong to.
+  `js/press.js` counts presses on Windows. What is still missing is what a mouse
+  has and a finger does not: **no hover**, so `onMouseEnter` and `:hover`-style
+  props never fire; **no right button**; **no keyboard**, which arrives with
+  `<TextInput>` because there is nothing yet that focus could belong to. The
+  wheel is not among them any more -- phase 45 took it, and routed it through
+  the mounting manager rather than the touch dispatcher, because what it needs
+  is the list of tags that are ScrollViews.
 - **`offsetPoint` is page coordinates on all three platforms.** A touch should
   carry its position relative to the view it hit, and instead carries it
   relative to the surface root. Pressability does not read it, which is why
@@ -76,9 +78,15 @@ part.
   exactly the origin needed, so it only has to be built for touches too --
   which means paying for it on every press rather than only when RNGH is
   attached.
-- **No `<ScrollView>` or `<TextInput>` on Windows.** The first needs `onScroll`,
-  scroll state and commands; the second an `EDIT` peer and the controlled-value
-  loop. Until both exist an ordinary React screen renders with holes in it.
+- ~~**No `<ScrollView>` on Windows.**~~ Phase 45. What it does not have is
+  scrollbars, momentum, and a precision touchpad -- a Windows touchpad reports
+  through `WM_POINTER*` rather than `WM_MOUSEWHEEL`, so a two-finger scroll
+  arrives as notches like a wheel rather than as pixels, which neither other
+  desktop confuses. `SPI_GETWHEELSCROLLLINES` is ignored on purpose so that one
+  notch moves the same distance on all three.
+- **No `<TextInput>` on Windows.** An `EDIT` peer, the controlled-value loop, and
+  the keyboard messages that come with having something for focus to belong to.
+  The last component between this host and an ordinary React screen.
 - **The Windows choreographer is a 16ms timer**, not a display link. Doing it
   properly means `DwmGetCompositionTimingInfo` and `DwmFlush` on a thread of its
   own, because `DwmFlush` blocks and a blocked UI thread is worse than a

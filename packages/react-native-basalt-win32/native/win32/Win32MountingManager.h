@@ -22,6 +22,7 @@
 #include "RnWin32Image.h"
 #include "RnWin32View.h"
 #include "Win32ImageLoader.h"
+#include "Win32ScrollView.h"
 
 #include "MountingWalk.h"
 
@@ -88,6 +89,17 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // view is a plain object and only the host has the HWND.
   void setOnDidMount(std::function<void()> onDidMount);
 
+  // The wheel. Finds the innermost <ScrollView> under a point in the surface
+  // root's coordinates and scrolls it, returning false when nothing there
+  // scrolls -- which is what lets the host hand the message to DefWindowProc.
+  //
+  // Routed through here rather than from the view layer because a Win32 view
+  // has no window of its own and there is no responder chain to walk: only the
+  // object that knows which tags are ScrollViews can decide. Deltas are pixels
+  // already; see Win32ScrollViewManager::kWheelStepPixels for how a notch
+  // becomes one.
+  bool scrollAt(win32::RnWin32View *root, double x, double y, double deltaX, double deltaY);
+
  private:
   // --- What MountingWalk asks of a platform ---------------------------------
   friend class MountingWalk<Win32MountingManager, win32::RnWin32View *>;
@@ -106,11 +118,17 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   void applyImage(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
   void applyAccessibility(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
+  void applyScrollView(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load and make the image flicker
   // whenever its parent resizes. Both other platforms keep the same map.
   std::unordered_map<facebook::react::Tag, std::string> imageUris_;
+
+  // Scroll offsets, the unthrottled state write-back, the wheel and the
+  // commands. Constructed with a lookup into this object's own emitter registry
+  // rather than a second copy of it.
+  Win32ScrollViewManager scrollViews_;
 
   // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
   // too, and outlives this object while a load is in flight -- see the header.

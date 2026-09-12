@@ -288,10 +288,10 @@ TEST(win32_has_component_matches_the_registered_descriptors) {
   EXPECT(manager.hasComponent("RootView"));
   EXPECT(manager.hasComponent("Paragraph"));
   EXPECT(manager.hasComponent("Image"));
+  EXPECT(manager.hasComponent("ScrollView"));
 
   // Not yet claimed, and each is a named piece of work rather than an
   // oversight.
-  EXPECT(!manager.hasComponent("ScrollView"));
   EXPECT(!manager.hasComponent("TextInput"));
   EXPECT(!manager.hasComponent("SomethingNobodyHasHeardOf"));
 }
