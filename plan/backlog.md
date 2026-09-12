@@ -4,11 +4,13 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
-Since phase 45 Windows runs a React app end to end: Hermes evaluates a bundle,
-Fabric diffs a shadow tree, `<View>`, `<Text>`, `<Image>` and `<ScrollView>` are
-painted in an HWND, a click on a `<Pressable>` runs its `onPress`, and a wheel
-scrolls a list. Struck-through entries below are what that took, kept because
-the order they were done in is the useful part.
+Since phase 46 Windows mounts every component the other two desktops do:
+`<View>`, `<Text>`, `<Image>`, `<ScrollView>` and `<TextInput>`. Hermes
+evaluates a bundle, Fabric diffs a shadow tree, Direct2D paints it in an HWND, a
+click on a `<Pressable>` runs its `onPress`, a wheel scrolls a list, and a
+character typed into a field reaches React and comes back. Struck-through
+entries below are what that took, kept because the order they were done in is
+the useful part.
 
 - ~~**No mounting manager.**~~ Phase 42. Phase 19 had already done the expensive
   part: the mutation walk is portable, so what Windows owed was seven operations
@@ -84,9 +86,24 @@ the order they were done in is the useful part.
   arrives as notches like a wheel rather than as pixels, which neither other
   desktop confuses. `SPI_GETWHEELSCROLLLINES` is ignored on purpose so that one
   notch moves the same distance on all three.
-- **No `<TextInput>` on Windows.** An `EDIT` peer, the controlled-value loop, and
-  the keyboard messages that come with having something for focus to belong to.
-  The last component between this host and an ordinary React screen.
+- ~~**No `<TextInput>` on Windows.**~~ Phase 46, over a real `EDIT` control.
+  Windows now mounts all five components the other two desktops do. What it
+  does not have is multiline, `onKeyPress`, `onSelectionChange`, a tab order, or
+  the colours the cue banner and the selection take from the system -- and a
+  field with no `backgroundColor` paints the system window colour, because a
+  child window cannot see through itself to what Direct2D drew behind it.
+- **`BASALT_SNAPSHOT` cannot see a `<TextInput>` on Windows.** It renders the
+  `RnWin32View` tree offscreen and a text field's peer is a child window, not a
+  view -- so a field comes out as its background with no text, no placeholder
+  and no caret. Not a bug in the snapshot, but it does mean the one host that
+  can assert on pixels cannot assert on the one component whose appearance is
+  hardest to get right. `PrintWindow` on the live window is the answer and
+  nothing in the repository does it yet.
+- **A `<TextInput>` on Windows is always on top of everything.** Its peer is a
+  child window, so a later sibling cannot cover it and it does not clip to a
+  scrolled ancestor -- it is hidden when it leaves the ancestor's box instead,
+  which looks right until something is half-scrolled. A transform on the view
+  does not reach it either: a window cannot be rotated.
 - **The Windows choreographer is a 16ms timer**, not a display link. Doing it
   properly means `DwmGetCompositionTimingInfo` and `DwmFlush` on a thread of its
   own, because `DwmFlush` blocks and a blocked UI thread is worse than a
@@ -475,6 +492,20 @@ has gone unrecorded until now.
 
 ## TextInput
 
+- **An uncontrolled field loses what was typed into it, on GTK and macOS.**
+  Found on Windows in phase 46 and fixed there; the other two still apply the
+  `text` prop whenever it differs from the widget, which is wrong for a field
+  JavaScript does not own. React Native's `TextInput.js` sends
+  `text={value ?? defaultValue}`, so an uncontrolled field with no default sends
+  `undefined` -- the empty string by the time it is C++, indistinguishable from
+  a controlled field that was just cleared -- and it re-sends
+  `mostRecentEventCount` on every change, which is an Update mutation on its
+  own. So the second keystroke wipes the first. The fix is one line: apply the
+  prop when the *prop* changes, not when it differs from the widget, because a
+  controlled field's value changes as the user types and an uncontrolled one's
+  never does. iOS avoids it by reading the shadow state rather than the prop and
+  writing the typed text into that state, which is the larger correct answer.
+  Nobody noticed because `js/input.js` asserts on its *controlled* field.
 - No `multiline`. `RCTMultilineTextInputView` is not registered, and the C++
   side would need a `GtkTextView` peer rather than a `GtkText`.
 - `onKeyPress` and `onSelectionChange` are never emitted. Both are cheap -- a

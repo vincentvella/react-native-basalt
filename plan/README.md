@@ -25,5 +25,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `43-windows-host.md` — JavaScript renders on Windows, and the beat that cannot be installed
 - `44-windows-input.md` — a click runs an `onPress`, and the two things Win32 does not hand you
 - `45-windows-scrollview.md` — the wheel, and the two ways to get one wrong on Windows
+- `46-windows-textinput.md` — the last component, and the peer that is a window
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

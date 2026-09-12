@@ -85,9 +85,9 @@ touch and handing it to the event emitter the mounting manager already keeps per
 tag. Until that exists nothing on screen is pressable, which is also why the
 host defaults to the raw-Fabric script rather than to a React app.
 
-That is phase 44, which is the next thing done, and `<ScrollView>` is phase 45.
-`<TextInput>` is still unclaimed, so a screen with a form in it renders with a
-hole where the field should be.
+That is phase 44, which is the next thing done; `<ScrollView>` is phase 45 and
+`<TextInput>` phase 46. After those three the host mounts everything the other
+two desktops do.
 
 ## Two escape hatches, matching the other hosts
 

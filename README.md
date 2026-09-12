@@ -18,14 +18,14 @@ ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
 reader. The demo app written for GTK runs on it unchanged, and the two hosts
 produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
 says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows runs a React app:
-Hermes evaluates a bundle, Fabric diffs a shadow tree, `<View>`, `<Text>`,
-`<Image>` and `<ScrollView>` are painted in an HWND by Direct2D, a click on a
-`<Pressable>` runs its `onPress`, and a wheel scrolls a list. It reports itself
-to UI Automation, and it is where this project first asserts on pixels rather
-than on a tree, because Direct2D renders offscreen with no window and neither
-other toolkit does. What it does not have is `<TextInput>`, so a screen with a
-form in it renders with a hole where the field should be.
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows mounts the same
+five components: Hermes evaluates a bundle, Fabric diffs a shadow tree,
+`<View>`, `<Text>`, `<Image>` and `<ScrollView>` are painted in an HWND by
+Direct2D, `<TextInput>` is a real EDIT control, a click on a `<Pressable>` runs
+its `onPress`, a wheel scrolls a list, and a character typed into a field
+reaches React and comes back. It reports itself to UI Automation, and it is
+where this project first asserts on pixels rather than on a tree, because
+Direct2D renders offscreen with no window and neither other toolkit does.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -182,6 +182,10 @@ Inside the shared package, under `native/`:
                                 the commands, and the wheel's routing -- which
                                 is a parent walk here, since there is no
                                 responder chain to hand it to.
+    win32/Win32TextInput.*      <TextInput>, over a real EDIT control. The only
+                                peer on this platform that is a *window*, so it
+                                is also the only one the host has to place,
+                                forward messages to and colour.
     win32/Win32RunLoopObserver.*  The event beat. On Windows the message loop
                                 itself, because there is no hook to install.
     win32/Win32AnimationChoreographer.*  Animation frames, on a timer.

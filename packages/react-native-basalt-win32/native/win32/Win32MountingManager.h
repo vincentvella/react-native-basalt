@@ -23,6 +23,7 @@
 #include "RnWin32View.h"
 #include "Win32ImageLoader.h"
 #include "Win32ScrollView.h"
+#include "Win32TextInput.h"
 
 #include "MountingWalk.h"
 
@@ -100,6 +101,35 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // becomes one.
   bool scrollAt(win32::RnWin32View *root, double x, double y, double deltaX, double deltaY);
 
+  // --- <TextInput>, which needs more from a host than anything else ----------
+  //
+  // A text field's peer is a real EDIT control: a child window of the host's,
+  // whose notifications arrive at the host and whose colours are answered from
+  // the host's WM_CTLCOLOREDIT. None of those has an equivalent on GTK or
+  // AppKit, where a React Native view *is* a widget and the toolkit routes all
+  // of this on its own. See Win32TextInput.h.
+
+  // The window every peer is a child of. Must be set before the first
+  // TextInput mounts, which the host does right after creating its window.
+  void setHostWindow(HWND window);
+
+  // Moves every text field's peer to where its view now is. A child window does
+  // not follow a view that has no widget, so this has to be called after every
+  // transaction and after every scroll.
+  void syncTextInputBounds(win32::RnWin32View *root);
+
+  // WM_COMMAND and WM_CTLCOLOREDIT, forwarded from the host's window procedure.
+  bool handleControlCommand(WPARAM wparam, LPARAM lparam);
+  HBRUSH controlColor(HDC deviceContext, HWND control);
+
+  // BASALT_TEST_TYPE: real WM_CHARs into whichever field has focus.
+  bool typeIntoFocusedTextInput(const std::string &text);
+
+  // BASALT_TEST_TAP: focuses the field under a point, which is the one thing a
+  // synthesised tap cannot do -- a real click reaches the peer child window
+  // directly and never passes through the touch dispatcher at all.
+  bool focusTextInputAt(win32::RnWin32View *root, double x, double y);
+
  private:
   // --- What MountingWalk asks of a platform ---------------------------------
   friend class MountingWalk<Win32MountingManager, win32::RnWin32View *>;
@@ -119,6 +149,7 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   void applyAccessibility(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
   void applyScrollView(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
+  void applyTextInput(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load and make the image flicker
@@ -129,6 +160,10 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // commands. Constructed with a lookup into this object's own emitter registry
   // rather than a second copy of it.
   Win32ScrollViewManager scrollViews_;
+
+  // The EDIT peers, their placement, the controlled-value loop and the
+  // commands. Same lookup, same reason.
+  Win32TextInputManager textInputs_;
 
   // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
   // too, and outlives this object while a load is in flight -- see the header.

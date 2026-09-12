@@ -31,7 +31,8 @@ using win32::RnImageFit;
 using win32::RnWin32View;
 
 Win32MountingManager::Win32MountingManager()
-    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
+    : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
 
 Win32MountingManager::~Win32MountingManager() noexcept {
   // MountingWalk cannot do this from its own destructor: by the time a base
@@ -126,10 +127,13 @@ void Win32MountingManager::applyCommand(Tag tag,
   if (scrollViews_.dispatchCommand(tag, commandName, args)) {
     return;
   }
-  // Dropped silently rather than logged: the commands still unimplemented here
-  // are TextInput's focus, blur and setTextAndSelection, and that component
-  // does not mount on this platform at all. A command for a component the
-  // platform does not claim is expected rather than exceptional.
+  if (textInputs_.dispatchCommand(tag, commandName, args)) {
+    return;
+  }
+  // Dropped silently rather than logged. Every command the other two desktops
+  // implement is now implemented here, so what reaches this line is a command
+  // for a component this platform does not claim -- which is expected rather
+  // than exceptional, and would otherwise be logged on every frame of a list.
 }
 
 facebook::react::ComponentRegistryFactory Win32MountingManager::getComponentRegistryFactory() {
@@ -147,7 +151,7 @@ bool Win32MountingManager::hasComponent(const std::string &name) {
   // This list and ComponentRegistryWin32.cpp are two statements of one fact and
   // must agree.
   return name == "View" || name == "RootView" || name == "Paragraph" ||
-      name == "ScrollView" || name == "Image";
+      name == "ScrollView" || name == "Image" || name == "TextInput";
 }
 
 void Win32MountingManager::setUIManager(
@@ -190,6 +194,7 @@ void Win32MountingManager::removeChild(RnWin32View *parent, RnWin32View *child) 
 
 void Win32MountingManager::forgetTag(Tag tag) {
   scrollViews_.remove(tag);
+  textInputs_.remove(tag);
   imageUris_.erase(tag);
 }
 
@@ -206,6 +211,7 @@ void Win32MountingManager::updateView(RnWin32View *view, const ShadowView &shado
   // Last: the scroll manager clamps its offset against the frame that was just
   // applied, and forces the clip that applyProps may have read as `visible`.
   applyScrollView(view, shadowView);
+  applyTextInput(view, shadowView);
 }
 
 void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shadowView) {
@@ -471,6 +477,41 @@ void Win32MountingManager::applyScrollView(RnWin32View *view, const ShadowView &
 bool Win32MountingManager::scrollAt(
     RnWin32View *root, double x, double y, double deltaX, double deltaY) {
   return scrollViews_.scrollAt(root, x, y, deltaX, deltaY);
+}
+
+// ---------------------------------------------------------------------------
+// <TextInput>
+// ---------------------------------------------------------------------------
+
+void Win32MountingManager::applyTextInput(RnWin32View *view, const ShadowView &shadowView) {
+  if (std::string_view(shadowView.componentName) != "TextInput") {
+    return;
+  }
+  textInputs_.update(view, shadowView);
+}
+
+void Win32MountingManager::setHostWindow(HWND window) {
+  textInputs_.setHostWindow(window);
+}
+
+void Win32MountingManager::syncTextInputBounds(RnWin32View *root) {
+  textInputs_.syncBounds(root);
+}
+
+bool Win32MountingManager::handleControlCommand(WPARAM wparam, LPARAM lparam) {
+  return textInputs_.handleControlCommand(wparam, lparam);
+}
+
+HBRUSH Win32MountingManager::controlColor(HDC deviceContext, HWND control) {
+  return textInputs_.controlColor(deviceContext, control);
+}
+
+bool Win32MountingManager::typeIntoFocusedTextInput(const std::string &text) {
+  return textInputs_.typeIntoFocused(text);
+}
+
+bool Win32MountingManager::focusTextInputAt(RnWin32View *root, double x, double y) {
+  return textInputs_.focusAt(root, x, y);
 }
 
 } // namespace basalt

@@ -289,9 +289,11 @@ TEST(win32_has_component_matches_the_registered_descriptors) {
   EXPECT(manager.hasComponent("Paragraph"));
   EXPECT(manager.hasComponent("Image"));
   EXPECT(manager.hasComponent("ScrollView"));
+  EXPECT(manager.hasComponent("TextInput"));
 
-  // Not yet claimed, and each is a named piece of work rather than an
-  // oversight.
-  EXPECT(!manager.hasComponent("TextInput"));
+  // The five an ordinary app is built from, plus the root, and nothing else.
+  // What is left out is what no desktop here has -- Switch, Modal,
+  // ActivityIndicator and the rest. See plan/backlog.md.
+  EXPECT(!manager.hasComponent("Switch"));
   EXPECT(!manager.hasComponent("SomethingNobodyHasHeardOf"));
 }

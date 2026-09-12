@@ -167,6 +167,10 @@ if(TARGET basalt_core)
     # the commands. Routing the wheel is this platform's alone -- there is no
     # responder chain and no per-widget controller to attach one to.
     win32/Win32ScrollView.cpp
+    # <TextInput>: a real EDIT control, which is a child window rather than a
+    # painted view -- so it is also the only component whose peer the host has
+    # to position, forward messages to, and answer colour questions for.
+    win32/Win32TextInput.cpp
     # <Image> pixels: the fetch and the decode, both off the UI thread. The
     # fetch itself is core/ImageBytes.cpp in the shared half.
     win32/Win32ImageLoader.cpp
@@ -189,8 +193,10 @@ if(TARGET basalt_core)
   target_compile_options(basalt_win32_mounting PRIVATE ${BASALT_WIN32_WARNINGS})
   target_include_directories(basalt_win32_mounting PUBLIC win32)
   target_link_libraries(basalt_win32_mounting PUBLIC basalt_win32_view basalt_core)
-  # shell32 for ShellExecute, which is how a URL is opened.
-  target_link_libraries(basalt_win32_mounting PUBLIC shell32)
+  # shell32 for ShellExecute; comctl32 for SetWindowSubclass, which is how a
+  # <TextInput>'s EDIT peer is subclassed without breaking anything else that
+  # subclasses it later.
+  target_link_libraries(basalt_win32_mounting PUBLIC shell32 comctl32)
 
   # -------------------------------------------------------------------------
   # basalt_win32 — a ReactHost, Hermes, and one surface in an HWND.
@@ -226,7 +232,10 @@ if(TARGET basalt_core)
     tests/test_win32_input.cpp
     # <ScrollView>: the clamp, the throttle, the state write-back, the wheel's
     # innermost-first routing and the commands.
-    tests/test_win32_scrollview.cpp)
+    tests/test_win32_scrollview.cpp
+    # <TextInput>. The only tests here that make a window, because a text
+    # field's peer is one -- see the file.
+    tests/test_win32_textinput.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

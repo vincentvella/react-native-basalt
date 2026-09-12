@@ -105,8 +105,9 @@ check on the last inch.
 ## What is still missing
 
 Everything a mouse has that a finger does not. No hover, so `onMouseEnter` never
-fires. No right button. And no keyboard, which arrives with `<TextInput>` rather
-than before it, because there is nothing yet that focus could belong to.
+fires. No right button. And no keyboard until phase 46, which brought it with
+`<TextInput>` rather than before it, because until then there was nothing that
+focus could belong to.
 
 The wheel is the exception, and it went to phase 45 rather than here. A touch
 dispatcher is the wrong owner for it: what routing a wheel needs is the set of

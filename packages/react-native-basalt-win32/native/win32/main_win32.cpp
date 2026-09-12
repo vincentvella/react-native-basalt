@@ -24,11 +24,17 @@
 // this thread.
 //
 // What this host can render is what Win32MountingManager can mount: <View>,
-// <Text>, <Image> and <ScrollView>. `js/demo.js` -- a surface driven straight
-// through nativeFabricUIManager, with no React and no react-native JavaScript
-// -- is the bundle this runs by default, and is the same first light-up both
-// other hosts had. A React app that stays inside those four components runs
-// from here too.
+// <Text>, <Image>, <ScrollView> and <TextInput> -- the same five as the other
+// two desktops. `js/demo.js` -- a surface driven straight through
+// nativeFabricUIManager, with no React and no react-native JavaScript -- is
+// still the bundle this runs by default, because it is what an argumentless run
+// has always meant here; an ordinary React app runs from a bundle and a module
+// name.
+//
+// One thing below is not like the other hosts, and it is <TextInput>. Its peer
+// is a real EDIT control, which is a child *window*, so the host has to place
+// it, forward its notifications, and answer its colour questions. See
+// win32/Win32TextInput.h.
 
 #include "Win32AnimationChoreographer.h"
 #include "Win32MountingManager.h"
@@ -210,6 +216,18 @@ void requestRepaint() {
   if (gHost.window != nullptr) {
     InvalidateRect(gHost.window, nullptr, FALSE);
   }
+}
+
+// After every transaction, and after every scroll. Both move views, and a
+// <TextInput>'s peer is a child window that does not move with one: nothing in
+// the view tree owns an HWND, so its placement is recomputed from the tree
+// rather than following it. GTK and AppKit need no equivalent, because there a
+// text field is a widget inside the widget that is the view.
+void syncPeersAndRepaint() {
+  if (gHost.mountingManager != nullptr) {
+    gHost.mountingManager->syncTextInputBounds(gHost.root);
+  }
+  requestRepaint();
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +435,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Drag, Wheel };
+  enum class Kind { Tap, Drag, Wheel, Type };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -428,6 +446,9 @@ struct ScriptedInput {
   // content down. The sign is the one BASALT_TEST_SCROLL takes on the other
   // hosts, not the one WM_MOUSEWHEEL uses.
   double lines{0};
+  // Type only. Default-initialised explicitly, so that the three kinds that do
+  // not carry text can leave it out of a designated initialiser.
+  std::string text{};
 };
 
 // Fired from timers keyed by index, so the vector has to outlive the loop.
@@ -465,7 +486,18 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
   switch (action.kind) {
     case ScriptedInput::Kind::Tap:
       std::fprintf(stderr, "BASALT_TEST_TAP: tapping (%.0f, %.0f)\n", action.fromX, action.fromY);
-      gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+      if (gHost.touchDispatcher != nullptr) {
+        gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+      }
+      // A real click on a <TextInput> never reaches the touch dispatcher: the
+      // peer is a child window, so USER32 routes the click to it and the
+      // control focuses itself. That is the one thing a synthesised tap cannot
+      // reproduce, so it is done here instead -- and only here, because the
+      // real path needs none of it.
+      if (gHost.mountingManager != nullptr &&
+          gHost.mountingManager->focusTextInputAt(gHost.root, action.fromX, action.fromY)) {
+        std::fprintf(stderr, "BASALT_TEST_TAP: focused the field there\n");
+      }
       break;
 
     case ScriptedInput::Kind::Drag:
@@ -506,6 +538,24 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                   WM_MOUSEWHEEL,
                   MAKEWPARAM(0, delta),
                   MAKELPARAM(static_cast<WORD>(screen.x), static_cast<WORD>(screen.y)));
+      break;
+    }
+
+    case ScriptedInput::Kind::Type: {
+      // Real WM_CHARs into whichever <TextInput> has focus, so what this skips
+      // is the keyboard driver and nothing above it: the EDIT's own handling,
+      // EN_CHANGE, the emitter, the event beat, React's re-render and the
+      // controlled value coming back down all run exactly as they would.
+      //
+      // Focus is a precondition rather than something this arranges, which is
+      // why a BASALT_TEST_TAP on the field is scheduled before it -- the same
+      // pairing both other hosts use.
+      const bool typed = gHost.mountingManager != nullptr &&
+          gHost.mountingManager->typeIntoFocusedTextInput(action.text);
+      std::fprintf(stderr,
+                   "BASALT_TEST_TYPE: \"%s\"%s\n",
+                   action.text.c_str(),
+                   typed ? "" : " -- no field has focus");
       break;
     }
   }
@@ -726,11 +776,37 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       if (gHost.mountingManager->scrollAt(gHost.root, point.x, point.y, dx, dy)) {
         // Nothing else asks for this: a scroll changes no view's frame, so no
         // transaction is mounted and setOnDidMount never fires.
-        requestRepaint();
+        syncPeersAndRepaint();
         return 0;
       }
       break;
     }
+
+    // A <TextInput>'s peer is a real EDIT control, and an EDIT reports to its
+    // parent rather than to itself. EN_CHANGE, EN_SETFOCUS and EN_KILLFOCUS all
+    // arrive here, which is why the mounting manager has a method for them at
+    // all: on GTK and AppKit the widget is the view and the toolkit routes this
+    // without a host in the middle.
+    case WM_COMMAND:
+      if (gHost.mountingManager != nullptr &&
+          gHost.mountingManager->handleControlCommand(wparam, lparam)) {
+        return 0;
+      }
+      break;
+
+    // And an EDIT asks its parent what colours to use. Without an answer it
+    // draws in the system's, which have nothing to do with the `style` the
+    // component was given -- on a dark field that is dark text on dark.
+    // WM_CTLCOLORSTATIC as well, because a read-only EDIT asks with that one.
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC:
+      if (gHost.mountingManager != nullptr) {
+        if (HBRUSH brush = gHost.mountingManager->controlColor(
+                reinterpret_cast<HDC>(wparam), reinterpret_cast<HWND>(lparam))) {
+          return reinterpret_cast<LRESULT>(brush);
+        }
+      }
+      break;
 
     case WM_CAPTURECHANGED:
       // Capture taken away by something else -- a modal dialog, Alt+Tab, the
@@ -790,13 +866,18 @@ bool createWindow() {
     return false;
   }
 
+  // WS_CLIPCHILDREN so that the Direct2D paint excludes any <TextInput> peer.
+  // Without it the whole client area is painted and every EDIT child then
+  // repaints itself on top, which is a visible flicker on every mount.
+  constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+
   RECT wanted{0, 0, kInitialWidth, kInitialHeight};
-  AdjustWindowRect(&wanted, WS_OVERLAPPEDWINDOW, FALSE);
+  AdjustWindowRect(&wanted, kWindowStyle, FALSE);
 
   gHost.window = CreateWindowEx(0,
                                 windowClass.lpszClassName,
                                 L"react-native-basalt \x2014 Windows",
-                                WS_OVERLAPPEDWINDOW,
+                                kWindowStyle,
                                 CW_USEDEFAULT,
                                 CW_USEDEFAULT,
                                 wanted.right - wanted.left,
@@ -855,7 +936,12 @@ int main(int argc, char **argv) {
   // Every mounted transaction has to reach the screen. Windows repaints on
   // demand, so this is the difference between mutations arriving and anything
   // being visible.
-  gHost.mountingManager->setOnDidMount(requestRepaint);
+  gHost.mountingManager->setOnDidMount(syncPeersAndRepaint);
+
+  // Every <TextInput>'s EDIT peer is a child of this window. Set before the
+  // first transaction, because a field that mounts without one gets no control
+  // and no second chance -- `update` only creates on first sight.
+  gHost.mountingManager->setHostWindow(gHost.window);
 
   // Light or dark, and any change to it. Before ReactHost, so the module can
   // answer from the first query.
@@ -994,6 +1080,12 @@ int main(int argc, char **argv) {
   }
   if (const char *scrolls = std::getenv("BASALT_TEST_SCROLL")) {
     scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
+  }
+  // BASALT_TEST_TYPE: text for whichever field has focus. Last, so that a tap
+  // scheduled above has already put focus somewhere.
+  if (const char *text = std::getenv("BASALT_TEST_TYPE")) {
+    scriptedDelayMs = scheduleScriptedInput(
+        ScriptedInput{.kind = ScriptedInput::Kind::Type, .text = text}, scriptedDelayMs);
   }
 
   // BASALT_QUIT_AFTER_MS, so an automated run terminates without anyone

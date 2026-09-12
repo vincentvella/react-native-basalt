@@ -17,6 +17,7 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -53,19 +54,26 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // scrolls -- silently, which is why the absence used to be worth naming.
       registry->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
 
-      // Deliberately absent, and each absence is a decision rather than an
-      // oversight:
-      //
-      //   TextInput   needs an EDIT peer and the controlled-value loop.
-      //   ExpoImage   the seam exists in core/ExpoImageComponent.h and the
-      //               props class is portable, but nothing here mounts one yet.
+      // React Native's *iOS* TextInput, whose shadow node, props, state and
+      // event emitter are pure C++ and measure through a TextLayoutManager --
+      // the DirectWrite one, here. Android's variant includes fbjni and calls
+      // into a Java FabricUIManager, so it cannot be used outside an Android
+      // build. Both other desktops made the same choice; see
+      // plan/decisions.md. Its component name is "TextInput", which is what
+      // React Native's own componentNameByReactViewName maps
+      // RCTSinglelineTextInputView to, so nothing here renames anything.
+      registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
+
+      // Deliberately absent, and the absence is a decision rather than an
+      // oversight: ExpoImage's seam exists in core/ExpoImageComponent.h and its
+      // props class is portable, but nothing here mounts one yet.
       //
       // See plan/backlog.md.
       return registry;
     }();
 
     return providerRegistry->createComponentDescriptorRegistry(
-        {eventDispatcher, contextContainer});
+        {eventDispatcher, contextContainer, nullptr});
   };
 }
 
