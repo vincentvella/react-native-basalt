@@ -51,10 +51,27 @@ void Win32MountingManager::executeMount(SurfaceId surfaceId, MountingTransaction
   // plain C++ object -- but the *painting* is, and so is every HWND a later
   // <TextInput> will own. So nothing here may touch a view either.
   //
-  // Always post, never run inline even when already on the UI thread: the queue
-  // is FIFO, which is what keeps mutation ordering intact, and running one
-  // transaction inline while another is queued would break it. GTK and AppKit
-  // marshal here for the same reason, and so do iOS and Android.
+  // Always post, never run inline even when already on the UI thread. The queue
+  // is FIFO, and running one transaction inline while another is already
+  // queued would reorder them -- so this is about ordering rather than about
+  // thread-safety, and it is why the condition is absent rather than merely
+  // unnecessary.
+  //
+  // That is this project's choice rather than everyone's, and worth being exact
+  // about: iOS takes the other side. RCTMountingManager::scheduleTransaction
+  // runs `initiateTransaction` inline when `RCTIsMainQueue()`, and only
+  // dispatches otherwise. It gets away with it because under Fabric the JS
+  // thread is not the main thread, so the fast path is reached only when
+  // everything is already on one thread and there is nothing to reorder against.
+  // GTK and AppKit both queue unconditionally here, and this matches them.
+  //
+  // None of this changed with the New Architecture. What JSI removed is the
+  // *bridge* -- the JSON serialisation and the asynchronous message queue
+  // between JavaScript and native, which is why a TurboModule call is now a
+  // direct C++ call and why `measure` can answer synchronously. Mounting was
+  // never on that path: Fabric computes layout off the UI thread, commits to
+  // the shadow tree, and the mutations still have to be applied where the
+  // platform permits. Thread affinity is USER32's rule, not the bridge's.
   //
   // MountingTransaction is move-only, so it travels in a shared_ptr the lambda
   // can capture -- std::function requires its target to be copyable.
@@ -79,6 +96,16 @@ void Win32MountingManager::applyTransaction(SurfaceId surfaceId,
   if (auto uiManager = sharedUIManager()) {
     uiManager->reportMount(surfaceId);
   }
+
+  // And ask the host to repaint, because on Windows nothing does that on its
+  // own. See setOnDidMount.
+  if (onDidMount_) {
+    onDidMount_();
+  }
+}
+
+void Win32MountingManager::setOnDidMount(std::function<void()> onDidMount) {
+  onDidMount_ = std::move(onDidMount);
 }
 
 void Win32MountingManager::dispatchCommand(const ShadowView &shadowView,

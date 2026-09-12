@@ -22,5 +22,6 @@ should graduate into `README.md` or `docs/ARCHITECTURE.md`.
 - `40-windows-parity.md` — the Windows suite catches the other two
 - `41-msvc-core.md` — React Native's C++ core on MSVC, and the Hermes nobody has built
 - `42-windows-mounting.md` — the mounting manager, and the third data point for the shared walk
+- `43-windows-host.md` — JavaScript renders on Windows, and the beat that cannot be installed
 - `backlog.md` — everything not yet scheduled
 - `decisions.md` — choices made and why, so they are not re-litigated

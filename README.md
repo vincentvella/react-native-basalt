@@ -1,14 +1,15 @@
 # react-native-basalt
 
-React Native on the desktop -- Linux, macOS and eventually Windows -- built on
-React Native's *own* C++ core rather than on a fork of it.
+React Native on the desktop -- Linux, macOS and Windows -- built on React
+Native's *own* C++ core rather than on a fork of it.
 
 Basalt is the bedrock everything else sits on, and it forms columns: one shared
 mass, separate columns standing on it. That is the architecture. React Native's
 C++ platform, Hermes, Yoga, Fabric's mutation walk and the JavaScript platform
-layer are shared; a GTK4 widget layer and an AppKit view layer stand on them
-separately. Nothing is forked, which is why this can track the current Expo
-instead of trailing a rebase.
+layer are shared; a GTK4 widget layer, an AppKit view layer and a Win32 one
+stand on them separately. Nothing is forked, which is why this can track the
+current Expo instead of trailing a rebase -- and why it is on React Native
+0.87 while react-native-windows is on 0.84 and react-native-macos on 0.81.
 
 Today: Linux runs real Expo apps -- text, images, scrolling, text input,
 accessibility, fonts, assets. macOS mounts all four of the components an
@@ -17,12 +18,14 @@ ordinary app is built from -- `<View>`, `<Text>`, `<ScrollView>`, `<Image>` and
 reader. The demo app written for GTK runs on it unchanged, and the two hosts
 produce the same tree for all eight test apps; `scripts/compare_all.sh` is what
 says so. Both hosts produce a byte-identical view tree from the same
-JavaScript, which `scripts/compare_hosts.sh` checks. Windows mounts `<View>`,
-`<Text>` and `<Image>` from real Fabric mutations, reports itself to UI
-Automation, and produces the same two mount-harness pictures the other two do --
-but has no host yet, so nothing drives it from JavaScript. It is also where this
-project first asserts on pixels rather than on a tree, because Direct2D renders
-offscreen with no window and neither other toolkit does.
+JavaScript, which `scripts/compare_hosts.sh` checks. Windows runs JavaScript:
+Hermes evaluates a bundle, Fabric diffs a shadow tree, and `<View>`, `<Text>`
+and `<Image>` are painted in an HWND by Direct2D. It reports itself to UI
+Automation, and it is where this project first asserts on pixels rather than on
+a tree, because Direct2D renders offscreen with no window and neither other
+toolkit does. What it does not have is input -- nothing on screen is pressable
+yet -- and `<ScrollView>` and `<TextInput>`, so it runs the raw-Fabric demo
+rather than a React app.
 
 This was called `react-native-linux` until it stopped being about Linux.
 
@@ -171,6 +174,12 @@ Inside the shared package, under `native/`:
                                 postToUiThread, on a message-only window.
     win32/demo_layout_win32.cpp The same six boxes as GTK's and AppKit's.
     win32/mount_harness_win32.cpp  The same two transactions as GTK's.
+    win32/Win32ImageLoader.*    Fetch and decode off the UI thread.
+    win32/Win32RunLoopObserver.*  The event beat. On Windows the message loop
+                                itself, because there is no hook to install.
+    win32/Win32AnimationChoreographer.*  Animation frames, on a timer.
+    win32/main_win32.cpp        The host: ReactHost, Hermes, one surface in an
+                                HWND.
 
 And at the repository root:
 

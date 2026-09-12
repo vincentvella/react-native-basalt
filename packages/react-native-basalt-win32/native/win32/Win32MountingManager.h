@@ -27,6 +27,7 @@
 
 #include <react/renderer/uimanager/IMountingManager.h>
 
+#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -76,6 +77,17 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
                     const std::string &commandName,
                     const folly::dynamic &args);
 
+  // Called on the UI thread after every applied transaction, so the host can
+  // ask for a repaint.
+  //
+  // A callback rather than the manager knowing about a window, and needed at
+  // all because Windows repaints on demand: a mutation changes the view tree
+  // and nothing moves on screen until something invalidates. GTK reaches for
+  // `gtk_widget_queue_draw` and AppKit for `setNeedsDisplay:` from inside their
+  // own managers, which they can because a view there *is* a widget. Here a
+  // view is a plain object and only the host has the HWND.
+  void setOnDidMount(std::function<void()> onDidMount);
+
  private:
   // --- What MountingWalk asks of a platform ---------------------------------
   friend class MountingWalk<Win32MountingManager, win32::RnWin32View *>;
@@ -103,6 +115,8 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
   // too, and outlives this object while a load is in flight -- see the header.
   win32::Win32ImageLoader imageLoader_;
+
+  std::function<void()> onDidMount_;
 };
 
 } // namespace basalt

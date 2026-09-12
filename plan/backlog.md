@@ -4,16 +4,14 @@ Not scheduled. Roughly by value.
 
 ## Windows
 
-Everything, except the view layer phase 39 built. Listed in the order the macOS
-port took them, because that order was chosen once already and worked.
+Since phase 43 Windows runs JavaScript end to end: Hermes evaluates a bundle,
+Fabric diffs a shadow tree, and `<View>`, `<Text>` and `<Image>` are painted in
+an HWND. Struck-through entries below are what that took, kept because the
+order they were done in is the useful part.
 
-- **No mounting manager**, so no `ShadowViewMutation` has ever reached an
-  `RnWin32View`. Phase 19 already did the expensive part of this: the mutation
-  walk is portable and lives in `core/MountingWalk.h`, so what is owed is the
-  seven operations and a props translation. `ComponentRegistryWin32` and
-  `hasComponent` come with it, and the two must agree -- when they do not,
-  Fabric builds shadow nodes nothing can mount and the app renders blank
-  rectangles rather than an error.
+- ~~**No mounting manager.**~~ Phase 42. Phase 19 had already done the expensive
+  part: the mutation walk is portable, so what Windows owed was seven operations
+  and a props translation, and `core/MountingWalk.h` was not modified.
 - ~~**React Native's C++ core has never been compiled with MSVC.**~~ It has, in
   phase 41: 442 objects, `basalt_core.lib`, every translation unit in
   ReactCommon, ReactCxxPlatform, folly and Yoga under clang-cl. What is left of
@@ -55,24 +53,31 @@ port took them, because that order was chosen once already and worked.
   do. The Hermes patch was tested separately against a reverted copy of
   `Callable.h`, applies cleanly and is a no-op on a second pass; that is the
   part most worth proving properly, since `--force` deletes the tree it patches.
-- **`<Text>`**, over DirectWrite: an `IDWriteTextLayout` built in one place and
-  shared by `TextLayoutManager::measure` and painting, for the reason
-  `plan/decisions.md` gives for Pango. The fonts seam
-  (`core/FontRegistry.h`) is behind it, and DirectWrite's is an
-  `IDWriteFontSetBuilder` rather than fontconfig.
-- **`<Image>`**, over WIC. The fetch is already shared in `core/ImageBytes.cpp`;
-  only the decode and the cache are platform work.
-- **`<ScrollView>`** and **`<TextInput>`**, the latter over a real `EDIT` or
-  `RichEdit` child window; see `plan/decisions.md`.
-- **Input.** `WM_POINTER`/`WM_MOUSE` on the one surface `HWND`, hit-tested
-  through the view tree the way `RnAppKitHitTest` does -- and here the hit test
-  must invert each view's transform itself, because unlike GTK and AppKit there
-  is no toolkit picking to inherit.
-- **Accessibility** is UI Automation, and it is the one place Windows is
-  structurally different rather than differently spelled: GTK and AppKit both
-  take properties on a view, while UIA wants a provider object implementing
-  `IRawElementProviderSimple` and `IRawElementProviderFragment`. It is more work
-  than either, and it is the piece most likely to need its own phase.
+- ~~**`<Text>`**~~ (phase 40, over DirectWrite) and ~~**`<Image>`**~~ (phase 40,
+  over WIC, with the fetch shared from `core/ImageBytes.cpp`).
+- ~~**Accessibility.**~~ Phase 40, over UI Automation -- the one place Windows
+  is structurally different rather than differently spelled, since UIA wants a
+  provider object where GTK and AppKit take properties on a view. What is left
+  of it is `IRawElementProviderFragment` and the control patterns, both of which
+  need the HWND fragment root and so belong with a later phase of the host.
+- **No input at all.** There is no `Win32TouchDispatcher`, so nothing on screen
+  is pressable. Hit testing is done and tested -- twelve tests, including the
+  transform inversion neither other platform does -- so what is left is turning
+  a `WM_LBUTTONDOWN` into a React Native touch and handing it to the event
+  emitter the mounting manager already keeps per tag. The single largest thing
+  between the Windows host and a React app.
+- **No `<ScrollView>` or `<TextInput>` on Windows.** The first needs `onScroll`,
+  scroll state and commands; the second an `EDIT` peer and the controlled-value
+  loop. Until both exist an ordinary React screen renders with holes in it.
+- **The Windows choreographer is a 16ms timer**, not a display link. Doing it
+  properly means `DwmGetCompositionTimingInfo` and `DwmFlush` on a thread of its
+  own, because `DwmFlush` blocks and a blocked UI thread is worse than a
+  slightly wrong interval. The same gap already recorded for worklets and
+  Reanimated on both other desktops.
+- **Text colour is per-paragraph, not per-run.** `RnWin32TextLayout` applies
+  family, size, weight and slant per fragment, but DirectWrite carries colour as
+  a drawing effect rather than a range attribute, so a `<Text>` containing two
+  colours renders entirely in the first.
 - **No `react-native run-windows`**, and no CLI. `packages/react-native-basalt-gtk/cli`
   is the shape.
 - ~~**CI has no Windows runner.**~~ Added in phase 39, and small: the view layer

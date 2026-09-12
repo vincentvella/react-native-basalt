@@ -184,6 +184,18 @@ if(TARGET basalt_core)
   # shell32 for ShellExecute, which is how a URL is opened.
   target_link_libraries(basalt_win32_mounting PUBLIC shell32)
 
+  # -------------------------------------------------------------------------
+  # basalt_win32 — a ReactHost, Hermes, and one surface in an HWND.
+  # -------------------------------------------------------------------------
+  add_executable(basalt_win32
+    win32/main_win32.cpp
+    # The event beat. Not an observer on Windows: there is no "about to wait"
+    # hook, so the message loop itself is here. See the header.
+    win32/Win32RunLoopObserver.cpp
+    win32/Win32AnimationChoreographer.cpp)
+  target_compile_options(basalt_win32 PRIVATE ${BASALT_WIN32_WARNINGS})
+  target_link_libraries(basalt_win32 PRIVATE basalt_win32_mounting)
+
   # Real mutations into real views, with no JavaScript anywhere. The checkpoint
   # between "the mounting manager compiles" and "React Native runs": a mistake
   # in the Create/Insert/Update/Remove/Delete handling shows up in a picture
