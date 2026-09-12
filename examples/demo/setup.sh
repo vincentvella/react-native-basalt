@@ -29,12 +29,19 @@ RN_DIR="$(cd "$RN_DIR" && pwd)"
 
 mkdir -p "$HERE/node_modules"
 ln -sfn "$RN_DIR/node_modules/react-native" "$HERE/node_modules/react-native"
-# Both packages. The shared half carries the JavaScript platform layer and the
-# bundler; the GTK one carries the host and the `run-linux` command. React
-# Native's CLI reads a react-native.config.js out of each and merges them, which
-# is how an app gets the platforms from one and the command from the other.
+# Every package. The shared half carries the JavaScript platform layer and the
+# bundler; each platform half carries a host and one run command. React Native's
+# CLI reads a react-native.config.js out of each and merges them, which is how
+# an app gets the platforms from one and a command from each of the others.
+#
+# All three even on a machine that can only run one of them, deliberately: a
+# command whose host does not exist says which paths it looked in and how to
+# build one, which is more useful than the command not existing.
 ln -sfn "$REPO_ROOT/packages/react-native-basalt" "$HERE/node_modules/react-native-basalt"
-ln -sfn "$REPO_ROOT/packages/react-native-basalt-gtk" "$HERE/node_modules/react-native-basalt-gtk"
+for platform in gtk appkit win32; do
+  ln -sfn "$REPO_ROOT/packages/react-native-basalt-$platform" \
+    "$HERE/node_modules/react-native-basalt-$platform"
+done
 
 # react-native's cli.js refuses to run unless it finds this in the *project's*
 # node_modules, so linking react-native alone is not enough.

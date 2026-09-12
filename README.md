@@ -609,8 +609,12 @@ One command with three names: everything a desktop run does is the same, so it
 is written once in `react-native-basalt/cli/desktop.js` and each platform
 package passes in four strings. It starts a packager if one is not running,
 launches the app, and stays attached. `--build` builds the host first, and
-without it the command says how to build one when it cannot find one. `examples/demo` is a small app that exercises exactly this;
-`examples/demo/setup.sh` links it against a React Native checkout.
+without it the command says how to build one when it cannot find one.
+
+`examples/demo` is a small app that exercises exactly this, and
+`examples/demo/setup.sh` links it against a React Native checkout. It links all
+three platform packages even on a machine that can only run one of them, so
+`npm run windows` on a Mac reports what it looked for rather than not existing.
 
 Directly, without the CLI. Build a bundle once, then run:
 

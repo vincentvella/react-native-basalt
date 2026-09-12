@@ -2,9 +2,11 @@
   "name": "basalt-example",
   "version": "0.0.0",
   "private": true,
-  "description": "The smallest app that proves `react-native run-linux` works.",
+  "description": "The smallest app that proves react-native run-<desktop> works.",
   "scripts": {
-    "linux": "node node_modules/react-native/cli.js run-linux"
+    "linux": "node node_modules/react-native/cli.js run-linux",
+    "macos": "node node_modules/react-native/cli.js run-macos",
+    "windows": "node node_modules/react-native/cli.js run-windows"
   },
   "devDependencies": {
     "@react-native-community/cli": "*"
@@ -13,6 +15,8 @@
     "react": "*",
     "react-native": "*",
     "react-native-basalt": "*",
-    "react-native-basalt-gtk": "*"
+    "react-native-basalt-appkit": "*",
+    "react-native-basalt-gtk": "*",
+    "react-native-basalt-win32": "*"
   }
 }
