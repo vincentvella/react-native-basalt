@@ -24,6 +24,10 @@
 
 #pragma once
 
+// For uint32_t, which nothing else here brings in. It compiled on Windows
+// only because windows.h had already been pulled in behind it, and on a Mac for
+// the same kind of reason; Linux said so, which is what the Linux job is for.
+#include <cstdint>
 #include <optional>
 #include <string>
 

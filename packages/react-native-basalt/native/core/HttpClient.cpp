@@ -34,6 +34,9 @@
 #include <glog/logging.h>
 
 #include <atomic>
+// For the fixed-width types in IHttpClient's signatures. Reached through
+// DevBundle.h today, which is not a dependency worth relying on.
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>

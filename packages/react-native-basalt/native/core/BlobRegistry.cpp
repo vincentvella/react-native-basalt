@@ -1,5 +1,7 @@
 #include "BlobRegistry.h"
 
+// For std::min, which libstdc++ does not promise through <string>.
+#include <algorithm>
 #include <mutex>
 #include <unordered_map>
 

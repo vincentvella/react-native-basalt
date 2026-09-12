@@ -155,7 +155,26 @@ if(TARGET basalt_core)
   target_compile_options(basalt_gtk_mounting PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
 
   target_link_libraries(basalt_gtk_mounting PUBLIC basalt_gtk_view rn_core)
-target_link_libraries(basalt_gtk_mounting PUBLIC hermes-engine::hermesvm)
+  target_link_libraries(basalt_gtk_mounting PUBLIC hermes-engine::hermesvm)
+
+  # The seams point both ways, and GNU ld has to be told.
+  #
+  # `basalt_core` declares `core/PlatformServices.h`, `core/ColorScheme.h` and
+  # `core/FontRegistry.h`; this library defines them. So `CoreModules.o`, inside
+  # libbasalt_core.a, has undefined references that only libbasalt_gtk_mounting.a
+  # can satisfy -- while this library's own objects call into core. That is a
+  # genuine cycle between two static archives.
+  #
+  # It links anywhere the linker resolves across the whole command line, which
+  # is why Windows and macOS never noticed. GNU ld scans left to right exactly
+  # once, and CMake orders a dependency *after* its dependent, so libbasalt_core.a
+  # arrives with libbasalt_gtk_mounting.a already behind it and the seams come
+  # out undefined.
+  #
+  # Declaring the cycle is CMake's own answer: for mutually dependent STATIC
+  # libraries it repeats the whole connected component on the link line. A
+  # `--start-group` would work too and would say less about why.
+  target_link_libraries(basalt_core PUBLIC basalt_gtk_mounting)
 
   # ---------------------------------------------------------------------------
   # mount_harness_gtk — drives real ShadowViewMutations through the real mounting
