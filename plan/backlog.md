@@ -137,12 +137,22 @@ the useful part.
   *host* is the same code on every platform; what would be platform-specific is
   Metro's file watching, which is Metro's. The other four scenarios run.
 - **CI does not build the Windows host.** Its job is the view layer only --
-  two minutes, no React Native, no Hermes -- so 63 of the 149 Windows tests run
+  two minutes, no React Native, no Hermes -- so 63 of the 150 Windows tests run
   there and the mounting manager, the input path, `<ScrollView>` and
   `<TextInput>` are covered by a developer's machine alone. A full job means
   vcpkg, a React Native checkout and a Hermes build on a Windows runner: an
   hour cold, and worth doing once the caching is understood well enough not to
   pay it every run.
+- ~~**CI had been red for thirteen commits.**~~ Fixed in phase 47, and worth
+  keeping written down. The last green run was "Blob, File and FileReader"; the
+  Linux job failed on every commit after it, including all nine Windows phases,
+  and nobody looked. Both causes were invisible from a Windows desk -- a static
+  archive cycle only GNU ld minds, and a header reaching `<cstdint>` through
+  windows.h -- which is the argument for `scripts/check_includes.js` and for
+  reading the log rather than the tick.
+  - **Nothing makes a red build hard to ignore.** No branch protection, no
+    required check, no notification anyone reads. Thirteen commits is what that
+    costs, and none of the work above changes it.
 
 ## macOS
 

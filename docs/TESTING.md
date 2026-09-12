@@ -14,7 +14,14 @@ scripts/integration_test.py         # end to end, on whichever host is built
 
 scripts/compare_hosts.sh            # every host built, same app, diffed
 node --test scripts/test_cli.js     # run-linux, run-macos and run-windows
+node scripts/check_includes.js      # a header used and not included
 ```
+
+The last two need nothing built, and run in both CI jobs. `check_includes.js`
+exists because a header that reached `<cstdint>` through windows.h took the
+Linux job down for thirteen commits and could not be seen from the machine the
+work was on; it reads text, so it cannot fail on one platform and pass on
+another.
 
 `integration_test.py` picks whichever host it finds and runs the same scenarios
 against it, because they are about React and Fabric rather than about a

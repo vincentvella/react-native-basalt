@@ -133,6 +133,49 @@ alone is an Update mutation, and an uncontrolled field's `text` is the empty
 string forever. Neither had a staleness guard on the prop either, only on the
 command.
 
+## And CI had been red for thirteen commits
+
+Nobody had looked. The last green run was "Blob, File and FileReader", and every
+commit after it failed the Linux job -- including all nine Windows phases, which
+is thirteen commits of work landing on a build that was already broken.
+
+That is a process failure before it is a technical one, and the technical part
+is only interesting because of *why* it was invisible. Both causes are things
+that cannot happen on the machine this was developed on.
+
+**The platform seams did not link.** `basalt_core` declares
+`core/PlatformServices.h`, `core/ColorScheme.h` and `core/FontRegistry.h`; the
+platform library defines them. So `CoreModules.o`, inside `libbasalt_core.a`,
+has undefined references that only `libbasalt_gtk_mounting.a` can satisfy --
+while that library's own objects call into core. A genuine cycle between two
+static archives.
+
+MSVC's linker resolves across the whole command line and never noticed. GNU ld
+scans left to right exactly once, and CMake orders a dependency *after* its
+dependent, so `libbasalt_core.a` arrived with the platform library already
+behind it. Declaring the cycle is CMake's own answer: for mutually dependent
+static libraries it repeats the connected component on the link line.
+
+**And `DevBundle.h` used `uint32_t` without `<cstdint>`.** It reached it through
+windows.h on one platform and through something on the other. Nothing about that
+is subtle; what is worth recording is that it is *structurally* invisible from a
+Windows desk, and that phase 41 made it more so by stripping React Native's
+`-Wall -Werror -Wpedantic` on Windows -- necessary, because clang-cl misreads
+them, and it means a diagnostic introduced here is not seen until Linux compiles
+it.
+
+Two things came out of that. Every shared-core source was recompiled locally
+with clang's warnings put back, which found nothing further -- so the
+`-Werror` half of the risk is measurable from here after all. And
+`scripts/check_includes.js` is a small reader that reports a standard header a
+file uses and does not include; it needs no build, no toolkit and no React
+Native, runs in both CI jobs, and cannot fail on one platform and pass on
+another. It found eleven more of the same across all three platforms, every one
+of them working by transitive luck.
+
+A compiler is the right tool for this and there is no substitute. The point of
+the reader is that it runs on the machine the work is being done on.
+
 ## What is left, and what it is not
 
 Not a missing half. Windows now mounts every component, runs every scenario the
