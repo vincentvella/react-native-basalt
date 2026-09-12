@@ -101,6 +101,43 @@ RnWin32TextLayout::create(std::string utf8Text, const RnTextStyle &style, int ma
   return layout;
 }
 
+std::shared_ptr<RnWin32TextLayout>
+RnWin32TextLayout::createFromRuns(const std::vector<RnTextRun> &runs, int maximumNumberOfLines) {
+  if (runs.empty()) {
+    return create(std::string{}, RnTextStyle{}, maximumNumberOfLines);
+  }
+
+  // The first run's style is the paragraph's: alignment and line spacing belong
+  // to the whole thing rather than to a span, and React Native applies them
+  // that way too.
+  std::string joined;
+  for (const auto &run : runs) {
+    joined += run.text;
+  }
+
+  auto layout = create(joined, runs.front().style, maximumNumberOfLines);
+  if (layout == nullptr) {
+    return nullptr;
+  }
+
+  // One style needs no ranges, and skipping them keeps the common case -- a
+  // plain <Text> -- free of per-range work.
+  if (runs.size() == 1) {
+    return layout;
+  }
+
+  // Ranges are counted in UTF-16 code units, not bytes and not code points, so
+  // each run's extent has to be measured after conversion. Getting this wrong
+  // shifts every style after the first emoji.
+  unsigned start = 0;
+  for (const auto &run : runs) {
+    const unsigned length = static_cast<unsigned>(widen(run.text).size());
+    layout->runs_.push_back(ResolvedRun{start, length, run.style});
+    start += length;
+  }
+  return layout;
+}
+
 RnWin32TextLayout::~RnWin32TextLayout() {
   if (format_ != nullptr) {
     format_->Release();
@@ -122,6 +159,22 @@ IDWriteTextLayout *RnWin32TextLayout::buildLayout(float maxWidth, float maxHeigh
       utf16_.c_str(), static_cast<UINT32>(utf16_.size()), format_, width, height, &layout);
   if (FAILED(hr)) {
     return nullptr;
+  }
+
+  // Per-span styling, applied here rather than at creation so that measurement
+  // and painting see exactly the same runs -- which is the whole reason this
+  // function exists.
+  for (const auto &run : runs_) {
+    const DWRITE_TEXT_RANGE range{run.start, run.length};
+    const std::wstring family = widen(run.style.fontFamily);
+    if (!family.empty()) {
+      layout->SetFontFamilyName(family.c_str(), range);
+    }
+    layout->SetFontSize(run.style.fontSize, range);
+    layout->SetFontWeight(
+        run.style.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL, range);
+    layout->SetFontStyle(
+        run.style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, range);
   }
   return layout;
 }

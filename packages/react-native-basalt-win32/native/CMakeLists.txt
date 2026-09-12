@@ -147,22 +147,67 @@ set(BASALT_WIN32_TEST_SOURCES
   tests/test_win32_accessibility.cpp)
 
 # ---------------------------------------------------------------------------
-# Still to come, in the order the macOS port took them:
+# basalt_win32_mounting — the Windows half of the Fabric mounting manager.
 #
-#   basalt_win32_mounting   Win32MountingManager (the seven operations
-#                           core/MountingWalk.h asks for), ComponentRegistryWin32,
-#                           FontRegistryDirectWrite, ColorSchemeWin32,
-#                           PlatformServicesWin32, DirectWriteLayoutManager.
-#   mount_harness_win32     real ShadowViewMutations, no JavaScript.
+# The mutation walk is not here: it is in the shared half, in
+# core/MountingWalk.h. What is here is what is genuinely Windows about mounting,
+# plus the four seams a platform owes the core.
+#
+# Skipped when the build was not pointed at a React Native, so the view layer
+# above still builds and tests on a Windows box with nothing but a compiler.
+# ---------------------------------------------------------------------------
+if(TARGET basalt_core)
+  add_library(basalt_win32_mounting STATIC
+    win32/Win32MountingManager.cpp
+    # Which components this platform claims. See core/ComponentRegistry.h, and
+    # note this and Win32MountingManager::hasComponent must agree.
+    win32/ComponentRegistryWin32.cpp
+    # AttributedString -> RnWin32TextLayout. Shared by measurement and painting,
+    # so they agree, which is the whole reason it is one file.
+    win32/DirectWriteLayout.cpp
+    # Replaces React Native's stub TextLayoutManager; see the shared half's
+    # cmake/ReactNativeCore.cmake for why the stub has to leave the build.
+    win32/DirectWriteLayoutManager.cpp
+    # Windows' implementation of core/FontRegistry.h -- the seam phase 17 named.
+    win32/FontRegistryDirectWrite.cpp
+    # ...and of core/ColorScheme.h.
+    win32/ColorSchemeWin32.cpp
+    # ...and of core/PlatformServices.h, which is also where postToUiThread
+    # lives -- the marshalling the mounting manager depends on.
+    win32/PlatformServicesWin32.cpp)
+  target_compile_options(basalt_win32_mounting PRIVATE ${BASALT_WIN32_WARNINGS})
+  target_include_directories(basalt_win32_mounting PUBLIC win32)
+  target_link_libraries(basalt_win32_mounting PUBLIC basalt_win32_view basalt_core)
+  # shell32 for ShellExecute, which is how a URL is opened.
+  target_link_libraries(basalt_win32_mounting PUBLIC shell32)
+
+  list(APPEND BASALT_WIN32_TEST_SOURCES
+    ${BASALT_CORE_TESTS}
+    # Deliberately the same nine questions tests/test_mounting.cpp asks of GTK
+    # and tests/test_appkit_mounting.mm asks of AppKit, in the same order with
+    # the same tags. Most of what they test is whether the sharing still holds.
+    tests/test_win32_mounting.cpp)
+endif()
+
+# ---------------------------------------------------------------------------
+# Still to come:
+#
+#   mount_harness_win32     real ShadowViewMutations, no JavaScript, rendered
+#                           to a PNG -- the checkpoint between "the mounting
+#                           manager compiles" and "React Native runs".
 #   basalt_win32            a ReactHost, Hermes, and one surface in an HWND.
 #
-# None of them is guarded here yet, because none exists. The shape to copy when
-# they do is packages/react-native-basalt-appkit/native/CMakeLists.txt, where
-# each is inside `if(TARGET basalt_core)` so the view layer above still builds
-# and tests on a machine that was never pointed at a React Native.
+# And the components this platform does not claim yet: <ScrollView>, which
+# needs onScroll and scroll state, and <TextInput>, which needs an EDIT peer.
 # ---------------------------------------------------------------------------
 
 add_executable(basalt_win32_tests ${BASALT_WIN32_TEST_SOURCES})
 target_compile_options(basalt_win32_tests PRIVATE ${BASALT_WIN32_WARNINGS})
 target_include_directories(basalt_win32_tests PRIVATE ${BASALT_TEST_INCLUDE})
-target_link_libraries(basalt_win32_tests PRIVATE basalt_win32_view)
+# basalt_win32_mounting already carries basalt_win32_view; naming both makes the
+# linker warn about a duplicate library rather than doing anything useful.
+if(TARGET basalt_win32_mounting)
+  target_link_libraries(basalt_win32_tests PRIVATE basalt_win32_mounting)
+else()
+  target_link_libraries(basalt_win32_tests PRIVATE basalt_win32_view)
+endif()

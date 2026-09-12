@@ -25,6 +25,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 #include <string>
 
 // Forward-declared rather than included, so a translation unit that only builds
@@ -64,6 +65,18 @@ struct RnTextSize {
   float height = 0.0f;
 };
 
+// One styled span of a paragraph.
+//
+// React Native's `<Text>` is not one string with one style: a
+// ParagraphShadowNode folds its whole subtree into an AttributedString of
+// fragments, each with its own font, size and weight. A layout built from only
+// the first fragment's style renders `Hello <b>world</b>` entirely unbold,
+// which measures wrong as well as looking wrong.
+struct RnTextRun {
+  std::string text;
+  RnTextStyle style;
+};
+
 class RnWin32TextLayout {
  public:
   // `maximumNumberOfLines` of 0 means no limit, matching
@@ -72,6 +85,14 @@ class RnWin32TextLayout {
   // DirectWrite at all.
   static std::shared_ptr<RnWin32TextLayout>
   create(std::string utf8Text, const RnTextStyle &style, int maximumNumberOfLines);
+
+  // The same thing for a paragraph of differently styled spans. The first run's
+  // style sets the paragraph defaults -- alignment, line height and the colour,
+  // which DirectWrite carries per drawing effect rather than per range and
+  // which this does not vary yet -- and each run's font family, size, weight
+  // and slant are applied over its own character range.
+  static std::shared_ptr<RnWin32TextLayout>
+  createFromRuns(const std::vector<RnTextRun> &runs, int maximumNumberOfLines);
 
   ~RnWin32TextLayout();
 
@@ -116,9 +137,19 @@ class RnWin32TextLayout {
   // already exist.
   float applyLineLimit(IDWriteTextLayout *layout) const;
 
+  // A styled span, resolved to UTF-16 character positions, which is what
+  // DirectWrite's ranges are counted in. Empty for a single-style paragraph,
+  // where the format alone says everything.
+  struct ResolvedRun {
+    unsigned start = 0;
+    unsigned length = 0;
+    RnTextStyle style;
+  };
+
   std::string utf8_;
   std::wstring utf16_;
   RnTextStyle style_;
+  std::vector<ResolvedRun> runs_;
   int maximumNumberOfLines_ = 0;
   IDWriteTextFormat *format_ = nullptr;
 };
