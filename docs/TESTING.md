@@ -37,6 +37,9 @@ only on Windows; CMake omits the target elsewhere.
 |---|---|
 | `native/tests/test_win32_view.cpp` | The view layer as a tree. Tags and frames, insert indices, that a Remove detaches without destroying, that an Insert reparents, that destroying a view leaves nothing pointing at it, that zIndex does not touch the child list, and that `describeTree` is byte-for-byte what the other two hosts print. |
 | `native/tests/test_win32_paint.cpp` | What reached the pixels. Placement, opacity as a subtree layer, clipping under `overflow`, a quarter turn about the centre *and in the right direction*, zIndex paint order, the scroll offset, and the corner radius. Each is something a tree dump cannot show. |
+| `native/tests/test_win32_hittest.cpp` | Picking. Depth, sibling order, zIndex, misses, scroll offsets, hidden views, and that a press follows a `transform` — which this platform has to invert itself, having no toolkit picking to inherit. |
+| `native/tests/test_win32_text.cpp` | DirectWrite measurement. Wrapping, `numberOfLines`, that a bigger font measures bigger, that alignment does not change the measured size, and two regression tests carried over from the other hosts: that font sizes are absolute rather than points, and that the default ellipsize mode does not collapse a wrapping paragraph. Plus one they cannot make — that the glyphs actually move when the alignment does. |
+| `native/tests/test_win32_image.cpp` | The four resize modes, against a real bitmap and real pixels rather than against the destination rect: `cover` that scales correctly and forgets to clip looks right in a rect and wrong on a screen. Also the WIC decode, round-tripped through the snapshot encoder. |
 
 ## `build/basalt_gtk_tests` — the unit suite
 

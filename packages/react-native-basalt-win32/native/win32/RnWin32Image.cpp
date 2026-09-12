@@ -1,0 +1,210 @@
+#include "RnWin32Image.h"
+
+#include "Win32Clip.h"
+
+#include <windows.h>
+
+#include <d2d1.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+
+#include <algorithm>
+
+using Microsoft::WRL::ComPtr;
+
+namespace basalt::win32 {
+namespace {
+
+bool ensureCom() {
+  const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  return SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE;
+}
+
+IWICImagingFactory *wicFactory() {
+  static IWICImagingFactory *factory = [] {
+    if (!ensureCom()) {
+      return static_cast<IWICImagingFactory *>(nullptr);
+    }
+    IWICImagingFactory *created = nullptr;
+    CoCreateInstance(
+        CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&created));
+    return created;
+  }();
+  return factory;
+}
+
+} // namespace
+
+const char *imageFitName(RnImageFit fit) {
+  switch (fit) {
+    case RnImageFit::Contain:
+      return "contain";
+    case RnImageFit::Stretch:
+      return "stretch";
+    case RnImageFit::Center:
+      return "center";
+    case RnImageFit::Cover:
+      break;
+  }
+  return "cover";
+}
+
+std::shared_ptr<RnWin32Image>
+RnWin32Image::fromPixels(unsigned width, unsigned height, const uint8_t *bgra) {
+  IWICImagingFactory *factory = wicFactory();
+  if (factory == nullptr || bgra == nullptr || width == 0 || height == 0) {
+    return nullptr;
+  }
+
+  const UINT stride = width * 4;
+  ComPtr<IWICBitmap> bitmap;
+  if (FAILED(factory->CreateBitmapFromMemory(width,
+                                             height,
+                                             GUID_WICPixelFormat32bppPBGRA,
+                                             stride,
+                                             stride * height,
+                                             const_cast<BYTE *>(bgra),
+                                             bitmap.GetAddressOf()))) {
+    return nullptr;
+  }
+
+  auto image = std::shared_ptr<RnWin32Image>(new RnWin32Image());
+  image->bitmap_ = bitmap.Detach();
+  image->width_ = width;
+  image->height_ = height;
+  return image;
+}
+
+std::shared_ptr<RnWin32Image> RnWin32Image::fromEncodedBytes(const uint8_t *data, size_t size) {
+  IWICImagingFactory *factory = wicFactory();
+  if (factory == nullptr || data == nullptr || size == 0) {
+    return nullptr;
+  }
+
+  // A stream over the caller's bytes. WIC copies what it needs during
+  // CreateBitmapFromSource below, so the caller's buffer does not have to
+  // outlive this function.
+  ComPtr<IWICStream> stream;
+  if (FAILED(factory->CreateStream(stream.GetAddressOf())) ||
+      FAILED(stream->InitializeFromMemory(const_cast<BYTE *>(data), static_cast<DWORD>(size)))) {
+    return nullptr;
+  }
+
+  ComPtr<IWICBitmapDecoder> decoder;
+  if (FAILED(factory->CreateDecoderFromStream(
+          stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf()))) {
+    return nullptr;
+  }
+
+  ComPtr<IWICBitmapFrameDecode> frame;
+  if (FAILED(decoder->GetFrame(0, frame.GetAddressOf()))) {
+    return nullptr;
+  }
+
+  // Whatever the file was, Direct2D wants premultiplied BGRA.
+  ComPtr<IWICFormatConverter> converter;
+  if (FAILED(factory->CreateFormatConverter(converter.GetAddressOf())) ||
+      FAILED(converter->Initialize(frame.Get(),
+                                   GUID_WICPixelFormat32bppPBGRA,
+                                   WICBitmapDitherTypeNone,
+                                   nullptr,
+                                   0.0,
+                                   WICBitmapPaletteTypeCustom))) {
+    return nullptr;
+  }
+
+  ComPtr<IWICBitmap> bitmap;
+  if (FAILED(factory->CreateBitmapFromSource(
+          converter.Get(), WICBitmapCacheOnLoad, bitmap.GetAddressOf()))) {
+    return nullptr;
+  }
+
+  UINT width = 0;
+  UINT height = 0;
+  if (FAILED(bitmap->GetSize(&width, &height)) || width == 0 || height == 0) {
+    return nullptr;
+  }
+
+  auto image = std::shared_ptr<RnWin32Image>(new RnWin32Image());
+  image->bitmap_ = bitmap.Detach();
+  image->width_ = width;
+  image->height_ = height;
+  return image;
+}
+
+RnWin32Image::~RnWin32Image() {
+  if (deviceBitmap_ != nullptr) {
+    deviceBitmap_->Release();
+  }
+  if (bitmap_ != nullptr) {
+    bitmap_->Release();
+  }
+}
+
+void RnWin32Image::draw(ID2D1RenderTarget *target,
+                        float boxWidth,
+                        float boxHeight,
+                        RnImageFit fit) const {
+  if (target == nullptr || bitmap_ == nullptr || boxWidth <= 0.0f || boxHeight <= 0.0f) {
+    return;
+  }
+
+  if (deviceBitmap_ == nullptr || deviceTarget_ != target) {
+    if (deviceBitmap_ != nullptr) {
+      deviceBitmap_->Release();
+      deviceBitmap_ = nullptr;
+    }
+    ID2D1Bitmap *created = nullptr;
+    if (FAILED(target->CreateBitmapFromWicBitmap(bitmap_, nullptr, &created))) {
+      return;
+    }
+    deviceBitmap_ = created;
+    deviceTarget_ = target;
+  }
+
+  const float imageWidth = static_cast<float>(width_);
+  const float imageHeight = static_cast<float>(height_);
+
+  // The same arithmetic rn_view_snapshot does on GTK, in the same order, so the
+  // three desktops crop and centre identically. A picture is the only thing
+  // that would catch a divergence here, which is why test_win32_image.cpp reads
+  // pixels rather than checking the destination rect.
+  D2D1_RECT_F destination = D2D1::RectF(0.0f, 0.0f, boxWidth, boxHeight);
+  if (fit != RnImageFit::Stretch) {
+    float scale = 1.0f;
+    switch (fit) {
+      case RnImageFit::Contain:
+        scale = std::min(boxWidth / imageWidth, boxHeight / imageHeight);
+        break;
+      case RnImageFit::Cover:
+        scale = std::max(boxWidth / imageWidth, boxHeight / imageHeight);
+        break;
+      case RnImageFit::Center:
+        // Centred at natural size, but never larger than the frame -- which is
+        // what React Native's `center` does.
+        scale = std::min(1.0f, std::min(boxWidth / imageWidth, boxHeight / imageHeight));
+        break;
+      case RnImageFit::Stretch:
+        break;
+    }
+    const float drawnWidth = imageWidth * scale;
+    const float drawnHeight = imageHeight * scale;
+    const float x = (boxWidth - drawnWidth) / 2.0f;
+    const float y = (boxHeight - drawnHeight) / 2.0f;
+    destination = D2D1::RectF(x, y, x + drawnWidth, y + drawnHeight);
+  }
+
+  // cover and center can put pixels outside the frame, and an <Image> never
+  // paints beyond its own box on iOS or Android. A geometry clip rather than an
+  // axis-aligned one, because an <Image> inside a rotated view is not exotic;
+  // see Win32Clip.h.
+  const bool needsClip = fit == RnImageFit::Cover || fit == RnImageFit::Center;
+  {
+    const ScopedGeometryClip clip(needsClip ? target : nullptr,
+                                  D2D1::RectF(0.0f, 0.0f, boxWidth, boxHeight),
+                                  0.0f);
+    target->DrawBitmap(deviceBitmap_, destination);
+  }
+}
+
+} // namespace basalt::win32

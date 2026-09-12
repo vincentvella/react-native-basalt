@@ -41,8 +41,13 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+// For RnImageFit, which a view stores by value. Nothing heavy: that header
+// forward-declares its own Direct2D and WIC types too.
+#include "RnWin32Image.h"
 
 // Direct2D's interfaces are structs, so the paint entry point can be declared
 // without dragging <d2d1.h> -- and windows.h behind it -- into every
@@ -51,22 +56,13 @@ struct ID2D1RenderTarget;
 
 namespace basalt::win32 {
 
+class RnWin32TextLayout;
+
 struct RnRect {
   float x = 0.0f;
   float y = 0.0f;
   float width = 0.0f;
   float height = 0.0f;
-};
-
-// How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
-// Repeat, which needs a tiled draw rather than one image draw. Declared now
-// because `describeTree`'s field order is a cross-platform contract and adding
-// a field later in the wrong place would read as every line differing.
-enum class RnImageFit {
-  Cover,
-  Contain,
-  Stretch,
-  Center,
 };
 
 class RnWin32View {
@@ -130,6 +126,34 @@ class RnWin32View {
   void setZIndex(int zIndex);
   int zIndex() const { return zIndex_; }
 
+  // `display: none`. A hidden view is neither painted nor hit, and neither are
+  // its children. Distinct from `opacity: 0`, which paints nothing and is still
+  // there to be pressed.
+  void setHidden(bool hidden);
+  bool hidden() const { return hidden_; }
+
+  // --- Content ---------------------------------------------------------------
+
+  // The paragraph this view draws, or null for a view that draws none.
+  //
+  // Text sits above the background and below any children, which is the order
+  // `<Text>` with nested views expects and the order the GTK snapshot uses.
+  // Held as a shared_ptr because a paragraph is expensive to build and a
+  // mutation that changed only layout must not rebuild one -- the mounting
+  // manager will hand the same object back.
+  void setTextLayout(std::shared_ptr<RnWin32TextLayout> layout);
+  const std::shared_ptr<RnWin32TextLayout> &textLayout() const { return textLayout_; }
+
+  // The decoded pixels of an <Image>, and how they fill this view's frame. Pass
+  // null to clear.
+  //
+  // Shared rather than owned for the same reason as the paragraph: a mutation
+  // that changed only layout must not restart a load, or an <Image> flickers
+  // whenever its parent resizes.
+  void setImage(std::shared_ptr<RnWin32Image> image, RnImageFit fit);
+  const std::shared_ptr<RnWin32Image> &image() const { return image_; }
+  RnImageFit imageFit() const { return imageFit_; }
+
   // --- Tree ----------------------------------------------------------------
   //
   // A view does not own its children. The mounting registry owns every view,
@@ -143,6 +167,28 @@ class RnWin32View {
   void removeChild(RnWin32View *child);
   const std::vector<RnWin32View *> &children() const { return children_; }
   RnWin32View *parent() const { return parent_; }
+
+  // The children in the order they are painted: mutation order, restacked by
+  // zIndex where any child has one. Painting walks this forwards and hit
+  // testing walks it backwards, and they call the same function so that the
+  // view a click lands on is always the view drawn on top.
+  //
+  // Returns a copy. Painting used to avoid it in the common case; one
+  // definition of paint order is worth more than the allocation.
+  std::vector<RnWin32View *> childrenInPaintOrder() const;
+
+  // --- Geometry, resolved ----------------------------------------------------
+
+  // This view's local-to-parent transform, as the six numbers of a 2D affine
+  // matrix in Direct2D's Matrix3x2F order: the frame's translation, with any
+  // `transform` composed in about the view's centre.
+  //
+  // Public, and the only place that composition is written. `paint` builds its
+  // Direct2D matrix from these and `hitTest` inverts them, so the two cannot
+  // disagree about where a view is -- which would show up as a rotated button
+  // that is clickable where it used to be, and is exactly the bug
+  // `plan/decisions.md` records GTK hitting.
+  void localToParent(float out[6]) const;
 
   // --- Painting ------------------------------------------------------------
 
@@ -183,11 +229,32 @@ class RnWin32View {
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;
 
+  bool hidden_ = false;
+  std::shared_ptr<RnWin32TextLayout> textLayout_;
+  std::shared_ptr<RnWin32Image> image_;
+  RnImageFit imageFit_ = RnImageFit::Cover;
   bool hasTransform_ = false;
   // The 2D affine part, in the order Direct2D's Matrix3x2F stores it:
   // _11, _12, _21, _22, _31, _32 -- which is also the order CSS writes a
   // matrix() and the six numbers describeTree prints.
   float transform_[6] = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
 };
+
+// The deepest view at a point, in `root`'s own coordinates, or null for a miss.
+//
+// A free function because it is a pure function of the view tree and nothing
+// else, which is also what makes it testable: hit testing is the part of input
+// most likely to be quietly wrong, and it needs no mouse to exercise. It lives
+// here rather than with a touch dispatcher so that testing it needs no React
+// Native, which is the arrangement the AppKit side settled on too.
+//
+// Windows differs from both other platforms in having to do this at all. GTK
+// gets picking from `gtk_widget_pick` and macOS from AppKit's own hit testing,
+// so on those two the transform has to be pushed *into* the toolkit's geometry
+// or clicks land in the wrong place. Here there is no toolkit geometry to push
+// it into, so this inverts each view's matrix on the way down -- which means a
+// rotated view is clickable where it is drawn, and it is `localToParent` that
+// guarantees "where it is drawn" means the same thing to both.
+RnWin32View *hitTest(RnWin32View *root, float x, float y);
 
 } // namespace basalt::win32

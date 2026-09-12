@@ -1,5 +1,9 @@
 #include "RnWin32View.h"
 
+#include "RnWin32Image.h"
+#include "RnWin32TextLayout.h"
+#include "Win32Clip.h"
+
 // Before d2d1.h, which wants the base Windows types and does not pull them in
 // itself. NOMINMAX and WIN32_LEAN_AND_MEAN come from the package's CMakeLists;
 // without the first, windows.h defines `min` and `max` as macros and breaks
@@ -11,80 +15,13 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 using Microsoft::WRL::ComPtr;
 
 namespace basalt::win32 {
 namespace {
-
-// A scoped rounded-rect or rectangle clip.
-//
-// PushAxisAlignedClip is the cheap way to clip and it is wrong here: it clips
-// the rectangle's *bounding box* under the current transform, so a rotated
-// ScrollView would clip to a larger upright box and let its content escape at
-// the corners. A layer with a geometric mask is correct under any transform,
-// and `transform` on a scrolling view is not exotic enough to leave broken.
-class ScopedGeometryClip {
- public:
-  // A null target means "no clip"; the caller then does not have to choose
-  // between an if and a scope.
-  ScopedGeometryClip(ID2D1RenderTarget *target, const D2D1_RECT_F &rect, float radius)
-      : target_(target) {
-    if (target_ == nullptr) {
-      return;
-    }
-
-    ComPtr<ID2D1Factory> factory;
-    target_->GetFactory(factory.GetAddressOf());
-    if (!factory) {
-      return;
-    }
-
-    ComPtr<ID2D1Geometry> mask;
-    if (radius > 0.0f) {
-      ComPtr<ID2D1RoundedRectangleGeometry> rounded;
-      if (FAILED(factory->CreateRoundedRectangleGeometry(
-              D2D1::RoundedRect(rect, radius, radius), rounded.GetAddressOf()))) {
-        return;
-      }
-      mask = rounded;
-    } else {
-      ComPtr<ID2D1RectangleGeometry> plain;
-      if (FAILED(factory->CreateRectangleGeometry(rect, plain.GetAddressOf()))) {
-        return;
-      }
-      mask = plain;
-    }
-
-    // One layer object per push. Direct2D pools the backing surfaces itself, so
-    // this costs an allocation rather than a render target; caching one per
-    // view is the optimisation to make if a profile ever asks for it.
-    if (FAILED(target_->CreateLayer(nullptr, layer_.GetAddressOf()))) {
-      return;
-    }
-
-    auto parameters = D2D1::LayerParameters();
-    parameters.contentBounds = D2D1::InfiniteRect();
-    parameters.geometricMask = mask.Get();
-    target_->PushLayer(parameters, layer_.Get());
-    pushed_ = true;
-  }
-
-  ~ScopedGeometryClip() {
-    if (pushed_) {
-      target_->PopLayer();
-    }
-  }
-
-  ScopedGeometryClip(const ScopedGeometryClip &) = delete;
-  ScopedGeometryClip &operator=(const ScopedGeometryClip &) = delete;
-
- private:
-  ID2D1RenderTarget *target_;
-  ComPtr<ID2D1Layer> layer_;
-  bool pushed_ = false;
-};
 
 // A scoped opacity layer, for `opacity` on a view.
 //
@@ -122,6 +59,27 @@ class ScopedOpacity {
   bool pushed_ = false;
 };
 
+// Escaped the way g_strescape's output is on the GTK side, so a string with a
+// quote or a newline in it stays one line and stays comparable.
+void appendEscaped(std::string &out, const std::string &text) {
+  for (const char c : text) {
+    switch (c) {
+      case '\\':
+        out += "\\\\";
+        break;
+      case '"':
+        out += "\\\"";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      default:
+        out += c;
+        break;
+    }
+  }
+}
+
 template <typename... Args>
 void appendFormat(std::string &out, const char *format, Args... args) {
   char buffer[256];
@@ -136,6 +94,39 @@ void appendFormat(std::string &out, const char *format, Args... args) {
 
 unsigned toByte(float component) {
   return static_cast<unsigned>(component * 255.0f + 0.5f);
+}
+
+// Two 2D affine matrices, in Direct2D's Matrix3x2F order and its row-vector
+// convention: `compose(a, b)` is "apply a, then b", which is what
+// `Matrix3x2F::SetProduct(a, b)` computes. Written out in floats rather than
+// built with D2D1::Matrix3x2F so that hit testing -- which wants none of
+// Direct2D -- can use the same composition painting does.
+void compose(const float a[6], const float b[6], float out[6]) {
+  const float r[6] = {
+      a[0] * b[0] + a[1] * b[2],
+      a[0] * b[1] + a[1] * b[3],
+      a[2] * b[0] + a[3] * b[2],
+      a[2] * b[1] + a[3] * b[3],
+      a[4] * b[0] + a[5] * b[2] + b[4],
+      a[4] * b[1] + a[5] * b[3] + b[5],
+  };
+  for (int i = 0; i < 6; i++) {
+    out[i] = r[i];
+  }
+}
+
+// Maps a point through the inverse of `m`. False when `m` is singular, which is
+// a view scaled to nothing: it paints no pixels, so nothing can be over it.
+bool invertPoint(const float m[6], float x, float y, float &outX, float &outY) {
+  const float determinant = m[0] * m[3] - m[1] * m[2];
+  if (std::fabs(determinant) < 1e-6f) {
+    return false;
+  }
+  const float shiftedX = x - m[4];
+  const float shiftedY = y - m[5];
+  outX = (shiftedX * m[3] - shiftedY * m[2]) / determinant;
+  outY = (shiftedY * m[0] - shiftedX * m[1]) / determinant;
+  return true;
 }
 
 } // namespace
@@ -219,6 +210,64 @@ void RnWin32View::setZIndex(int zIndex) {
   zIndex_ = zIndex;
 }
 
+void RnWin32View::setHidden(bool hidden) {
+  hidden_ = hidden;
+}
+
+// --- Content ----------------------------------------------------------------
+
+void RnWin32View::setTextLayout(std::shared_ptr<RnWin32TextLayout> layout) {
+  textLayout_ = std::move(layout);
+}
+
+void RnWin32View::setImage(std::shared_ptr<RnWin32Image> image, RnImageFit fit) {
+  image_ = std::move(image);
+  imageFit_ = fit;
+}
+
+// --- Geometry, resolved -----------------------------------------------------
+
+void RnWin32View::localToParent(float out[6]) const {
+  const float translation[6] = {1.0f, 0.0f, 0.0f, 1.0f, frame_.x, frame_.y};
+  if (!hasTransform_) {
+    for (int i = 0; i < 6; i++) {
+      out[i] = translation[i];
+    }
+    return;
+  }
+
+  // Anchored at the view's centre by moving the centre to the origin and back
+  // around the transform, which is what React Native means by an untouched
+  // `transformOrigin` and what every other platform here does. The frame's
+  // translation comes last because this composes "apply a, then b".
+  const float centreX = frame_.width / 2.0f;
+  const float centreY = frame_.height / 2.0f;
+  const float toOrigin[6] = {1.0f, 0.0f, 0.0f, 1.0f, -centreX, -centreY};
+  const float fromOrigin[6] = {1.0f, 0.0f, 0.0f, 1.0f, centreX, centreY};
+
+  float composed[6];
+  compose(toOrigin, transform_, composed);
+  compose(composed, fromOrigin, composed);
+  compose(composed, translation, out);
+}
+
+std::vector<RnWin32View *> RnWin32View::childrenInPaintOrder() const {
+  std::vector<RnWin32View *> ordered = children_;
+  const bool needsSorting =
+      std::any_of(ordered.begin(), ordered.end(), [](const RnWin32View *child) {
+        return child->zIndex() != 0;
+      });
+  if (needsSorting) {
+    // Stable, so equal zIndex keeps document order -- which is what CSS and
+    // React Native both promise.
+    std::stable_sort(
+        ordered.begin(), ordered.end(), [](const RnWin32View *a, const RnWin32View *b) {
+          return a->zIndex() < b->zIndex();
+        });
+  }
+  return ordered;
+}
+
 // --- Tree ------------------------------------------------------------------
 
 void RnWin32View::insertChild(RnWin32View *child, int index) {
@@ -251,27 +300,24 @@ void RnWin32View::removeChild(RnWin32View *child) {
 // --- Painting --------------------------------------------------------------
 
 void RnWin32View::paint(ID2D1RenderTarget *target) const {
-  if (target == nullptr) {
+  if (target == nullptr || hidden_) {
     return;
   }
 
   D2D1::Matrix3x2F parentTransform;
   target->GetTransform(&parentTransform);
 
-  // Direct2D composes row-vector style: `a * b` means apply a, then b. So the
-  // frame's translation comes last, and the view's own transform is anchored at
-  // its centre by moving the centre to the origin and back around it -- which
-  // is what React Native means by an untouched `transformOrigin`, and what
-  // every other platform here does.
-  D2D1::Matrix3x2F local = D2D1::Matrix3x2F::Translation(frame_.x, frame_.y);
-  if (hasTransform_) {
-    const float centreX = frame_.width / 2.0f;
-    const float centreY = frame_.height / 2.0f;
-    const D2D1::Matrix3x2F matrix(
-        transform_[0], transform_[1], transform_[2], transform_[3], transform_[4], transform_[5]);
-    local = D2D1::Matrix3x2F::Translation(-centreX, -centreY) * matrix *
-            D2D1::Matrix3x2F::Translation(centreX, centreY) * local;
-  }
+  // From localToParent rather than composed here, so that hit testing -- which
+  // inverts the same six numbers -- cannot end up with a different idea of
+  // where this view is.
+  float localValues[6];
+  localToParent(localValues);
+  const D2D1::Matrix3x2F local(localValues[0],
+                               localValues[1],
+                               localValues[2],
+                               localValues[3],
+                               localValues[4],
+                               localValues[5]);
   target->SetTransform(local * parentTransform);
 
   const D2D1_RECT_F bounds = D2D1::RectF(0.0f, 0.0f, frame_.width, frame_.height);
@@ -298,6 +344,22 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
           target->FillRectangle(bounds, brush.Get());
         }
       }
+    }
+
+    // Then the image, then the text, then the children -- the order
+    // `rn_view_snapshot` uses on GTK. Nothing in React Native puts two of these
+    // on one view, but the order still has to be decided somewhere, and it is
+    // cheaper to match than to argue about later.
+    if (image_ != nullptr) {
+      image_->draw(target, frame_.width, frame_.height, imageFit_);
+    }
+
+    // Text sits above the background and below any children, which is the
+    // order `<Text>` with nested views expects. The paragraph draws itself at
+    // the view's own origin, in the box Yoga gave the view -- the same box it
+    // was measured against, because both go through RnWin32TextLayout.
+    if (textLayout_ != nullptr) {
+      textLayout_->draw(target, frame_.width, frame_.height);
     }
 
     paintChildren(target);
@@ -327,30 +389,54 @@ void RnWin32View::paintChildren(ID2D1RenderTarget *target) const {
     target->SetTransform(D2D1::Matrix3x2F::Translation(-scrollX_, -scrollY_) * worldTransform);
   }
 
-  // zIndex only reorders painting. The child list itself stays in mutation
-  // order, because Fabric's Insert and Remove index into it -- so this sorts a
-  // copy, and only when it has to, which is almost never.
-  const bool needsSorting =
-      std::any_of(children_.begin(), children_.end(), [](const RnWin32View *child) {
-        return child->zIndex() != 0;
-      });
-
-  if (!needsSorting) {
-    for (const RnWin32View *child : children_) {
-      child->paint(target);
-    }
-    return;
-  }
-
-  // Stable, so equal zIndex keeps document order -- which is what CSS and React
-  // Native both promise.
-  std::vector<RnWin32View *> ordered = children_;
-  std::stable_sort(ordered.begin(), ordered.end(), [](const RnWin32View *a, const RnWin32View *b) {
-    return a->zIndex() < b->zIndex();
-  });
-  for (const RnWin32View *child : ordered) {
+  // Forwards, so the last child painted is on top. Hit testing walks the same
+  // list backwards.
+  for (const RnWin32View *child : childrenInPaintOrder()) {
     child->paint(target);
   }
+}
+
+// --- Hit testing ------------------------------------------------------------
+
+RnWin32View *hitTest(RnWin32View *root, float x, float y) {
+  if (root == nullptr || root->hidden()) {
+    return nullptr;
+  }
+
+  const RnRect &frame = root->frame();
+  if (x < 0.0f || y < 0.0f || x >= frame.width || y >= frame.height) {
+    return nullptr;
+  }
+
+  // Children are placed in this view's content space, which a scroll offset
+  // shifts. Adding it back here is what makes hit testing follow a scroll with
+  // nothing in this function knowing what a ScrollView is -- the same offset
+  // `paintChildren` subtracts, from the same two fields.
+  const float contentX = x + root->scrollX();
+  const float contentY = y + root->scrollY();
+
+  // Backwards: the last child painted is the topmost, and the topmost is what a
+  // press should land on.
+  const std::vector<RnWin32View *> ordered = root->childrenInPaintOrder();
+  for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
+    RnWin32View *child = *it;
+    float local[6];
+    child->localToParent(local);
+
+    float childX = 0.0f;
+    float childY = 0.0f;
+    if (!invertPoint(local, contentX, contentY, childX, childY)) {
+      continue;
+    }
+    if (RnWin32View *hit = hitTest(child, childX, childY)) {
+      return hit;
+    }
+  }
+
+  // A point inside this view but over none of its children is this view. React
+  // Native's responder system needs a target for every press inside the
+  // surface, and the root is the honest answer for one that missed everything.
+  return root;
 }
 
 // --- Reporting -------------------------------------------------------------
@@ -413,13 +499,26 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
                  static_cast<double>(scrollY_));
   }
 
-  // texture=, text=, editable=, focused and role= belong here, in that order,
-  // and arrive with the phases that give this platform an <Image>, a <Text>, a
-  // <TextInput> and a UI Automation provider. Named rather than left blank so
-  // the next person adds them in the place the other two hosts print them --
-  // and note that the three string-valued ones need the same escaping
-  // `rn_escape_for_dump` does on GTK, or a newline in a label breaks the
-  // one-line-per-view format the comparison depends on.
+  if (image_ != nullptr) {
+    // The same `texture=WxH fit=<name>` the other two hosts emit. The fit is
+    // here because it is the only thing about a drawn image that a frame cannot
+    // show: two views the same size holding the same picture are identical in
+    // every other field of this dump and different on screen.
+    appendFormat(out, " texture=%ux%u", image_->width(), image_->height());
+    appendFormat(out, " fit=%s", imageFitName(imageFit_));
+  }
+
+  if (textLayout_ != nullptr) {
+    const std::string &text = textLayout_->text();
+    if (!text.empty()) {
+      out += " text=\"";
+      appendEscaped(out, text);
+      out += "\"";
+    }
+  }
+
+  // editable=, focused and role= follow, in that order, and arrive with the
+  // phases that give this platform a <TextInput> and a UI Automation provider.
 
   out += "\n";
 
