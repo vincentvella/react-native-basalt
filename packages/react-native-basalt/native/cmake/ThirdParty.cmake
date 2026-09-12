@@ -23,7 +23,7 @@
 # link against.
 if(WIN32)
   find_package(glog CONFIG REQUIRED)
-  find_package(Boost CONFIG REQUIRED COMPONENTS regex)
+  find_package(Boost CONFIG REQUIRED COMPONENTS regex thread)
   find_package(double-conversion CONFIG REQUIRED)
   find_package(fmt CONFIG REQUIRED)
 
@@ -38,7 +38,10 @@ if(WIN32)
   target_compile_definitions(glog INTERFACE GLOG_USE_GLOG_EXPORT)
 
   add_library(boost INTERFACE)
-  target_link_libraries(boost INTERFACE Boost::regex Boost::headers)
+  # Boost::thread as well as regex: folly's Windows PThread.cpp is written over
+  # boost::thread, and its thread-local storage needs the compiled library
+  # rather than the headers.
+  target_link_libraries(boost INTERFACE Boost::regex Boost::thread Boost::headers)
 
   if(NOT TARGET double-conversion)
     add_library(double-conversion INTERFACE)
@@ -173,7 +176,11 @@ if(WIN32)
         portability/SysStat.cpp
         portability/SysTime.cpp
         portability/Time.cpp
-        portability/Unistd.cpp)
+        portability/Unistd.cpp
+        # Not under portability/: folly keeps its Windows socket-handle table in
+        # net/detail. Without it the link fails on SocketFileDescriptorMap, which
+        # is what folly::netops uses to make a SOCKET look like an fd.
+        net/detail/SocketFileDescriptorMap.cpp)
 endif()
 
 list(TRANSFORM folly_runtime_SRC PREPEND ${FOLLY_DIR}/folly/)
@@ -187,7 +194,9 @@ if(WIN32)
   # ws2_32 for the sockets folly's net layer wraps, and NOMINMAX because folly
   # uses std::min and std::max in headers that windows.h has already redefined
   # as macros by the time they are reached.
-  target_link_libraries(folly_runtime ws2_32)
+  # winmm for timeBeginPeriod/timeEndPeriod, which folly's Windows clock uses to
+  # ask for a finer timer resolution.
+  target_link_libraries(folly_runtime ws2_32 winmm)
   target_compile_definitions(folly_runtime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 target_include_directories(folly_runtime PUBLIC ${FOLLY_DIR})
@@ -218,6 +227,40 @@ find_package(CURL REQUIRED)
 find_library(HERMES_VM_LIBRARY NAMES hermesvm hermes
   HINTS ${HERMES_BUILD_DIR}/API/hermes ${HERMES_BUILD_DIR}/lib
   REQUIRED)
+
+# Two things about Hermes on Windows that follow from static archives not
+# behaving like shared libraries, and neither of which is visible elsewhere.
+#
+# First, the name found above is wrong here. Hermes' `hermesvm` target builds a
+# DLL, and a Windows DLL exports nothing without __declspec(dllexport), which
+# Hermes does not annotate -- so `hermesvm.lib` is a one-kilobyte import library
+# for a DLL with nothing in it, next to a thirty-megabyte `hermesvm_a.lib` that
+# has the engine. On Linux the shared object works because ELF exports
+# everything by default; that default is the only reason the name is right
+# there.
+#
+# Second, jsi has to be named separately. `-DJSI_DIR` makes the Hermes build
+# compile React Native's jsi, and on Linux libhermesvm.so absorbs it the way a
+# shared library absorbs its static dependencies. A static archive absorbs
+# nothing, so on Windows jsi.lib is a second file and the link fails on
+# jsi::Value and jsi::JSError without it.
+if(WIN32)
+  find_library(HERMES_VM_STATIC_LIBRARY NAMES hermesvm_a
+    HINTS ${HERMES_BUILD_DIR}/lib REQUIRED)
+  find_library(HERMES_JSI_LIBRARY NAMES jsi
+    HINTS ${HERMES_BUILD_DIR}/jsi REQUIRED)
+  # And ICU. Hermes reports "Using Windows 10 built-in ICU" at configure time
+  # and defines USE_WIN10_ICU, which means it calls u_strToUpper, ucol_strcoll
+  # and friends out of the operating system's own icu.dll rather than vendoring
+  # a copy. `icu.lib` is that DLL's import library and ships with the Windows
+  # SDK. Nothing names it for us: on Linux the equivalent arrives through
+  # pkg-config, and on a shared-library platform it would have been recorded as
+  # a dependency of libhermesvm.so.
+  set(HERMES_LINK_LIBRARIES
+    ${HERMES_VM_STATIC_LIBRARY} ${HERMES_JSI_LIBRARY} icu)
+else()
+  set(HERMES_LINK_LIBRARIES ${HERMES_VM_LIBRARY})
+endif()
 # Both names, for the same reason the find_library above takes both: React
 # Native 0.81's own CMakeLists link hermes-engine::libhermes, and 0.87 and main
 # link hermes-engine::hermesvm. Only one of them is ever referenced by a given
@@ -229,8 +272,10 @@ find_library(HERMES_VM_LIBRARY NAMES hermesvm hermes
 # generate time, naming the target and not the scope.
 foreach(hermes_alias hermesvm libhermes)
   add_library(hermes-engine::${hermes_alias} INTERFACE IMPORTED GLOBAL)
+  # Quoted, because on Windows this is two libraries rather than one and an
+  # unquoted list would arrive as extra arguments to set_target_properties.
   set_target_properties(hermes-engine::${hermes_alias} PROPERTIES
-    INTERFACE_LINK_LIBRARIES ${HERMES_VM_LIBRARY})
+    INTERFACE_LINK_LIBRARIES "${HERMES_LINK_LIBRARIES}")
 endforeach()
 
 # Hermes' public headers must be globally visible: RN's own hermes/executor and

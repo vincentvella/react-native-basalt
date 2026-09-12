@@ -18,16 +18,23 @@ port took them, because that order was chosen once already and worked.
   phase 41: 442 objects, `basalt_core.lib`, every translation unit in
   ReactCommon, ReactCxxPlatform, folly and Yoga under clang-cl. What is left of
   it is below.
-- **Hermes does not build from source on Windows, and should not have to.**
-  `cl` stops on `__builtin_expect` in Static Hermes; clang-cl gets further and
-  stops on static assertions requiring `hermes::vm::Environment` and the C
-  `SHEnvironment` to be layout-identical, which the MSVC ABI does not make them.
-  No flag fixes a struct layout. The answer is the one `supported-versions.json`
-  already states -- Windows is one of the four platforms Meta publishes a
-  prebuilt Hermes for, and building from source is a Linux necessity -- so the
-  work is consuming a prebuilt, as react-native-windows does. Until then
-  `basalt_core_probe` compiles and does not link, on `makeHermesRuntime` and
-  about forty JSI symbols.
+- ~~**Hermes does not build from source on Windows.**~~ It does, with three
+  fixes, and it had to: the prebuilt everyone else consumes cannot be used here.
+  `Microsoft.JavaScript.Hermes` ships jsi headers with no `IRuntime` at all and
+  React Native 0.87's have 186 references to it, so every JSI symbol mangles
+  differently. That is structural rather than bad luck -- react-native-windows
+  targets React Native 0.84 and react-native-macos 0.81, and this is on 0.87, so
+  nobody has built the prebuilt yet. `supported-versions.json` says Windows is a
+  platform with a prebuilt Hermes; that is true in general and false for any
+  React Native newer than the forks, and it should say so.
+- **The Hermes patch is applied by hand and nothing reapplies it.**
+  `HERMES_EMPTY_BASES` has to be added to `VM::Environment` in
+  `include/hermes/VM/Callable.h`, and `third_party/hermes` is a downloaded
+  tarball that `bootstrap.sh --force` deletes. Until bootstrap applies it, a
+  fresh checkout gets a Hermes that fails on a static assertion. Upstream should
+  take this: the macro is defined in `Support/Compiler.h` for exactly this
+  purpose, with a comment naming `HERMESVM_CONTIGUOUS_HEAP`, and is applied to
+  nothing in the entire tree.
 - **React Native's own warnings are not enforced on Windows.** Its CMake applies
   `-Wall -Werror -Wpedantic`, all of which clang-cl either misreads or takes
   from an INTERFACE property that lands after anything that could counteract

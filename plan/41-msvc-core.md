@@ -1,16 +1,18 @@
 # Phase 41 — React Native's C++ core, on MSVC
 
-> **Started, 2026-09-12.** `basalt_core.lib` builds on Windows: 442 objects,
-> every translation unit in ReactCommon, ReactCxxPlatform, folly and Yoga.
-> Nothing links yet, because Hermes does not build from source here and should
-> not have to.
+> **Done, 2026-09-12.** `basalt_core_probe.exe` links and runs on Windows.
+> React Native's C++ core, ReactCxxPlatform, folly, Yoga, Hermes and this
+> project's shared half all compile, link and execute under clang-cl.
 
 `plan/backlog.md` called this "the real unknown in the Windows port", on the
 grounds that folly, glog, boost and ReactCommon all build on Windows for
 react-native-windows, so it is known-possible rather than speculative. That was
-the right framing and the estimate was about right: five distinct problems, four
-of them cleared in an afternoon, and the fifth turning out to be a question
-about packaging rather than about compiling.
+the right framing. What it did not anticipate is that the *prebuilt* Hermes
+everyone else on Windows consumes cannot be used here at all, and that building
+it from source -- which looked like the hard path -- needs three small fixes.
+The sections below are in the order they were found, including the one that
+concluded the prebuilt was the answer, because being wrong in a legible order is
+what these notes are for.
 
 ## Where the dependencies come from
 
@@ -106,63 +108,158 @@ build already force-includes around, and the same kind of fix: a define on the
 command line rather than an edit in their tree. Both are worth reporting
 together; the backlog already carries the first.
 
-## Hermes, which is the part that is not solved
+## Hermes: the prebuilt does not exist, so the source build it is
 
-It does not build from source on Windows, and the interesting finding is that it
-probably should not have to.
+The first instinct was that Windows should consume a prebuilt Hermes, because
+`supported-versions.json` says Windows is one of the four platforms Meta
+publishes one for and that building from source is the Linux exception. That is
+true in general and false for this React Native, and the measurement is worth
+keeping.
 
-Two compilers, two different failures, and both are real:
+`Microsoft.JavaScript.Hermes` is the package react-native-windows consumes,
+built from microsoft/hermes-windows -- a fork, not facebook/hermes. Its stable
+is 0.1.27, from August 2024; it also publishes dated prereleases, the most
+recent being 0.0.0-2608.24001, three weeks old. Recent enough to be worth
+checking, so it was checked.
+
+It ships its own `jsi/` headers, and that is the compatibility test, because
+this project deliberately uses React Native's jsi rather than Hermes' vendored
+copy -- `-DJSI_DIR` points the Hermes build at React Native's sources, so the
+jsi symbols the whole application resolves against come out of libhermesvm.
+
+    IRuntime in the NuGet's jsi.h:   0
+    IRuntime in React Native 0.87's: 186
+
+React Native renamed `jsi::Runtime` to `jsi::IRuntime` after that fork last
+synced. Every JSI symbol mangles differently, so the package cannot link against
+0.87 at all -- not a version-skew risk to be careful about, an impossibility.
+
+The reason is structural rather than bad luck, and it is this project's own
+thesis arriving as a build failure: **react-native-windows 0.84.0 targets React
+Native 0.84.1, react-native-macos is at 0.81.9, and this is built against
+0.87.1.** Being ahead of both forks is the thing the README claims this
+architecture can offer. The cost of being ahead is that nobody has built the
+prebuilt yet.
+
+So Windows has to build Hermes from source after all, for the same reason Linux
+does, and the entry in `supported-versions.json` explaining why Linux is special
+needs a second sentence.
+
+## What the source build actually needs
+
+Three things, none of them large, and one of them an upstream bug worth
+reporting.
+
+**`HERMES_ALLOW_BOOST_CONTEXT=0`.** Hermes' vendored boost::context throws
+`std::bad_alloc` from its *Windows* stack allocator; the POSIX one does not,
+which is why this is a Windows-only failure, and Hermes compiles with exceptions
+off. This is Hermes' own option for exactly that -- the one its ASAN and
+Emscripten builds use -- and the whole path is behind
+`#if HERMES_USE_BOOST_CONTEXT`, so it is a clean fallback rather than a hole.
+
+**`HERMES_EMPTY_BASES` on `VM::Environment`.** Static Hermes asserts that the
+C++ `Environment` and the C `SHEnvironment` are layout-identical. `sizeof`
+matches and the offsets do not, because `Environment` multiply-inherits from
+`VariableSizeRuntimeCell` and an *empty* base, `llvh::TrailingObjects`, and the
+MSVC ABI does not collapse empty bases the way the Itanium ABI does.
+
+The fix is one word, and Hermes already has it. `Support/Compiler.h` defines
+
+    #define HERMES_EMPTY_BASES __declspec(empty_bases)
+
+with the comment "Force MSVC to enable empty base class optimization; this is
+necessary for PointerBase alignment requirements in some cases when using
+HERMESVM_CONTIGUOUS_HEAP" -- which is the mode this builds in. The macro is
+defined and applied to nothing at all in the entire tree. It is dead code that
+was presumably attached to something once. Applying it to `Environment` clears
+the assertion.
+
+**Exceptions, for React Native's jsi.** This one is the most interesting of the
+three, because the mechanism is a POSIX assumption hiding inside a difference
+between two compilers' defaults.
+
+`jsi.cpp` throws `JSError`. Inside the Hermes build it is compiled with Hermes'
+flags, and `cmake/modules/Hermes.cmake` does two things on MSVC: it strips
+`/EHsc` out of `CMAKE_CXX_FLAGS` wholesale --
+
+    string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
+-- to avoid a D9025 warning, and then puts `/EHsc` or `/EHs-c-` back on each of
+*its own* targets through `hermes_update_compile_flags()`, according to
+`HERMES_ENABLE_EH`.
+
+React Native's `jsi` is not one of its own targets. It arrives through
+`JSI_DIR`, never goes through that helper, and so ends up with **no `/EH` flag
+at all** -- CMake's default having been removed on its behalf. On Linux that is
+harmless, because clang with no flag defaults exceptions *on*. clang-cl with no
+flag defaults them *off*. The strip is safe on every platform Hermes is tested
+on and fatal on this one.
+
+`HERMES_ENABLE_EH=ON` is the supported knob and covers Hermes' own targets, and
+it has to be `HERMES_ENABLE_RTTI=ON` alongside it -- `API/hermes/CMakeLists.txt`
+refuses the mixed case outright with "Currently only support having exceptions
+and RTTI having the same enable status". Worth knowing because the failure
+arrives as a configure error about ICU further down the log, which is
+collateral and sends you looking in the wrong place.
+
+For the jsi target the flag has to come from `CMAKE_CXX_FLAGS` instead, which
+means spelling it as `/EHs /EHc` -- exactly equivalent, and not the literal
+string their `REPLACE` looks for.
+
+One trap while getting there, recorded because it cost a full rebuild:
+`-DCMAKE_CXX_FLAGS=...` **replaces** CMake's platform defaults rather than
+adding to them, and those defaults are where `/DWIN32 /D_WINDOWS` come from.
+Hermes' `OSCompat.h` keys its `<unistd.h>` include on `_WINDOWS`, so overriding
+the variable makes a Windows build start looking for POSIX headers. Pass the
+defaults back with it.
+
+## Which compiler, and why it is clang-cl
+
+The two front ends fail differently on Hermes, and the difference decided the
+toolchain for the whole core build:
 
 - **cl** stops at 260 of 415 on `__builtin_expect` in Static Hermes'
-  `static_h.h` -- a GCC and Clang builtin MSVC does not have.
-- **clang-cl** gets further and stops on static assertions in `VM/Callable.h`
-  requiring `hermes::vm::Environment` and the C struct `SHEnvironment` to have
-  identical field offsets. `sizeof` matches and the offsets do not: the MSVC ABI
-  lays out that base-class-plus-trailing-objects combination differently. No
-  build flag fixes a struct layout.
-
-One thing along the way *was* a supported knob rather than a wall, and is worth
-recording because it looked like a wall: clang-cl also failed on
-`StackExecutor.cpp`, where Hermes' vendored boost::context throws
-`std::bad_alloc` from its Windows stack allocator while Hermes compiles with
-exceptions off. The POSIX allocator does not throw, which is why this is a
-Windows-only failure. `HERMES_ALLOW_BOOST_CONTEXT=0` is Hermes' own option for
-it -- the one its ASAN and Emscripten builds use -- and the whole path is behind
-`#if HERMES_USE_BOOST_CONTEXT`, so disabling it is a clean fallback rather than
-a hole.
-
-The answer is in this repository already, in `supported-versions.json`:
-
-> Hermes is pinned here rather than read from React Native because this platform
-> builds it from source. Windows, macOS, iOS and Android all consume a prebuilt
-> Hermes; Meta publishes one for each of them and none for Linux. **That single
-> difference is where every version problem here comes from.**
-
-Building Hermes from source is a *Linux* necessity. Windows is one of the four
-platforms that has a prebuilt, and react-native-windows consumes one rather than
-compiling facebook/hermes with MSVC. So the next step is not to make this build
-work; it is to consume a prebuilt Hermes on Windows, and the pinned-triple
-machinery in `supported-versions.json` is already the right shape to say which
-one.
+  `static_h.h` -- a GCC and Clang builtin MSVC does not have, and not something
+  a flag can supply.
+- **clang-cl** has that builtin and gets past it, which is what makes the three
+  fixes above sufficient rather than the first of a long list.
 
 ## Where it gets to
 
-    442 objects, and these libraries:
-      basalt_core.lib
-      folly_runtime.lib
-      yogacore.lib
-      ...and ten more
+    core links.
+      modules           PlatformConstants, SourceCode, StatusBarManager, Appearance,
+                        Clipboard, AlertManager, LinkingManager, I18nManager,
+                        AccessibilityInfo
+      scriptURLFor      file://C:\Users\vince\Workspace\react-native-basalt\bundle.js
+      expo runtime      not compiled in
+      worklets          not compiled in
+      font seam         isFontRegistered=0 generation=0
+      colour scheme     light
+      services seam     canOpenUrl=0 clipboard=""
 
-Every translation unit in ReactCommon, ReactCxxPlatform, folly, Yoga and this
-project's own shared half compiles under clang-cl. The one thing that fails is
-the link of `basalt_core_probe`, on `makeHermesRuntime` and about forty JSI
-symbols -- which is precisely and only the missing Hermes.
+That is `core/portability_probe.cpp` running on Windows. Phase 17 built it so
+that "the shared half needs no view layer" would be a build failure rather than
+a paragraph; here it does a second job, which is to say that the core *links*
+and *runs*, not merely that it compiles.
 
-That probe is the milestone to aim at next, and it is worth remembering what it
-is for: `core/portability_probe.cpp` links the core and no toolkit, so that the
-claim "the shared half needs no view layer" is a build failure rather than a
-paragraph. On Windows it will additionally be the thing that says the core
-*links* here, not merely that it compiles.
+The last four link errors before it did were all consequences of static archives
+not behaving like shared libraries, and none of them is visible on a platform
+with `.so` files:
+
+- **jsi has to be named separately.** `libhermesvm.so` absorbs the jsi it was
+  built with; `hermesvm_a.lib` does not.
+- **The static archive, not the import library.** Hermes' `hermesvm` target
+  produces a DLL, and a Windows DLL exports nothing without
+  `__declspec(dllexport)`, which Hermes does not annotate. `hermesvm.lib` is a
+  one-kilobyte import library for an empty DLL; the engine is the
+  thirty-megabyte `hermesvm_a.lib` beside it. ELF exporting everything by
+  default is the only reason `find_library(hermesvm)` finds the right file
+  anywhere else.
+- **`icu.lib`.** Hermes reports "Using Windows 10 built-in ICU" and calls
+  `u_strToUpper` and `ucol_strcoll` out of the operating system. On Linux that
+  dependency would have been recorded inside the shared object.
+- **`winmm` and `Boost::thread`**, for folly: `timeBeginPeriod`, and the
+  thread-local storage its Windows `PThread.cpp` shim is written over.
 
 ## Toolchain notes
 
