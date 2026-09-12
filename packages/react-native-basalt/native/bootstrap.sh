@@ -418,7 +418,30 @@ if ! hermes_is_built; then
     HERMES_ARGS+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
   fi
 
-  cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" "${HERMES_ARGS[@]}"
+  # One argument is excluded from Git Bash's path conversion, and exactly one.
+  #
+  # `/DWIN32` looks like an absolute POSIX path, so the MSYS runtime rewrites it
+  # on its way to a native program and clang-cl is handed
+  # `C:/Program Files/Git/DWIN32` -- which it reports as two missing input
+  # files, naming something nobody wrote:
+  #
+  #   clang-cl: error: no such file or directory: 'C:/Program'
+  #   clang-cl: error: no such file or directory: 'Files/Git/DWIN32'
+  #
+  # Turning conversion off wholesale is the obvious fix and is wrong: `-S` and
+  # `-B` below are POSIX paths that a native CMake cannot read, and *they* are
+  # only correct because the same conversion rewrites them. So the exclusion
+  # names the one prefix that must be left alone.
+  #
+  # This path had never run. Hermes was built by hand in phase 41 and every
+  # bootstrap since has found it already built, which is what plan/backlog.md
+  # meant by "nothing has run bootstrap from an empty third_party on Windows".
+  if [ "$HOST_OS" = windows ]; then
+    MSYS2_ARG_CONV_EXCL='-DCMAKE_CXX_FLAGS=' \
+      cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" "${HERMES_ARGS[@]}"
+  else
+    cmake --log-level=ERROR -G Ninja -S "$TP/hermes" -B "$TP/hermes-build" "${HERMES_ARGS[@]}"
+  fi
   # -j is capped deliberately: a full-width build makes laptops unusable and
   # pins the fans for minutes afterwards.
   run_nice cmake --build "$TP/hermes-build" --target "$HERMES_TARGET" -j "${BUILD_JOBS:-12}"

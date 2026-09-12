@@ -53,13 +53,18 @@ and none of it is a missing half.
   packages are still a manual prerequisite, and so is a Node new enough for
   React Native 0.87, which wants `^22.13 || ^24.3 || >= 26` and is not what a
   machine is likely to have.
-- **Nothing has run bootstrap from an empty `third_party`** on Windows. Every
-  step is exercised, but each one skipped its work because the output was
-  already there from doing it by hand -- so what is proven is that the checks
-  pass and the printed configure line works, not that the fetching and building
-  do. The Hermes patch was tested separately against a reverted copy of
-  `Callable.h`, applies cleanly and is a no-op on a second pass; that is the
-  part most worth proving properly, since `--force` deletes the tree it patches.
+- ~~**Nothing has run bootstrap from an empty `third_party`** on Windows.~~
+  Done while writing the full Windows CI job, which would have been the first
+  thing to do it -- and the entry was right to worry. Every earlier bootstrap
+  had found Hermes already built by hand, so its configure step had never run,
+  and it failed on its first real execution: Git Bash's MSYS runtime rewrites
+  an argument that looks like an absolute POSIX path, `/DWIN32` looks exactly
+  like one, and clang-cl was handed `C:/Program Files/Git/DWIN32`. The fix
+  excludes that one argument from conversion rather than all of them, because
+  the `-S` and `-B` paths beside it are only correct *because* of the same
+  conversion; turning it off wholesale was the first attempt and broke those
+  instead. From empty it now fetches, patches and builds Hermes, installs yarn
+  and runs codegen with no errors.
 - ~~**`<Text>`**~~ (phase 40, over DirectWrite) and ~~**`<Image>`**~~ (phase 40,
   over WIC, with the fetch shared from `core/ImageBytes.cpp`).
 - ~~**Accessibility.**~~ Phase 40, over UI Automation -- the one place Windows

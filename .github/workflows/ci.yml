@@ -6,10 +6,11 @@ name: CI
 # that mangles transforms -- and none of them was visible from the machine it
 # was developed on.
 #
-# That machine is now a Windows box, which is why there is a `windows` job as of
-# phase 39 and why it is small: it builds the view layer and nothing behind it.
-# macOS has no job at all and is still covered by whoever is developing, which
-# now means nobody. See plan/backlog.md.
+# That machine is now a Windows box, which is why there are two Windows jobs: a
+# small one that builds the view layer and nothing behind it, and
+# `windows-full`, which builds and tests the whole stack. macOS has no job at
+# all and is still covered by whoever is developing, which now means nobody.
+# See plan/backlog.md.
 
 on:
   push:
@@ -206,14 +207,13 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     if: github.event_name != 'schedule'
-    # The view layer alone: React Native's C++ core has never been compiled with
-    # MSVC, so there is no basalt_core here and nothing asks for one. What this
-    # does check is the half that exists, and it checks it properly -- Direct2D
-    # renders into a WIC bitmap with no window and no display, so the rendering
-    # assertions run on a hosted runner with nothing installed and no xvfb.
-    #
-    # Cheap on purpose. No React Native checkout, no Hermes, no bootstrap: this
-    # is a compiler, the Windows SDK the runner already has, and two minutes.
+    # The view layer alone, and kept alongside `windows-full` below rather than
+    # folded into it. That job needs vcpkg, React Native and a Hermes build and
+    # takes the better part of an hour cold; this one needs a compiler and
+    # takes two minutes, so a broken view layer is reported before the long job
+    # has finished restoring its caches. Direct2D renders into a WIC bitmap
+    # with no window and no display, so the rendering assertions run here on a
+    # hosted runner with nothing installed and no xvfb.
 
     steps:
       - uses: actions/checkout@v4
@@ -270,6 +270,176 @@ jobs:
           name: demo-win32
           path: demo-win32.png
           if-no-files-found: error
+
+  windows-full:
+    name: the whole Windows stack
+    runs-on: windows-2022
+    timeout-minutes: 150
+    if: github.event_name != 'schedule'
+    # Everything the job above deliberately leaves out: vcpkg, a React Native
+    # checkout, Hermes built from source, React Native's C++ core under
+    # clang-cl, and the host. Without it 87 of the 150 Windows tests -- the
+    # mounting manager, the input path, <ScrollView>, <TextInput> -- ran on a
+    # developer's machine and nowhere else.
+    #
+    # It is the Linux job's shape on purpose, step for step, so that a reader
+    # who knows one knows the other. What differs is what Windows needs that
+    # apt would otherwise supply, and the three traps below that each cost a
+    # run to find.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the React Native pin
+        id: pin
+        shell: bash
+        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: The MSVC environment, for every later step
+        # clang-cl needs the Windows SDK's headers and libraries on INCLUDE and
+        # LIB, and those come from vcvars64.bat -- which sets them in the shell
+        # that runs it and nowhere else. So this runs it once and hands every
+        # variable it *changed* to $GITHUB_ENV, rather than every variable: a
+        # plain dump would rewrite the runner's own settings too.
+        #
+        # No third-party action for this, the same choice the job above makes.
+        #
+        # **VCPKG_ROOT is put back afterwards.** vcvars64.bat sets it to the copy
+        # of vcpkg bundled with Visual Studio, which has nothing installed in it.
+        # bootstrap.sh knows this and looks for a header rather than trusting the
+        # variable; CMake's toolchain file does not.
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang `
+            -property installationPath
+          if (-not $vs) { throw "no Visual Studio with clang-cl on this runner" }
+
+          $before = @{}
+          Get-ChildItem Env: | ForEach-Object { $before[$_.Name] = $_.Value }
+
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              $name = $matches[1]; $value = $matches[2]
+              if ($before[$name] -ne $value -and $name -ne 'VCPKG_ROOT') {
+                "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              }
+            }
+          }
+
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          if (-not (Test-Path "$vcpkg\scripts\buildsystems\vcpkg.cmake")) {
+            throw "no vcpkg at VCPKG_INSTALLATION_ROOT ($vcpkg)"
+          }
+          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Cache vcpkg's binaries
+        uses: actions/cache@v4
+        with:
+          # vcpkg's own binary cache rather than its `installed` tree. The tree
+          # is what vcpkg decides from, and restoring one it did not write is
+          # how a cache hit turns into a rebuild anyway; the binary cache is
+          # meant to be carried between machines.
+          path: ${{ github.workspace }}\vcpkg-binaries
+          key: vcpkg-${{ runner.os }}-glog-fmt-double-conversion-boost-openssl-curl-v1
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Install what Linux gets from apt
+        # The list bootstrap.sh prints when they are missing, which is also the
+        # list in the README. boost-thread is not on React Native's own list and
+        # is needed anyway: folly's Windows PThread.cpp shim is written over it.
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\vcpkg-binaries,readwrite
+        run: |
+          New-Item -ItemType Directory -Force "${{ github.workspace }}\vcpkg-binaries" | Out-Null
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows `
+            glog fmt double-conversion boost-regex boost-beast boost-asio boost-thread openssl curl
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+
+      - name: Fetch React Native at the pinned release
+        shell: bash
+        run: |
+          mkdir -p react-native-src && cd react-native-src
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+
+      - name: Cache React Native's node_modules
+        uses: actions/cache@v4
+        with:
+          path: react-native-src/node_modules
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
+
+      - name: Cache third_party
+        uses: actions/cache@v4
+        with:
+          # Keyed exactly as the Linux job keys it, with the OS in front: Hermes
+          # built with clang-cl is not Hermes built with clang, and a key that
+          # did not say so would restore the wrong one.
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+
+      - name: Bootstrap
+        # From Git Bash, which is what bootstrap.sh detects and expects, and
+        # which inherits the MSVC environment the step above exported.
+        #
+        # This is the first thing that ever ran bootstrap from an empty
+        # third_party on Windows, and it found that Git Bash rewrites Hermes'
+        # `/DWIN32` into `C:/Program Files/Git/DWIN32`. See bootstrap.sh.
+        shell: bash
+        run: |
+          BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
+          du -sh third_party react-native-src/node_modules
+
+      - name: Configure
+        # CMAKE_BUILD_TYPE is not optional here, unlike on the other two
+        # desktops. Left unset, MSVC picks the debug C runtime and vcpkg follows
+        # it to the debug packages, while Hermes was built Release; lld-link
+        # then reports a mismatch on _ITERATOR_DEBUG_LEVEL that names neither.
+        shell: pwsh
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DRN_DIR=react-native-src/packages/react-native
+          if ($LASTEXITCODE -ne 0) { throw "configure failed" }
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build -j $env:NUMBER_OF_PROCESSORS
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+      - name: Unit tests
+        # All of them this time: the RN-dependent half that the view-layer job
+        # cannot build is most of what is new since phase 42.
+        shell: pwsh
+        run: |
+          ./build/basalt_win32_tests.exe
+          if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
+
+      - name: Bundle the demo
+        shell: bash
+        run: scripts/bundle.sh react-native-src --prod --platform windows
+
+      - name: End-to-end tests
+        # Four of five scenarios: Fast Refresh needs scripts/metro.sh, which is
+        # a shell script, and it would be skipped here even without this.
+        # Input is injected -- SendInput would move the runner's real cursor --
+        # which is the mode integration_test.py picks on its own.
+        shell: pwsh
+        env:
+          BASALT_SKIP_FAST_REFRESH: "1"
+        run: |
+          python scripts/integration_test.py --platform windows
+          if ($LASTEXITCODE -ne 0) { throw "end-to-end tests failed" }
 
   drift:
     name: build against React Native main
