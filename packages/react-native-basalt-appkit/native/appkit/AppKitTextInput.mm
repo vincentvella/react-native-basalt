@@ -4,6 +4,7 @@
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string_view>
 

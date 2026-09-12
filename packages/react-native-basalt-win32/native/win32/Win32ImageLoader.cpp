@@ -4,6 +4,7 @@
 #include "PlatformServices.h"
 #include "Win32UiThread.h"
 
+#include <cstdint>
 #include <thread>
 #include <utility>
 

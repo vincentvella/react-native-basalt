@@ -19,6 +19,8 @@
 
 #include "FontRegistry.h"
 
+#include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <unordered_map>
 

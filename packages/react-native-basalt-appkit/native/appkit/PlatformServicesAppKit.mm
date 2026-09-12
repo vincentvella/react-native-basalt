@@ -2,6 +2,8 @@
 
 #include "PlatformServices.h"
 
+#include <cstdint>
+
 #import <Cocoa/Cocoa.h>
 
 namespace basalt {

@@ -14,6 +14,8 @@
 #include "FontRegistry.h"
 #include "PangoTextLayout.h"
 
+#include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <unordered_map>
 

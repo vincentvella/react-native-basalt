@@ -33,6 +33,7 @@
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 // For the fixed-width types in IHttpClient's signatures. Reached through
 // DevBundle.h today, which is not a dependency worth relying on.

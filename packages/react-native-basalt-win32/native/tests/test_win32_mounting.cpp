@@ -19,6 +19,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
 
+#include <cstdint>
 #include <sstream>
 #include <vector>
 

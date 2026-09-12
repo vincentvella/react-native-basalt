@@ -4,6 +4,7 @@
 
 #include <react/renderer/graphics/Color.h>
 
+#include <algorithm>
 #include <cmath>
 #include <mutex>
 #include <string>

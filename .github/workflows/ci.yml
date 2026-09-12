@@ -153,6 +153,13 @@ jobs:
         # Windows job runs it too. Needs nothing built.
         run: node --test scripts/test_cli.js
 
+      - name: Include hygiene
+        # On both jobs, and it cannot fail on one and pass on the other -- it
+        # reads text. That is the point: a header reaching <cstdint> through
+        # windows.h took this job down for thirteen commits, and nobody
+        # developing on Windows could see it. See the file.
+        run: node scripts/check_includes.js
+
       - name: Bundle the demo
         run: scripts/bundle.sh react-native-src --prod
 
@@ -240,6 +247,11 @@ jobs:
         # extension, and `isExecutable` has to answer a different question on a
         # filesystem with no executable bit.
         run: node --test scripts/test_cli.js
+
+      - name: Include hygiene
+        # The other half of why it runs here: this is the machine the work is
+        # done on, so this is where the answer is worth having.
+        run: node scripts/check_includes.js
 
       - name: The demo's tree, and its picture
         # Both modes of demo_layout_win32, because they fail differently: the

@@ -24,6 +24,7 @@
 #include <react/renderer/mounting/MountingTransaction.h>
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>

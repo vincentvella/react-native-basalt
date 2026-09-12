@@ -6,6 +6,7 @@
 #include <react/renderer/components/textinput/TextInputEventEmitter.h>
 
 #include <cmath>
+#include <cstdint>
 #include <string_view>
 
 namespace basalt {
