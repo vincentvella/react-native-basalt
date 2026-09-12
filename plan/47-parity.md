@@ -170,8 +170,9 @@ with clang's warnings put back, which found nothing further -- so the
 `scripts/check_includes.js` is a small reader that reports a standard header a
 file uses and does not include; it needs no build, no toolkit and no React
 Native, runs in both CI jobs, and cannot fail on one platform and pass on
-another. It found eleven more of the same across all three platforms, every one
-of them working by transitive luck.
+another. It found twelve more of the same across all three platforms -- five
+files reaching `<algorithm>` for `std::min`, five reaching `<cstdint>`, two
+reaching `<cmath>` -- every one of them working by transitive luck.
 
 A compiler is the right tool for this and there is no substitute. The point of
 the reader is that it runs on the machine the work is being done on.
