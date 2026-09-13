@@ -43,7 +43,17 @@ const EXPECTED = {
 };
 
 function scratch() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-cli-'));
+  // Resolved, because the code under test resolves too. `monorepoRoot` calls
+  // realpathSync deliberately -- a workspace, a pnpm store and `npm link` all
+  // put a symlink in node_modules, and walking up from the link lands in the
+  // app rather than in the checkout it points at -- so it returns a real path
+  // and a test comparing against an unresolved one fails.
+  //
+  // Only on macOS, where os.tmpdir() is /var/folders/... and /var is a symlink
+  // to /private/var. Linux's /tmp is not a symlink and Windows has no such
+  // thing, so this passed in CI and failed on the machine the macOS work was
+  // being done on.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-cli-')));
 }
 
 // A target of the shape a platform package passes in, for the pieces that take
