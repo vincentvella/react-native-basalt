@@ -595,10 +595,23 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
 
 ## Ecosystem
 
-- **Nobody else can use this.** No npm package, no `run-linux` command, no
-  install path. Everything runs from scripts in this repo against a host you
-  build yourself, which is the difference between a working platform and a
-  usable one.
+- **Nobody else can use this yet.** The commands exist -- `run-linux`,
+  `run-macos`, `run-windows` -- and the packages are shaped to be installed, but
+  none is published, and an Expo app that installed them would still not get a
+  desktop. `.github/workflows/release.yml` has a job that does exactly that
+  install, from the packed tarballs into a fresh `create-expo-app`, and it is
+  expected to fail until two things here close:
+  - **`--build` needs a React Native source checkout.** The npm package does
+    not ship the C++ the host compiles against (see the `ReactCxxPlatform`
+    entry under Upstream), so `buildHost` refuses an installed `react-native`
+    and the app developer has to fetch the matching sources and name them as
+    `reactNativePath` in `react-native.config.js`. The error message used to
+    tell them to pass `--react-native-path`, which is not a flag.
+  - **`--build` does not wire in Expo.** It never passes
+    `-DBASALT_EXPO_MODULES_CORE` (or worklets, or Reanimated), so the host it
+    builds for an Expo app has no Expo runtime and the app fails at its first
+    Expo import. The app's own `node_modules` has everything needed; the
+    command only has to look.
 - **Porting a first third-party native module end to end**, to learn what the
   porting story actually costs. This is the largest unknown in the project: the
   TurboModule seam is proven, by `src/LinuxPlatformConstants.cpp`, but no

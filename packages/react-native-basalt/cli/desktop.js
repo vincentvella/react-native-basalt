@@ -181,7 +181,8 @@ function buildHost(context, options, target) {
         'installed package rather than a checkout.\n\n' +
         'That is a real limitation, not a misconfiguration: the host is compiled ' +
         "against React Native's C++ sources, and the npm package does not ship " +
-        'them. Point at a checkout of the same version with --react-native-path, ' +
+        'them. Point at a checkout of the same version by setting reactNativePath ' +
+        "in the app's react-native.config.js (to its packages/react-native), " +
         'or build the host yourself and pass --host-binary.',
     );
   }

@@ -1,0 +1,292 @@
+name: Release
+
+# What has to be true before a version is published, and is too slow or too
+# expensive to ask on every push. ci.yml is the every-push half.
+#
+# The question here is different from CI's. CI asks whether this checkout
+# builds and passes. A release has to answer whether *somebody else's app* gets
+# a working desktop from `npm install` -- an Expo app, from tarballs, with none
+# of this repository's scaffolding around it -- and whether everything still
+# builds from nothing, with no cache to hide a stale Hermes behind.
+#
+# Nothing here publishes. Every package is `private: true` today, so the last
+# job is the gate a publish step would hang off, and says what would ship.
+#
+# Run by pushing a tag (`git tag v0.1.0 && git push origin v0.1.0`), or by hand
+# from the Actions tab, which skips the version check and runs everything else.
+#
+# On a private repository the macOS job is the costly one: macOS minutes bill
+# at ten times Linux's. It is here and not in ci.yml for that reason.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# No concurrency group. ci.yml, called below, has its own, and a caller and
+# callee that share one name cancel each other.
+
+jobs:
+  versions:
+    name: every package carries the tag's version
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare
+        # All four at once, and the platform packages' dependency on the shared
+        # one too: a gtk package at 0.2.0 that asks for react-native-basalt
+        # 0.1.0 installs, and runs against the wrong core.
+        run: |
+          node - "${GITHUB_REF_NAME#v}" <<'EOF'
+          const fs = require('fs');
+          const want = process.argv[2];
+          const problems = [];
+          for (const dir of fs.readdirSync('packages')) {
+            const manifest = JSON.parse(fs.readFileSync(`packages/${dir}/package.json`, 'utf8'));
+            if (manifest.version !== want) {
+              problems.push(`${manifest.name} is ${manifest.version}`);
+            }
+            const core = manifest.dependencies?.['react-native-basalt'];
+            if (core !== undefined && core !== want) {
+              problems.push(`${manifest.name} depends on react-native-basalt ${core}`);
+            }
+          }
+          if (problems.length) {
+            console.error(`the tag says ${want}, but:\n  ${problems.join('\n  ')}`);
+            process.exit(1);
+          }
+          console.log(`all packages at ${want}`);
+          EOF
+
+  from-nothing:
+    name: Linux and Windows, from nothing
+    # ci.yml itself, with every cache restore skipped. The every-push run
+    # restores third_party by prefix and trusts bootstrap.sh's version stamps to
+    # notice a stale one, which cannot see a change to *how* Hermes is built.
+    # This is where that trade is paid back.
+    uses: ./.github/workflows/ci.yml
+    with:
+      cold: true
+
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 120
+    # The only CI macOS gets, and none of it has run on a hosted runner yet:
+    # the steps are the ones docs/HANDOFF.md records on a developer's Mac. The
+    # first run of this workflow is also the first test of this job.
+    #
+    # GTK is installed as well as AppKit, for two reasons. bootstrap.sh checks
+    # for gtk4 on every platform that is not Windows, Mac included. And a Mac
+    # with both is the one machine that can run compare_all.sh without WSL.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the React Native pin
+        id: pin
+        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          brew install gtk4 pango glib glog boost fmt double-conversion gflags \
+            openssl cmake ninja pkg-config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch React Native at the pinned release
+        run: |
+          mkdir -p react-native-src && cd react-native-src
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
+          git checkout -q FETCH_HEAD
+
+      - name: Bootstrap
+        run: BUILD_JOBS=$(sysctl -n hw.ncpu) scripts/bootstrap.sh react-native-src
+
+      - name: Configure and build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DRN_DIR=react-native-src/packages/react-native
+          cmake --build build -j "$(sysctl -n hw.ncpu)"
+
+      - name: Unit tests
+        # Needs neither a display nor a window: nothing in it is presented.
+        run: ./build/basalt_appkit_tests
+
+      - name: CLI tests
+        run: node --test scripts/test_cli.js
+
+      - name: Bundle the demo
+        run: scripts/bundle.sh react-native-src --prod --platform macos
+
+      - name: End-to-end tests
+        env:
+          BASALT_SKIP_FAST_REFRESH: "1"
+        run: python3 scripts/integration_test.py --platform macos
+
+      - name: GTK and AppKit, compared
+        # Every app in js/, through both hosts on this one runner.
+        run: scripts/compare_all.sh
+
+  msbuild:
+    name: the Windows view layer, with MSBuild
+    runs-on: windows-2022
+    timeout-minutes: 20
+    # Moved out of ci.yml, where the whole Windows stack now covers everything
+    # this built except the generator. Development and CI use Ninja; this is
+    # the Visual Studio generator, which is what someone opening the project in
+    # Visual Studio gets, and MSBuild finding its own toolchain with no vcvars.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo
+
+      - name: Unit tests
+        run: ./build/basalt_win32_tests.exe
+
+  expo-install:
+    name: an Expo app, from the packed packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    # The release question itself: a fresh `create-expo-app`, these packages
+    # installed into it from the tarballs `npm publish` would upload, and
+    # `react-native run-linux --build` doing what an app developer would do.
+    # Nothing from this checkout is on the path except the tarballs.
+    #
+    # Linux because Linux is the target; the same test on macOS and Windows is
+    # worth adding once this one passes.
+    #
+    # **Expected to fail until two gaps close** -- both in plan/backlog.md, and
+    # both found writing this job:
+    #
+    # - `--build` needs a React Native *source checkout*, because the npm
+    #   package does not ship the C++ the host compiles against. This job
+    #   fetches one and names it as `reactNativePath` in the app's
+    #   react-native.config.js, which an app developer would have to know to
+    #   do. It is a config key, not a flag: --react-native-path does not exist,
+    #   whatever run-linux's own error message used to say.
+    # - `--build` does not pass -DBASALT_EXPO_MODULES_CORE, so the host it
+    #   builds has no Expo runtime, and an Expo app fails at its first import
+    #   of one.
+    #
+    # So this is the job that says when installing alongside Expo actually
+    # works, rather than a job that is green because it was told how.
+    env:
+      DISPLAY: ":99"
+      GDK_BACKEND: x11
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: basalt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential clang cmake ninja-build pkg-config \
+            libgtk-4-dev libpango1.0-dev libglib2.0-dev \
+            libgoogle-glog-dev libboost-dev libboost-regex-dev libfmt-dev \
+            libdouble-conversion-dev libgflags-dev libssl-dev libcurl4-openssl-dev \
+            libgl1-mesa-dri xvfb x11-utils
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Pack
+        # Exactly what would be uploaded: `files` in each package.json decides,
+        # so a directory missing from it is missing here too.
+        run: |
+          mkdir tarballs
+          for package in basalt/packages/*/; do
+            npm pack "$package" --pack-destination tarballs
+          done
+          ls -l tarballs
+
+      - name: Create an Expo app
+        # SDK 57 installs React Native 0.86, which supported-versions.json lists
+        # because it is what a current Expo app gets. Pinned, so this job fails
+        # because of this repository and not because Expo released.
+        run: npx --yes create-expo-app@latest app --template blank@sdk-57
+
+      - name: Install the packages into it
+        # All four in one install, so the platform packages' dependency on
+        # react-native-basalt is satisfied by its tarball and not looked up on
+        # the registry. The community CLI is what `react-native run-linux` is;
+        # an Expo app does not have it.
+        working-directory: app
+        run: |
+          npm install ../tarballs/*.tgz @react-native-community/cli
+          cat > metro.config.js <<'EOF'
+          const {getDefaultConfig} = require('expo/metro-config');
+          const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
+
+          module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
+          EOF
+
+      - name: Fetch React Native's sources, at the app's version
+        # See the first gap above.
+        run: |
+          version=$(node -p "require('./app/node_modules/react-native/package.json').version")
+          echo "the app installed react-native $version"
+          mkdir -p react-native-src && cd react-native-src
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          git fetch -q --depth 1 origin "refs/tags/v$version"
+          git checkout -q FETCH_HEAD
+
+      - name: Start a display
+        run: |
+          Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
+          disown
+          for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
+
+      - name: Point the app at those sources
+        # See the first gap above: a config key, read by React Native's CLI.
+        working-directory: app
+        run: |
+          cat > react-native.config.js <<'EOF'
+          module.exports = {
+            reactNativePath: '../react-native-src/packages/react-native',
+          };
+          EOF
+
+      - name: run-linux --build
+        # Expo apps register "main" whatever app.json says. The template's one
+        # line of text is what has to come out the other end.
+        working-directory: app
+        env:
+          BASALT_QUIT_AFTER_MS: "15000"
+          BASALT_DUMP_TREE: ${{ github.workspace }}/tree.txt
+        run: |
+          npx react-native run-linux --build --mode release --module main
+          cat ../tree.txt
+          grep -F "Open up App" ../tree.txt
+
+  ready:
+    name: ready to publish
+    runs-on: ubuntu-24.04
+    needs: [versions, from-nothing, macos, msbuild, expo-install]
+    # Runs for a hand-started run too, where `versions` is skipped rather than
+    # failed; anything that actually failed still stops it.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: What would be published
+        # A dry run, because every package is private. Publishing is a step to
+        # add here -- with an npm token, and once `private` comes off -- rather
+        # than something this workflow does by accident.
+        run: |
+          for package in packages/*/; do
+            npm pack --dry-run "$package" 2>&1 | grep -E "name:|version:|total files:|package size:"
+          done

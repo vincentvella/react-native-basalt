@@ -1,16 +1,16 @@
 name: CI
 
-# Linux is the target, so Linux is what CI checks in full. Every bug this
-# project has hit that only appears on one platform has appeared there -- a
-# root-owned npm prefix, libstdc++ against React Native's -Werror, a renderer
-# that mangles transforms -- and none of them was visible from the machine it
-# was developed on.
+# What runs on every push. Linux is the target, so Linux is checked in full.
+# Every bug this project has hit that only appears on one platform has appeared
+# there -- a root-owned npm prefix, libstdc++ against React Native's -Werror, a
+# renderer that mangles transforms -- and none of them was visible from the
+# machine it was developed on.
 #
-# That machine is now a Windows box, which is why there are two Windows jobs: a
-# small one that builds the view layer and nothing behind it, and
-# `windows-full`, which builds and tests the whole stack. macOS has no job at
-# all and is still covered by whoever is developing, which now means nobody.
-# See plan/backlog.md.
+# That machine is now a Windows box, which is why the whole Windows stack is
+# built and tested here too. macOS is not, and neither is anything that is only
+# worth its cost before a release -- building from nothing with no caches,
+# installing the packed packages into a fresh app, the MSBuild generator. That
+# is .github/workflows/release.yml.
 #
 # ## Caches
 #
@@ -21,14 +21,18 @@ name: CI
 # an hour on Windows -- and the run that fixed the test paid all of it again.
 #
 # Cold, the Windows job is about an hour: vcpkg 20 minutes, Hermes 13, the build
-# 17. Warm it should be a small fraction of that, and a step that takes as long
-# warm as cold is a key that is wrong.
+# 17. Warm it is a few minutes, and a step that takes as long warm as cold is a
+# key that is wrong.
+#
+# GitHub evicts a cache nobody has read for seven days, and a quiet week would
+# then cost the next push that hour. The schedule below runs the Linux and
+# Windows jobs twice a week for no other reason than to read them.
 
 on:
   push:
     branches: [main, ci]
     # Prose needs no compiler. Most commits here are a plan/ write-up or a
-    # README line, and each one was paying for all three build jobs.
+    # README line, and each one was paying for every build job.
     paths-ignore: ["plan/**", "docs/**", "**/*.md"]
   pull_request:
     paths-ignore: ["plan/**", "docs/**", "**/*.md"]
@@ -38,9 +42,21 @@ on:
         description: "Also build against React Native main"
         type: boolean
         default: false
+  # release.yml calls this with cold: true, to build everything from nothing:
+  # every restore below is skipped, so a cache that is stale in a way no key or
+  # stamp can see -- a Hermes built with last month's flags -- cannot make a
+  # release look green. The saves still run, so a release leaves warm caches.
+  workflow_call:
+    inputs:
+      cold:
+        type: boolean
+        default: false
   schedule:
-    # Once a week, to notice upstream drift. See the `drift` job.
+    # Monday: keeps the caches warm, and runs `drift`.
     - cron: "17 6 * * 1"
+    # Thursday: keeps the caches warm. Twice a week rather than once, because
+    # once a week is exactly the eviction window and a late runner misses it.
+    - cron: "17 6 * * 4"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,7 +72,6 @@ jobs:
     name: build and test
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +118,7 @@ jobs:
 
       - name: Restore React Native's node_modules
         id: node-modules
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           path: react-native-src/node_modules
@@ -111,6 +127,7 @@ jobs:
 
       - name: Restore third_party
         id: third-party
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           # Hermes is the expensive one -- 400 objects, sixteen minutes here --
@@ -125,12 +142,13 @@ jobs:
           # disagrees, so a different pin restoring here is also safe.
           #
           # What no stamp can see is a change to *how* Hermes is built: a new
-          # flag or patch in bootstrap.sh, same version. That needs the cache
-          # deleting by hand (`gh cache delete`), and is rare enough to be worth
-          # the trade.
+          # flag or patch in bootstrap.sh, same version. release.yml bootstraps
+          # from nothing for exactly that reason, so a stale tree here is caught
+          # before anything ships.
           restore-keys: third-party-${{ runner.os }}-
 
       - name: Restore ccache
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -146,19 +164,22 @@ jobs:
           # the only symptom otherwise is that CI is slow.
           du -sh third_party react-native-src/node_modules
 
+      # Saves name their key outright rather than reading the restore step's
+      # cache-primary-key output: in release.yml's cold run the restore is
+      # skipped, its outputs are empty, and a save with an empty key fails.
       - name: Save third_party
         if: steps.bootstrap.outcome == 'success' && steps.third-party.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: third_party
-          key: ${{ steps.third-party.outputs.cache-primary-key }}
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
 
       - name: Save React Native's node_modules
         if: steps.bootstrap.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: react-native-src/node_modules
-          key: ${{ steps.node-modules.outputs.cache-primary-key }}
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
       - name: Configure
         run: |
@@ -203,10 +224,11 @@ jobs:
         run: node --test scripts/test_cli.js
 
       - name: Include hygiene
-        # On both jobs, and it cannot fail on one and pass on the other -- it
-        # reads text. That is the point: a header reaching <cstdint> through
-        # windows.h took this job down for twenty-three commits, and nobody
-        # developing on Windows could see it. See the file.
+        # Here only. It reads text, so it cannot answer differently on another
+        # platform, and running it twice would be the same answer twice. What
+        # it guards against is platform-shaped all the same: a header reaching
+        # <cstdint> through windows.h took this job down for twenty-three
+        # commits, and nobody developing on Windows could see it. See the file.
         run: node scripts/check_includes.js
 
       - name: Bundle the demo
@@ -250,85 +272,19 @@ jobs:
           path: widget-tree.txt
           if-no-files-found: ignore
 
-  windows:
-    name: the Windows view layer
-    runs-on: windows-2022
-    timeout-minutes: 20
-    if: github.event_name != 'schedule'
-    # The view layer alone, and kept alongside `windows-full` below rather than
-    # folded into it. That job needs vcpkg, React Native and a Hermes build and
-    # takes the better part of an hour cold; this one needs a compiler and
-    # takes two minutes, so a broken view layer is reported before the long job
-    # has finished restoring its caches. Direct2D renders into a WIC bitmap
-    # with no window and no display, so the rendering assertions run here on a
-    # hosted runner with nothing installed and no xvfb.
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure
-        # The Visual Studio generator rather than Ninja, and no vcvars step and
-        # no third-party action to set one up: MSBuild finds its own toolchain,
-        # which is one less thing on the runner image to depend on. Development
-        # here uses Ninja and clang-cl, so between the two every combination
-        # this package claims to support gets built by somebody.
-        #
-        # No RN_DIR, so the shared package contributes its test harness and
-        # nothing else, and the GTK and AppKit packages skip themselves. That
-        # those skips work on a machine with neither toolkit is part of what
-        # this job is checking.
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
-
-      - name: Build
-        run: cmake --build build --config RelWithDebInfo
-
-      - name: Unit tests
-        run: ./build/basalt_win32_tests.exe
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: CLI tests
-        # The same three commands the Linux job checks. Here for the half that
-        # only Windows can be wrong about: `basalt_win32.exe` carries an
-        # extension, and `isExecutable` has to answer a different question on a
-        # filesystem with no executable bit.
-        run: node --test scripts/test_cli.js
-
-      - name: Include hygiene
-        # The other half of why it runs here: this is the machine the work is
-        # done on, so this is where the answer is worth having.
-        run: node scripts/check_includes.js
-
-      - name: The demo's tree, and its picture
-        # Both modes of demo_layout_win32, because they fail differently: the
-        # dump would look identical whether or not anything painted, and the
-        # snapshot is what says pixels came out.
-        run: |
-          $env:BASALT_DUMP_TREE = "1"
-          ./build/demo_layout_win32.exe
-          Remove-Item Env:\BASALT_DUMP_TREE
-          $env:BASALT_SNAPSHOT = "$PWD/demo-win32.png"
-          ./build/demo_layout_win32.exe
-          if (-not (Test-Path "$PWD/demo-win32.png")) { throw "no snapshot was written" }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: demo-win32
-          path: demo-win32.png
-          if-no-files-found: error
-
   windows-full:
     name: the whole Windows stack
     runs-on: windows-2022
     timeout-minutes: 150
-    if: github.event_name != 'schedule'
-    # Everything the job above deliberately leaves out: vcpkg, a React Native
-    # checkout, Hermes built from source, React Native's C++ core under
-    # clang-cl, and the host. Without it 87 of the 150 Windows tests -- the
-    # mounting manager, the input path, <ScrollView>, <TextInput> -- ran on a
-    # developer's machine and nowhere else.
+    # vcpkg, a React Native checkout, Hermes built from source, React Native's
+    # C++ core under clang-cl, the host, every Windows test and the end-to-end
+    # suite.
+    #
+    # There used to be a second, smaller Windows job beside this one that built
+    # the view layer alone with MSBuild in two minutes, so a broken view layer
+    # was reported before this one had restored its caches. Warm, this one is
+    # not much slower, runs every test that one ran and 90 more, so it went.
+    # Its demo snapshot moved here; its MSBuild build moved to release.yml.
     #
     # It is the Linux job's shape on purpose, step for step, so that a reader
     # who knows one knows the other. What differs is what Windows needs that
@@ -363,7 +319,8 @@ jobs:
         # variable it *changed* to $GITHUB_ENV, rather than every variable: a
         # plain dump would rewrite the runner's own settings too.
         #
-        # No third-party action for this, the same choice the job above makes.
+        # No third-party action for this: one less thing on the runner image
+        # to depend on.
         #
         # **VCPKG_ROOT is put back afterwards.** vcvars64.bat sets it to the copy
         # of vcpkg bundled with Visual Studio, which has nothing installed in it.
@@ -411,6 +368,7 @@ jobs:
 
       - name: Restore vcpkg's binaries
         id: vcpkg-cache
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           # vcpkg's own binary cache rather than its `installed` tree. The tree
@@ -454,7 +412,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}\vcpkg-binaries
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+          key: vcpkg-${{ runner.os }}-${{ github.run_id }}
 
       - name: Fetch React Native at the pinned release
         shell: bash
@@ -468,6 +426,7 @@ jobs:
 
       - name: Restore React Native's node_modules
         id: node-modules
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           path: react-native-src/node_modules
@@ -475,6 +434,7 @@ jobs:
 
       - name: Restore third_party
         id: third-party
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           # Keyed as the Linux job keys it, with the OS in front: Hermes built
@@ -485,6 +445,7 @@ jobs:
           restore-keys: third-party-${{ runner.os }}-
 
       - name: Restore ccache
+        if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}\ccache
@@ -496,9 +457,9 @@ jobs:
         # From Git Bash, which is what bootstrap.sh detects and expects, and
         # which inherits the MSVC environment the step above exported.
         #
-        # This is the first thing that ever ran bootstrap from an empty
-        # third_party on Windows, and it found that Git Bash rewrites Hermes'
-        # `/DWIN32` into `C:/Program Files/Git/DWIN32`. See bootstrap.sh.
+        # The first time this ran from an empty third_party it found that Git
+        # Bash rewrites Hermes' `/DWIN32` into `C:/Program Files/Git/DWIN32`.
+        # See bootstrap.sh.
         shell: bash
         run: |
           BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
@@ -509,14 +470,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: third_party
-          key: ${{ steps.third-party.outputs.cache-primary-key }}
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
 
       - name: Save React Native's node_modules
         if: steps.bootstrap.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: react-native-src/node_modules
-          key: ${{ steps.node-modules.outputs.cache-primary-key }}
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
       - name: Configure
         # CMAKE_BUILD_TYPE is not optional here, unlike on the other two
@@ -559,12 +520,38 @@ jobs:
           key: ccache-${{ runner.os }}-${{ github.sha }}
 
       - name: Unit tests
-        # All of them this time: the RN-dependent half that the view-layer job
-        # cannot build is most of what is new since phase 42.
+        # All of them: the view layer's and the half that needs React Native.
         shell: pwsh
         run: |
           ./build/basalt_win32_tests.exe
           if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
+
+      - name: CLI tests
+        # The same three commands the Linux job checks. Here for the half that
+        # only Windows can be wrong about: `basalt_win32.exe` carries an
+        # extension, and `isExecutable` has to answer a different question on a
+        # filesystem with no executable bit.
+        run: node --test scripts/test_cli.js
+
+      - name: The demo's tree, and its picture
+        # Both modes of demo_layout_win32, because they fail differently: the
+        # dump would look identical whether or not anything painted, and the
+        # snapshot is what says pixels came out.
+        shell: pwsh
+        run: |
+          $env:BASALT_DUMP_TREE = "1"
+          ./build/demo_layout_win32.exe
+          if ($LASTEXITCODE -ne 0) { throw "demo_layout_win32 failed" }
+          Remove-Item Env:\BASALT_DUMP_TREE
+          $env:BASALT_SNAPSHOT = "$PWD/demo-win32.png"
+          ./build/demo_layout_win32.exe
+          if (-not (Test-Path "$PWD/demo-win32.png")) { throw "no snapshot was written" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-win32
+          path: demo-win32.png
+          if-no-files-found: error
 
       - name: Bundle the demo
         shell: bash
@@ -586,9 +573,9 @@ jobs:
     name: build against React Native main
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # Opt-in when run by hand: it is a second full build, and on a private repo
-    # that is real money.
-    if: github.event_name == 'schedule' || inputs.drift
+    # Monday's schedule only, or by hand. It is a second full build with no
+    # cache, and on a private repo that is real money.
+    if: github.event.schedule == '17 6 * * 1' || inputs.drift
     # Upstream moving is not this repo regressing, so this must never block a
     # pull request. It exists to notice API churn in ReactCxxPlatform, which
     # carries no stability guarantee, before it piles up.
@@ -617,11 +604,15 @@ jobs:
           git -C react-native-src log --oneline -1
 
       - name: Bootstrap, build and test
+        # RN_DIR points into the clone above. It used to say
+        # ../react-native/packages/react-native -- a path that exists on a
+        # developer's machine and not on a runner -- and continue-on-error meant
+        # nobody would ever have seen it fail.
         run: |
           BUILD_JOBS=$(nproc) scripts/bootstrap.sh react-native-src
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-            -DRN_DIR=../react-native/packages/react-native
+            -DRN_DIR=react-native-src/packages/react-native
           cmake --build build -j "$(nproc)"
           Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
           disown
