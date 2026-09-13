@@ -39,6 +39,8 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+
+#include <csignal>
 #include "ExpoModules.h"
 #include "GestureHandlerModule.h"
 #include "ReanimatedModule.h"
@@ -820,6 +822,36 @@ int main(int argc, const char *argv[]) {
                          NSLog(@"could not write a snapshot to %@", path);
                        }
                      });
+    }
+
+    // Same clean exit on SIGINT or SIGTERM, so Ctrl-C and `kill` shut the
+    // runtime down instead of dropping it -- the GTK host has had this since
+    // phase 32 and this one never did. The default disposition kills the
+    // process where it stands, skipping applicationWillTerminate and so
+    // stopAllSurfaces, the teardown ordering and the tree dump.
+    //
+    // A dispatch source is the safe form, and the counterpart of GTK's
+    // g_unix_signal_add: the handler does not run in signal context, it wakes
+    // the main queue and runs there, so ordinary Cocoa calls are allowed. The
+    // signal must be ignored first, because the dispatch source observes the
+    // signal rather than replacing its disposition -- without this the process
+    // still dies before the block runs.
+    static NSMutableArray *sSignalSources = [NSMutableArray array];
+    for (int signo : {SIGINT, SIGTERM}) {
+      signal(signo, SIG_IGN);
+      dispatch_source_t source =
+          dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, (uintptr_t)signo, 0,
+                                 dispatch_get_main_queue());
+      dispatch_source_set_event_handler(source, ^{
+        NSLog(@"signal received; quitting");
+        [NSApp terminate:nil];
+      });
+      dispatch_resume(source);
+      // Held in a static, because under ARC a dispatch_source_t is an object
+      // like any other: let it go out of scope at the end of this iteration and
+      // it is released and torn down before it can ever fire, which looks
+      // exactly like the signal not being caught at all.
+      [sSignalSources addObject:source];
     }
 
     // BASALT_QUIT_AFTER_MS: quitting on a timer is the only way to exercise the
