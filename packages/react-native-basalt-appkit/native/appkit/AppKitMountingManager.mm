@@ -457,13 +457,50 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
   // metrics rather than read raw.
   const auto borders = props->resolveBorderMetrics(shadowView.layoutMetrics);
 
-  // CALayer has one corner radius; React Native has four, each with its own
-  // horizontal and vertical radius. The top-left one is used and the rest
-  // ignored, which is right for the overwhelmingly common case of a single
-  // `borderRadius` and visibly wrong for anything else. Doing it properly needs
-  // a CAShapeLayer mask, which is the same work the GTK side does by hand in a
-  // snapshot node.
-  [view setRnCornerRadius:borders.borderRadii.topLeft.horizontal];
+  // All four corners, each with its own horizontal and vertical radius. The
+  // view layer keeps a single circular set on CALayer's own cornerRadius and
+  // puts anything else on a mask layer; see setRnBorderRadii:.
+  const CGFloat radii[8] = {
+      (CGFloat)borders.borderRadii.topLeft.horizontal,
+      (CGFloat)borders.borderRadii.topLeft.vertical,
+      (CGFloat)borders.borderRadii.topRight.horizontal,
+      (CGFloat)borders.borderRadii.topRight.vertical,
+      (CGFloat)borders.borderRadii.bottomRight.horizontal,
+      (CGFloat)borders.borderRadii.bottomRight.vertical,
+      (CGFloat)borders.borderRadii.bottomLeft.horizontal,
+      (CGFloat)borders.borderRadii.bottomLeft.vertical,
+  };
+  [view setRnBorderRadii:radii];
+
+  // Widths and colours, top/right/bottom/left -- the order CSS names them and
+  // the order the GTK side passes them in, so the two dumps line up.
+  const CGFloat widths[4] = {
+      (CGFloat)borders.borderWidths.top,
+      (CGFloat)borders.borderWidths.right,
+      (CGFloat)borders.borderWidths.bottom,
+      (CGFloat)borders.borderWidths.left,
+  };
+  const auto edgeColor = [](const auto &color, CGFloat *out) {
+    if (!color) {
+      // Transparent, not black -- an edge with a width and no colour paints
+      // nothing. The GTK side makes exactly the same call, and the two have to
+      // agree or the dumps diverge on a view neither actually draws a border
+      // for.
+      out[0] = out[1] = out[2] = out[3] = 0;
+      return;
+    }
+    const auto components = facebook::react::colorComponentsFromColor(*color);
+    out[0] = (CGFloat)components.red;
+    out[1] = (CGFloat)components.green;
+    out[2] = (CGFloat)components.blue;
+    out[3] = (CGFloat)components.alpha;
+  };
+  CGFloat colors[16];
+  edgeColor(borders.borderColors.top, &colors[0]);
+  edgeColor(borders.borderColors.right, &colors[4]);
+  edgeColor(borders.borderColors.bottom, &colors[8]);
+  edgeColor(borders.borderColors.left, &colors[12]);
+  [view setRnBorderWidths:widths colors:colors];
 
   // resolveTransform folds in transformOrigin, but only when one was set: the
   // default anchor is the view's centre, which is what a layer-backed NSView
@@ -475,7 +512,7 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
     [view setRnTransform:transform.matrix.data()];
   }
 
-  // TODO(props): per-corner radii, borders, zIndex, pointerEvents.
+  // TODO(props): zIndex, pointerEvents.
   // The GTK side has all of these; none is hard, and each needs a test that
   // compares the result against what Linux produces rather than against what
   // looks plausible on a Mac.

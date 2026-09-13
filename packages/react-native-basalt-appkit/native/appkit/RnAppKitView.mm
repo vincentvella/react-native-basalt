@@ -46,6 +46,57 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   return root;
 }
 
+// A rounded rectangle with a different radius pair at each corner.
+//
+// CGPathAddArcToPoint only draws circular arcs, and React Native's radii are
+// elliptical, so the corners are cubic Beziers. kappa is the usual constant
+// for approximating a quarter ellipse with one curve -- the error is under a
+// thousandth of the radius, which is far below a pixel at any radius an
+// interface uses.
+static CGPathRef RnAppKitCreateRoundedPath(CGRect rect, const CGFloat radii[8]) {
+  static const CGFloat kappa = (CGFloat)0.5522847498307936;
+  const CGFloat x = CGRectGetMinX(rect);
+  const CGFloat y = CGRectGetMinY(rect);
+  const CGFloat w = CGRectGetWidth(rect);
+  const CGFloat h = CGRectGetHeight(rect);
+
+  // Clamp so that two radii along one edge can never exceed it. The values
+  // arriving from Fabric are already clamped, but this path is also built for
+  // the *inner* edge of a border, whose radii are reduced by the border widths
+  // and can be anything.
+  CGFloat r[8];
+  for (int i = 0; i < 8; i++) {
+    r[i] = radii[i] > 0 ? radii[i] : 0;
+  }
+  const CGFloat tlw = r[0], tlh = r[1], trw = r[2], trh = r[3];
+  const CGFloat brw = r[4], brh = r[5], blw = r[6], blh = r[7];
+
+  CGMutablePathRef path = CGPathCreateMutable();
+  CGPathMoveToPoint(path, NULL, x + tlw, y);
+  CGPathAddLineToPoint(path, NULL, x + w - trw, y);
+  CGPathAddCurveToPoint(path, NULL,
+                        x + w - trw + trw * kappa, y,
+                        x + w, y + trh - trh * kappa,
+                        x + w, y + trh);
+  CGPathAddLineToPoint(path, NULL, x + w, y + h - brh);
+  CGPathAddCurveToPoint(path, NULL,
+                        x + w, y + h - brh + brh * kappa,
+                        x + w - brw + brw * kappa, y + h,
+                        x + w - brw, y + h);
+  CGPathAddLineToPoint(path, NULL, x + blw, y + h);
+  CGPathAddCurveToPoint(path, NULL,
+                        x + blw - blw * kappa, y + h,
+                        x, y + h - blh + blh * kappa,
+                        x, y + h - blh);
+  CGPathAddLineToPoint(path, NULL, x, y + tlh);
+  CGPathAddCurveToPoint(path, NULL,
+                        x, y + tlh - tlh * kappa,
+                        x + tlw - tlw * kappa, y,
+                        x + tlw, y);
+  CGPathCloseSubpath(path);
+  return path;
+}
+
 @implementation RnAppKitView {
   NSString *_roleName;
   RnTextLayout *_textLayout;
@@ -56,6 +107,17 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   CGFloat _opacity;
   BOOL _clipsChildren;
   CGFloat _cornerRadius;
+  // Eight floats: a horizontal and a vertical radius per corner, in the order
+  // top-left, top-right, bottom-right, bottom-left. React Native clamps
+  // opposite corners against the frame before these arrive, so nothing here
+  // has to.
+  CGFloat _borderRadii[8];
+  BOOL _hasBorderRadii;
+  // top, right, bottom, left -- the order CSS names them.
+  CGFloat _borderWidths[4];
+  // Four RGBA quadruples, in the same edge order.
+  CGFloat _borderColors[16];
+  BOOL _hasBorders;
   CATransform3D _transform;
   BOOL _hasTransform;
 }
@@ -94,6 +156,15 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
 
 - (void)setRnFrameX:(CGFloat)x y:(CGFloat)y width:(CGFloat)width height:(CGFloat)height {
   self.frame = NSMakeRect(x, y, width, height);
+  // A mask layer is built against the bounds, so a resize invalidates it. The
+  // uniform case is a plain cornerRadius and needs nothing.
+  if (self.layer.mask != nil) {
+    [self rnUpdateRadiusMask];
+  }
+  // Borders are drawn along the bounds too.
+  if (_hasBorders) {
+    self.needsDisplay = YES;
+  }
 }
 
 - (void)setRnBackgroundColorRed:(CGFloat)red
@@ -344,7 +415,7 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 // knowing about the other.
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  if (_textLayout == nil && _image == nullptr) {
+  if (_textLayout == nil && _image == nullptr && !_hasBorders) {
     return;
   }
   CGContextRef context = [NSGraphicsContext currentContext].CGContext;
@@ -378,6 +449,92 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   // GTK side paints in too.
   if (_textLayout != nil) {
     [_textLayout drawInContext:context size:size];
+  }
+
+  // Borders paint over the content, as they do on every other platform.
+  if (_hasBorders) {
+    [self rnDrawBordersInContext:context size:size];
+  }
+}
+
+// The four edges, each its own width and colour.
+//
+// This is CSS's own algorithm rather than a stroke: an edge is the region
+// between the outer and inner rounded rectangles, clipped to a wedge whose
+// sides are the diagonals from the outer corner to the inner one. That is what
+// mitres two edges of different colours against each other, and a stroke
+// cannot do it -- which matters as soon as one edge differs, and is invisible
+// until then.
+- (void)rnDrawBordersInContext:(CGContextRef)context size:(NSSize)size {
+  const CGFloat w = size.width;
+  const CGFloat h = size.height;
+  const CGFloat top = _borderWidths[0];
+  const CGFloat right = _borderWidths[1];
+  const CGFloat bottom = _borderWidths[2];
+  const CGFloat left = _borderWidths[3];
+
+  CGPathRef outer = RnAppKitCreateRoundedPath(CGRectMake(0, 0, w, h), _borderRadii);
+
+  // The inner radii shrink by the width of the edges that meet at the corner.
+  // A corner whose radius is smaller than its border is square on the inside,
+  // which the clamp in the path builder takes care of.
+  const CGFloat innerRadii[8] = {
+      _borderRadii[0] - left, _borderRadii[1] - top,
+      _borderRadii[2] - right, _borderRadii[3] - top,
+      _borderRadii[4] - right, _borderRadii[5] - bottom,
+      _borderRadii[6] - left, _borderRadii[7] - bottom,
+  };
+  const CGFloat innerWidth = w - left - right;
+  const CGFloat innerHeight = h - top - bottom;
+  CGPathRef inner = nullptr;
+  if (innerWidth > 0 && innerHeight > 0) {
+    inner = RnAppKitCreateRoundedPath(
+        CGRectMake(left, top, innerWidth, innerHeight), innerRadii);
+  }
+
+  // Each wedge, in the edge order the widths are stored in.
+  const CGPoint wedges[4][4] = {
+      {{0, 0}, {w, 0}, {w - right, top}, {left, top}},                        // top
+      {{w, 0}, {w, h}, {w - right, h - bottom}, {w - right, top}},            // right
+      {{w, h}, {0, h}, {left, h - bottom}, {w - right, h - bottom}},          // bottom
+      {{0, h}, {0, 0}, {left, top}, {left, h - bottom}},                      // left
+  };
+
+  CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  for (int edge = 0; edge < 4; edge++) {
+    if (_borderWidths[edge] <= 0 || _borderColors[edge * 4 + 3] <= 0) {
+      continue;
+    }
+    CGContextSaveGState(context);
+
+    CGContextBeginPath(context);
+    CGContextMoveToPoint(context, wedges[edge][0].x, wedges[edge][0].y);
+    for (int i = 1; i < 4; i++) {
+      CGContextAddLineToPoint(context, wedges[edge][i].x, wedges[edge][i].y);
+    }
+    CGContextClosePath(context);
+    CGContextClip(context);
+
+    // Outer minus inner, as an even-odd fill of the two subpaths.
+    CGContextBeginPath(context);
+    CGContextAddPath(context, outer);
+    if (inner != nullptr) {
+      CGContextAddPath(context, inner);
+    }
+    const CGFloat components[4] = {
+        _borderColors[edge * 4 + 0], _borderColors[edge * 4 + 1],
+        _borderColors[edge * 4 + 2], _borderColors[edge * 4 + 3]};
+    CGColorRef color = CGColorCreate(space, components);
+    CGContextSetFillColorWithColor(context, color);
+    CGContextEOFillPath(context);
+    CGColorRelease(color);
+
+    CGContextRestoreGState(context);
+  }
+  CGColorSpaceRelease(space);
+  CGPathRelease(outer);
+  if (inner != nullptr) {
+    CGPathRelease(inner);
   }
 }
 
@@ -414,8 +571,80 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 }
 
 - (void)setRnCornerRadius:(CGFloat)radius {
-  _cornerRadius = radius;
-  self.layer.cornerRadius = radius;
+  const CGFloat radii[8] = {radius, radius, radius, radius,
+                            radius, radius, radius, radius};
+  [self setRnBorderRadii:radii];
+}
+
+- (void)setRnBorderRadii:(nullable const CGFloat *)radii {
+  BOOL any = NO;
+  for (int i = 0; i < 8; i++) {
+    _borderRadii[i] = radii != nullptr && radii[i] > 0 ? radii[i] : 0;
+    if (_borderRadii[i] > 0) {
+      any = YES;
+    }
+  }
+  _hasBorderRadii = any;
+
+  // A single circular radius is what CALayer can express directly, and is the
+  // overwhelmingly common case -- one `borderRadius` in a stylesheet. Keeping
+  // it on cornerRadius rather than on a mask means the usual view stays a
+  // plain layer, and means `overflow: 'visible'` still lets children escape.
+  BOOL uniform = YES;
+  for (int i = 1; i < 8; i++) {
+    if (_borderRadii[i] != _borderRadii[0]) {
+      uniform = NO;
+      break;
+    }
+  }
+
+  if (uniform) {
+    _cornerRadius = _borderRadii[0];
+    self.layer.cornerRadius = _borderRadii[0];
+    self.layer.mask = nil;
+  } else {
+    // Anything else needs a mask layer, which is what UIKit's own RCTView does
+    // for the same reason. The cost is that a mask clips children whatever
+    // `overflow` says -- CALayer offers no way to round a background without
+    // clipping what sits on it.
+    _cornerRadius = 0;
+    self.layer.cornerRadius = 0;
+    [self rnUpdateRadiusMask];
+  }
+  // The border is drawn along these radii.
+  self.needsDisplay = YES;
+}
+
+- (void)rnUpdateRadiusMask {
+  if (!_hasBorderRadii) {
+    self.layer.mask = nil;
+    return;
+  }
+  CAShapeLayer *mask = [CAShapeLayer layer];
+  mask.frame = self.bounds;
+  CGPathRef path = RnAppKitCreateRoundedPath(self.bounds, _borderRadii);
+  mask.path = path;
+  CGPathRelease(path);
+  self.layer.mask = mask;
+}
+
+- (void)setRnBorderWidths:(nullable const CGFloat *)widths
+                   colors:(nullable const CGFloat *)colors {
+  BOOL any = NO;
+  for (int edge = 0; edge < 4; edge++) {
+    _borderWidths[edge] = widths != nullptr && widths[edge] > 0 ? widths[edge] : 0;
+    for (int c = 0; c < 4; c++) {
+      _borderColors[edge * 4 + c] = colors != nullptr ? colors[edge * 4 + c] : 0;
+    }
+    // A width with a transparent colour paints nothing, and the GTK side makes
+    // the same judgement, so the two agree on whether a view has a border at
+    // all rather than only on what it looks like.
+    if (_borderWidths[edge] > 0 && _borderColors[edge * 4 + 3] > 0) {
+      any = YES;
+    }
+  }
+  _hasBorders = any;
+  self.needsDisplay = YES;
 }
 
 - (void)insertRnChild:(RnAppKitView *)child atIndex:(NSInteger)index {

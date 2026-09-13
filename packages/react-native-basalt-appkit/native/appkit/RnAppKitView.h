@@ -135,6 +135,21 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 - (void)setRnClipsChildren:(BOOL)clips;
 - (void)setRnCornerRadius:(CGFloat)radius;
 
+// Per-corner radii, as four (horizontal, vertical) pairs -- eight floats -- in
+// the order top-left, top-right, bottom-right, bottom-left. React Native's
+// radii are elliptical and CALayer's single `cornerRadius` cannot express
+// that, so anything a plain cornerRadius cannot say is applied as a mask layer
+// instead. Null clears them. `setRnCornerRadius:` is the uniform-circular
+// shorthand and goes through here.
+- (void)setRnBorderRadii:(nullable const CGFloat *)radii;
+
+// Per-edge border widths and colours, in the order top, right, bottom, left --
+// the order CSS names them, and the order the GTK and Win32 sides store them
+// in. `widths` is four floats; `colors` is sixteen, four RGBA quadruples in
+// the same edge order. Either being null clears the border.
+- (void)setRnBorderWidths:(nullable const CGFloat *)widths
+                   colors:(nullable const CGFloat *)colors;
+
 // Fabric's Insert and Remove carry an index into the parent's child list, so
 // that list has to stay in mutation order.
 - (void)insertRnChild:(RnAppKitView *)child atIndex:(NSInteger)index;
