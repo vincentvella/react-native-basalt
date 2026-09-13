@@ -1,5 +1,7 @@
 #import "RnAppKitView.h"
 
+#include <cmath>
+
 #import "RnTextLayout.h"
 
 #import <QuartzCore/QuartzCore.h>
@@ -95,6 +97,42 @@ static CGPathRef RnAppKitCreateRoundedPath(CGRect rect, const CGFloat radii[8]) 
                         x + tlw, y);
   CGPathCloseSubpath(path);
   return path;
+}
+
+// Clips to the side of the line through `p` with direction `dir` that contains
+// `inside`. Two of these give an edge the sector it owns at a corner.
+//
+// A half-plane rather than a polygon because a sector has no far end: the
+// border band at a rounded corner runs as far out as the radius takes it, and
+// any bounded shape has to guess how far that is.
+static void RnAppKitClipToHalfPlane(CGContextRef context,
+                                    CGPoint p,
+                                    CGPoint dir,
+                                    CGPoint inside,
+                                    CGFloat extent) {
+  const CGFloat length = std::hypot(dir.x, dir.y);
+  if (length < (CGFloat)1e-6) {
+    // Both borders meeting here are zero wide, so there is nothing to divide.
+    return;
+  }
+  const CGPoint along = {dir.x / length, dir.y / length};
+  const CGPoint normal = {-along.y, along.x};
+  const CGFloat side =
+      (inside.x - p.x) * normal.x + (inside.y - p.y) * normal.y;
+  const CGFloat sign = side < 0 ? -1 : 1;
+
+  const CGPoint a = {p.x + along.x * extent, p.y + along.y * extent};
+  const CGPoint b = {p.x - along.x * extent, p.y - along.y * extent};
+  const CGPoint c = {b.x + normal.x * sign * extent, b.y + normal.y * sign * extent};
+  const CGPoint d = {a.x + normal.x * sign * extent, a.y + normal.y * sign * extent};
+
+  CGContextBeginPath(context);
+  CGContextMoveToPoint(context, a.x, a.y);
+  CGContextAddLineToPoint(context, b.x, b.y);
+  CGContextAddLineToPoint(context, c.x, c.y);
+  CGContextAddLineToPoint(context, d.x, d.y);
+  CGContextClosePath(context);
+  CGContextClip(context);
 }
 
 @implementation RnAppKitView {
@@ -492,13 +530,33 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
         CGRectMake(left, top, innerWidth, innerHeight), innerRadii);
   }
 
-  // Each wedge, in the edge order the widths are stored in.
-  const CGPoint wedges[4][4] = {
-      {{0, 0}, {w, 0}, {w - right, top}, {left, top}},                        // top
-      {{w, 0}, {w, h}, {w - right, h - bottom}, {w - right, top}},            // right
-      {{w, h}, {0, h}, {left, h - bottom}, {w - right, h - bottom}},          // bottom
-      {{0, h}, {0, 0}, {left, top}, {left, h - bottom}},                      // left
+  // The diagonal at each corner, as a point and a direction, and a point known
+  // to be inside each edge's own band.
+  //
+  // Deliberately not four quadrilaterals stopping at the inner rectangle. That
+  // is right only while the corners are square: a radius pushes the border band
+  // outside those quads, and the part of the arc beyond them is then inside no
+  // wedge at all and never painted. What that looks like is not a missing
+  // sliver -- it is a corner whose colour stops early, which reads as a chamfer
+  // rather than as a bug.
+  //
+  // Two half-plane clips per edge instead. Successive clips intersect, so the
+  // pair is the sector the edge owns, and a sector is unbounded: it covers the
+  // whole arc however large the radius. It also stays correct when the two
+  // diagonals cross inside the view, which a quadrilateral cannot -- that
+  // happens whenever the border is thick relative to the frame, and it turns a
+  // quad into a bowtie.
+  const CGPoint corners[4] = {{0, 0}, {w, 0}, {w, h}, {0, h}};
+  const CGPoint directions[4] = {
+      {left, top}, {-right, top}, {-right, -bottom}, {left, -bottom}};
+  // Edge e is bounded by the diagonals at corner e and corner e+1.
+  const CGPoint insides[4] = {
+      {w / 2, top / 2},
+      {w - right / 2, h / 2},
+      {w / 2, h - bottom / 2},
+      {left / 2, h / 2},
   };
+  const CGFloat extent = (w + h) * 4;
 
   CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   for (int edge = 0; edge < 4; edge++) {
@@ -507,13 +565,9 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     }
     CGContextSaveGState(context);
 
-    CGContextBeginPath(context);
-    CGContextMoveToPoint(context, wedges[edge][0].x, wedges[edge][0].y);
-    for (int i = 1; i < 4; i++) {
-      CGContextAddLineToPoint(context, wedges[edge][i].x, wedges[edge][i].y);
-    }
-    CGContextClosePath(context);
-    CGContextClip(context);
+    RnAppKitClipToHalfPlane(context, corners[edge], directions[edge], insides[edge], extent);
+    RnAppKitClipToHalfPlane(
+        context, corners[(edge + 1) % 4], directions[(edge + 1) % 4], insides[edge], extent);
 
     // Outer minus inner, as an even-odd fill of the two subpaths.
     CGContextBeginPath(context);
