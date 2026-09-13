@@ -113,6 +113,15 @@ const PLATFORM_OVERRIDES = [
     path.join('Libraries', 'Components', 'TextInput', 'TextInput.js'),
     path.join(OVERRIDE_DIR, 'TextInput.js'),
   ],
+  [
+    // Also not a shim. `fetch` is broken on this platform without it: every
+    // request asks for a blob response, which ReactCxxPlatform's
+    // NetworkingModule cannot produce, so the response getter throws before
+    // whatwg-fetch builds a Response. The replacement is React Native's own
+    // file with the blob response type routed through base64; see its header.
+    path.join('Libraries', 'Core', 'setUpXHR.js'),
+    path.join(OVERRIDE_DIR, 'setUpXHR.js'),
+  ],
 ];
 
 /**

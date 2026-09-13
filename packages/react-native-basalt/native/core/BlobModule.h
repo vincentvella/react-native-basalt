@@ -18,6 +18,17 @@
 
 namespace basalt {
 
+// base64, both ways.
+//
+// Exposed rather than kept file-local because every `fetch` on this platform
+// now goes through the decoder -- see src/overrides/setUpXHR.js -- and because
+// the padded tail is the classic base64 bug, which only shows on inputs whose
+// length is not a multiple of three. native/tests/test_blobs.cpp covers it.
+namespace detail {
+std::string base64Encode(const std::string &bytes);
+std::string base64Decode(const std::string &text);
+} // namespace detail
+
 class DesktopBlobModule : public facebook::react::NativeBlobModuleCxxSpec<DesktopBlobModule> {
  public:
   explicit DesktopBlobModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)

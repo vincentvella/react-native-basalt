@@ -10,6 +10,7 @@
 
 #include "TestHarness.h"
 
+#include "BlobModule.h"
 #include "BlobRegistry.h"
 
 #include <sstream>
@@ -106,4 +107,51 @@ TEST(binary_content_survives) {
   EXPECT(basalt::blobBytes(id).value_or("") == bytes);
 
   basalt::releaseBlob(id);
+}
+
+// --- base64 ----------------------------------------------------------------
+//
+// On the path of every `fetch` since the setUpXHR override: a blob response is
+// requested as base64 and decoded here, so a bug in this codec is a bug in
+// every request an app makes, not only in `.blob()`.
+
+TEST(base64_round_trips_every_tail_length) {
+  // Lengths 0..8 cover both padded cases and the aligned one, several times
+  // over. The tail is where base64 goes wrong and it goes wrong nowhere else.
+  const std::string source = "ABCDEFGH";
+  for (size_t length = 0; length <= source.size(); length++) {
+    const std::string original = source.substr(0, length);
+    const std::string encoded = basalt::detail::base64Encode(original);
+    EXPECT_EQ(basalt::detail::base64Decode(encoded), original);
+  }
+}
+
+TEST(base64_encodes_the_padding_the_usual_way) {
+  EXPECT_EQ(basalt::detail::base64Encode("A"), std::string("QQ=="));
+  EXPECT_EQ(basalt::detail::base64Encode("AB"), std::string("QUI="));
+  EXPECT_EQ(basalt::detail::base64Encode("ABC"), std::string("QUJD"));
+}
+
+TEST(base64_decodes_what_a_server_actually_sends) {
+  // The exact string a 404 from Metro produced while this was being written,
+  // which is how the round trip was first shown to be byte-exact.
+  EXPECT_EQ(basalt::detail::base64Decode("QXNzZXQgbm90IGZvdW5k"),
+            std::string("Asset not found"));
+}
+
+TEST(base64_survives_bytes_that_are_not_text) {
+  // The reason a blob response cannot be delivered as a string: every byte
+  // value, including the high half and an embedded NUL.
+  std::string binary;
+  for (int i = 0; i < 256; i++) {
+    binary.push_back(static_cast<char>(i));
+  }
+  EXPECT_EQ(basalt::detail::base64Decode(basalt::detail::base64Encode(binary)), binary);
+}
+
+TEST(base64_ignores_whitespace_and_a_truncated_group) {
+  // Newlines are legal in base64 in the wild, and a single leftover character
+  // encodes no whole byte, so it contributes nothing rather than a zero.
+  EXPECT_EQ(basalt::detail::base64Decode("QUJD\nQUJD"), std::string("ABCABC"));
+  EXPECT_EQ(basalt::detail::base64Decode("QUJDQ"), std::string("ABC"));
 }

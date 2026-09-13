@@ -52,6 +52,10 @@ Value rejected(Runtime &rt, const std::string &message) {
   return promise.getPropertyAsFunction(rt, "reject").callWithThis(rt, promise, error);
 }
 
+} // namespace
+
+namespace detail {
+
 std::string base64Encode(const std::string &bytes) {
   static constexpr std::string_view kAlphabet =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -88,7 +92,47 @@ std::string base64Encode(const std::string &bytes) {
   return out;
 }
 
-} // namespace
+// The inverse, for the `base64` part type below.
+//
+// Skips anything outside the alphabet rather than rejecting it, which covers
+// the padding and any newlines a transport introduced. A truncated group -- one
+// leftover character, which encodes nothing -- is dropped.
+std::string base64Decode(const std::string &text) {
+  static constexpr std::string_view kAlphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  std::string out;
+  out.reserve((text.size() / 4) * 3);
+
+  uint32_t group = 0;
+  int digits = 0;
+  for (const char c : text) {
+    const size_t value = kAlphabet.find(c);
+    if (value == std::string_view::npos) {
+      continue;
+    }
+    group = (group << 6) | static_cast<uint32_t>(value);
+    if (++digits == 4) {
+      out.push_back(static_cast<char>((group >> 16) & 0xFF));
+      out.push_back(static_cast<char>((group >> 8) & 0xFF));
+      out.push_back(static_cast<char>(group & 0xFF));
+      group = 0;
+      digits = 0;
+    }
+  }
+
+  // A trailing group of two digits carries one byte, three carries two.
+  if (digits == 2) {
+    out.push_back(static_cast<char>((group >> 4) & 0xFF));
+  } else if (digits == 3) {
+    out.push_back(static_cast<char>((group >> 10) & 0xFF));
+    out.push_back(static_cast<char>((group >> 2) & 0xFF));
+  }
+
+  return out;
+}
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // BlobModule
@@ -116,6 +160,17 @@ void DesktopBlobModule::createFromParts(Runtime &rt, Array parts, String blobId)
 
     if (type == "string") {
       bytes += part.getProperty(rt, "data").asString(rt).utf8(rt);
+      continue;
+    }
+
+    // Not one of React Native's own part types. `fetch` on this platform routes
+    // a `responseType: 'blob'` response through base64 -- see
+    // src/overrides/setUpXHR.js -- because ReactCxxPlatform's NetworkingModule
+    // delivers every body as a JavaScript string, and a string cannot carry
+    // arbitrary bytes intact. Base64 can, and this is where it is turned back
+    // into bytes.
+    if (type == "base64") {
+      bytes += detail::base64Decode(part.getProperty(rt, "data").asString(rt).utf8(rt));
       continue;
     }
 
@@ -202,7 +257,7 @@ Value DesktopFileReaderModule::readAsDataURL(Runtime &rt, Object blob) {
     type = "application/octet-stream";
   }
 
-  const std::string url = "data:" + type + ";base64," + base64Encode(*slice);
+  const std::string url = "data:" + type + ";base64," + detail::base64Encode(*slice);
   return resolved(rt, Value(String::createFromUtf8(rt, url)));
 }
 
