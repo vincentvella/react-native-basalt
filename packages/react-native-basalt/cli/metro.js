@@ -78,12 +78,50 @@ async function startMetro(context, port) {
   child.unref();
   fs.closeSync(log);
 
-  if (!(await waitForPort(port, 90000))) {
-    throw new Error(
-      `Metro did not start listening on port ${port}; see ${logPath}`,
-    );
+  // A Metro that fails does so at once -- a config it cannot load, a package
+  // it cannot resolve -- and waiting out the port timeout after it had already
+  // exited turned a one-line error into ninety seconds of silence and "see the
+  // log". So the wait races the child's exit, and an exit before the port
+  // opens is reported with the end of the log, which is where Metro says what
+  // went wrong.
+  const exited = new Promise(resolve => {
+    child.once('exit', (code, signal) => resolve({code, signal}));
+    child.once('error', error => resolve({error}));
+  });
+  const outcome = await Promise.race([
+    waitForPort(port, 90000).then(listening => ({listening})),
+    exited.then(exit => ({exit})),
+  ]);
+
+  if (outcome.exit) {
+    const {code, signal, error} = outcome.exit;
+    const how = error
+      ? `could not be started (${error.message})`
+      : `exited before listening (${signal ?? `code ${code}`})`;
+    throw new Error(`Metro ${how}. The end of ${logPath}:\n\n${tail(logPath, 12)}`);
+  }
+  if (!outcome.listening) {
+    throw new Error(`Metro did not start listening on port ${port}; see ${logPath}`);
   }
   return {child, logPath};
+}
+
+/**
+ * The last lines of a file, without terminal colour codes, for an error
+ * message. Empty when it cannot be read: the message is still worth showing.
+ */
+function tail(file, lines) {
+  try {
+    return fs
+      .readFileSync(file, 'utf8')
+      .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+      .trimEnd()
+      .split(/\r?\n/)
+      .slice(-lines)
+      .join('\n');
+  } catch {
+    return '';
+  }
 }
 
 module.exports = {isPortTaken, waitForPort, startMetro};

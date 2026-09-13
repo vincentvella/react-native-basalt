@@ -609,6 +609,44 @@ function launch(hostBinary, {bundlePath, moduleName, dev, port, entry, cwd}) {
   });
 }
 
+/**
+ * Whether React Native's `start` command can load its Metro configuration in
+ * this app. Null when it can; otherwise the message to show.
+ *
+ * Development runs start Metro through that command, and its loader requires
+ * @react-native/metro-config from the app whatever the app's own
+ * metro.config.js says. A React Native template lists it. An Expo app does
+ * not -- Expo's CLI brings its own configuration -- so every Expo app's first
+ * development run died inside Metro with "Cannot resolve
+ * `@react-native/metro-config`", and only after the port timeout. Asked up
+ * front, the answer can name the version to install: the app's react-native
+ * version, which is what @react-native/community-cli-plugin pins it to.
+ */
+function missingMetroConfig(projectRoot) {
+  if (findPackage('@react-native/metro-config', projectRoot) != null) {
+    return null;
+  }
+  let spec = '@react-native/metro-config';
+  const reactNative = findPackage('react-native', projectRoot);
+  if (reactNative != null) {
+    try {
+      const {version} = JSON.parse(fs.readFileSync(path.join(reactNative, 'package.json'), 'utf8'));
+      if (version) {
+        spec = `@react-native/metro-config@${version}`;
+      }
+    } catch {
+      // No version to name; the bare package name is still the right advice.
+    }
+  }
+  return (
+    "a development run starts Metro through React Native's `start` command, which " +
+    'needs @react-native/metro-config installed in the app, and this app has none. ' +
+    'Expo apps do not ship it. Install it with:\n\n' +
+    `  npm install --save-dev ${spec}\n\n` +
+    'or run a bundle, which needs no Metro, with --mode release.'
+  );
+}
+
 async function runDesktop(_argv, context, options, target) {
   const projectRoot = context.root;
   const port = Number(options.port) || DEFAULT_PORT;
@@ -639,6 +677,10 @@ async function runDesktop(_argv, context, options, target) {
     } else if (await isPortTaken(port)) {
       console.log(`==> reusing the packager already on port ${port}`);
     } else {
+      const problem = missingMetroConfig(projectRoot);
+      if (problem != null) {
+        throw new Error(problem);
+      }
       const {logPath} = await startMetro(context, port);
       console.log(
         `==> started Metro on port ${port}, logging to ${path.relative(projectRoot, logPath)}`,
@@ -751,6 +793,7 @@ module.exports = {
   findGitBash,
   isExecutable,
   makeRunCommand,
+  missingMetroConfig,
   monorepoRoot,
   msvcEnvironment,
   optionalNativeModules,

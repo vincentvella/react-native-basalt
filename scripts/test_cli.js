@@ -372,3 +372,65 @@ test('the environment vcvars prints is read as NAME=value lines only', () => {
   // child process can be given.
   assert.ok(!Object.keys(parsed).some(name => name.startsWith('=')));
 });
+
+test('a Metro that dies on start is reported at once, with its own error', async () => {
+  const {startMetro} = require(path.join(REPO, 'packages/react-native-basalt/cli/metro.js'));
+  const project = scratch();
+
+  // A stand-in for react-native's cli.js that fails the way Metro does in an
+  // Expo app with no @react-native/metro-config: one error line, then exit.
+  const reactNative = path.join(project, 'node_modules', 'react-native');
+  fs.mkdirSync(reactNative, {recursive: true});
+  fs.writeFileSync(
+    path.join(reactNative, 'cli.js'),
+    "console.error('error Cannot resolve `@react-native/metro-config`.'); process.exit(1);\n",
+  );
+
+  // A port nothing listens on, so only the child's exit can end the wait.
+  const port = await new Promise(resolve => {
+    const server = require('node:net').createServer();
+    server.listen(0, () => {
+      const {port: free} = server.address();
+      server.close(() => resolve(free));
+    });
+  });
+
+  const started = Date.now();
+  let thrown = null;
+  try {
+    await startMetro({root: project, reactNativePath: reactNative}, port);
+  } catch (error) {
+    thrown = error;
+  }
+  const elapsed = Date.now() - started;
+
+  assert.ok(thrown, 'startMetro should reject when Metro exits');
+  assert.ok(elapsed < 15000, `reported after ${elapsed}ms, not at once`);
+  assert.match(thrown.message, /exited before listening/);
+  assert.match(thrown.message, /Cannot resolve `@react-native\/metro-config`/);
+
+  fs.rmSync(project, {recursive: true, force: true});
+});
+
+test('a development run names the Metro config to install before starting Metro', () => {
+  const project = scratch();
+  const install = (name, version) => {
+    const dir = path.join(project, 'node_modules', ...name.split('/'));
+    fs.mkdirSync(dir, {recursive: true});
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({name, version}));
+  };
+
+  // What an Expo app has: react-native, and no @react-native/metro-config.
+  install('react-native', '0.86.3');
+  const message = desktop.missingMetroConfig(project);
+  assert.ok(
+    message.includes('npm install --save-dev @react-native/metro-config@0.86.3'),
+    message,
+  );
+  assert.ok(message.includes('--mode release'));
+
+  install('@react-native/metro-config', '0.86.3');
+  assert.equal(desktop.missingMetroConfig(project), null);
+
+  fs.rmSync(project, {recursive: true, force: true});
+});
