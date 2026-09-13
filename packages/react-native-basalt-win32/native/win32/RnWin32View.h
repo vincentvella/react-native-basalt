@@ -146,6 +146,14 @@ class RnWin32View {
   void setEditablePeer(HWND control) { editablePeer_ = control; }
   HWND editablePeer() const { return editablePeer_; }
 
+  // The view's `nativeID`. Kept for the one thing on this platform that reads
+  // it: a hidden title bar asks which views are drag regions, and
+  // <TitleBar.DragRegion> says so through this prop because it is the one a
+  // plain View already carries all the way to the host. See
+  // Win32TitleBarLayout.h.
+  void setNativeId(std::string nativeId) { nativeId_ = std::move(nativeId); }
+  const std::string &nativeId() const { return nativeId_; }
+
   // --- Content ---------------------------------------------------------------
 
   // The paragraph this view draws, or null for a view that draws none.
@@ -254,6 +262,7 @@ class RnWin32View {
   bool clipsChildren_ = false;
   float cornerRadius_ = 0.0f;
   HWND editablePeer_ = nullptr;
+  std::string nativeId_;
   int zIndex_ = 0;
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;

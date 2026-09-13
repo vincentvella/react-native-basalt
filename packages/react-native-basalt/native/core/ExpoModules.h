@@ -61,4 +61,9 @@ void installExpoViewConfigs(facebook::jsi::Runtime &runtime, facebook::jsi::Obje
 // Call before the runtime is installed; the hosts do it as they start.
 void loadExpoAppConfigBeside(const std::string &bundlePath);
 
+// The app's name from that config -- `name` in app.json -- or empty when there
+// is no config or it names nothing. What a host titles its window with, rather
+// than with its own name.
+std::string expoAppName();
+
 } // namespace basalt

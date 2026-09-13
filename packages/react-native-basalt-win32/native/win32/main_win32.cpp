@@ -43,6 +43,8 @@
 #include "Win32Strings.h"
 #include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
+#include "Win32TitleBar.h"
+#include "Win32WindowModule.h"
 #include "RnWin32View.h"
 
 #include "AppearanceModule.h"
@@ -54,6 +56,7 @@
 #include "ExpoRuntime.h"
 #include "GestureHandlerModule.h"
 #include "PlatformConstantsModule.h"
+#include "PlatformServices.h"
 #include "ReanimatedModule.h"
 #include "SourceCodeModule.h"
 #include "StatusBarModule.h"
@@ -83,6 +86,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cwchar>
 #include <exception>
 #include <memory>
 #include <string>
@@ -350,6 +354,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
+        }
+        // The window's title bar. This host's own rather than core's, because it
+        // needs the window; see win32/Win32WindowModule.h.
+        if (name == basalt::Win32WindowModule::kModuleName) {
+          return std::make_shared<basalt::Win32WindowModule>(jsInvoker);
         }
         if (name == basalt::DesktopSourceCodeModule::kModuleName) {
           return std::make_shared<basalt::DesktopSourceCodeModule>(jsInvoker, scriptURL);
@@ -691,6 +700,52 @@ void shutdown() {
 
 LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
+    // The title bar. Each of these is answered only while an app has asked for
+    // a hidden one, and falls through to Windows otherwise; see
+    // win32/Win32TitleBar.h.
+    case WM_NCCALCSIZE: {
+      LRESULT result = 0;
+      if (basalt::titleBar().handleNcCalcSize(wparam, lparam, result)) {
+        return result;
+      }
+      break;
+    }
+
+    case WM_NCHITTEST: {
+      LRESULT result = 0;
+      if (basalt::titleBar().handleNcHitTest(lparam, gHost.root, result)) {
+        return result;
+      }
+      break;
+    }
+
+    case WM_NCMOUSEMOVE:
+    case WM_NCMOUSELEAVE:
+    case WM_NCLBUTTONDOWN:
+    case WM_NCLBUTTONDBLCLK:
+    case WM_NCLBUTTONUP: {
+      LRESULT result = 0;
+      if (basalt::titleBar().handleNcMouse(message, wparam, result)) {
+        return result;
+      }
+      break;
+    }
+
+    // An inactive window's caption buttons are drawn dimmer, as Windows' own are.
+    case WM_ACTIVATE:
+      basalt::titleBar().handleActivate(LOWORD(wparam) != WA_INACTIVE);
+      break;
+
+    // Light or dark, changed in Settings while the app runs. Windows announces
+    // it with this message and this string, and nothing on this host listened
+    // for it -- so neither the title bar nor Appearance ever changed.
+    case WM_SETTINGCHANGE:
+      if (lparam != 0 &&
+          std::wcscmp(reinterpret_cast<const wchar_t *>(lparam), L"ImmersiveColorSet") == 0) {
+        basalt::notifyColorSchemeChanged();
+      }
+      break;
+
     case WM_SIZE: {
       const int width = LOWORD(lparam);
       const int height = HIWORD(lparam);
@@ -704,6 +759,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         gHost.reactHost->setSurfaceConstraints(
             kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
       }
+      // A maximise moves a hidden title bar's caption, and nothing else says so.
+      basalt::titleBar().refreshMetrics();
       return 0;
     }
 
@@ -726,6 +783,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
                      suggested->bottom - suggested->top,
                      SWP_NOZORDER | SWP_NOACTIVATE);
       }
+      // The caption is sized in device-independent pixels.
+      basalt::titleBar().refreshMetrics();
       return 0;
     }
 
@@ -747,6 +806,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     }
 
     case WM_MOUSEMOVE:
+      basalt::titleBar().clearHover();
       // Motion with no button down is hover, and the dispatcher drops it; the
       // check here is only to keep an idle mouse from walking the view tree
       // sixty times a second.
@@ -855,6 +915,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         gHost.target->Clear(D2D1::ColorF(D2D1::ColorF::Black));
         gHost.target->SetTransform(D2D1::Matrix3x2F::Identity());
         gHost.root->paint(gHost.target.Get());
+        // A hidden title bar's caption buttons, over the app's own content.
+        basalt::titleBar().paintButtons(gHost.target.Get());
         // A lost device is reported here and nowhere else. Dropping the target
         // is the whole recovery: the next WM_PAINT rebuilds it.
         if (gHost.target->EndDraw() == D2DERR_RECREATE_TARGET) {
@@ -974,6 +1036,26 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "could not create the window\n");
     return 1;
   }
+
+  // The app's Expo config, if it is an Expo app and has been bundled. Before the
+  // runtime is installed, as the other two hosts load it -- this one never did,
+  // so Constants.expoConfig was null on Windows. It also names the window.
+  basalt::loadExpoAppConfigBeside(gHost.bundlePath);
+  {
+    const std::string appName = basalt::expoAppName();
+    basalt::titleBar().setDefaultTitle(
+        !appName.empty() ? appName
+                         : (!gHost.moduleName.empty() ? gHost.moduleName : "react-native-basalt"));
+  }
+  // Dark or light to match the app, and again whenever that changes -- in
+  // Settings, or through Appearance.setColorScheme on the JavaScript thread, so
+  // the change is marshalled here from wherever it was announced.
+  basalt::titleBar().setDarkMode(basalt::effectiveColorScheme() == basalt::ColorScheme::Dark);
+  basalt::titleBar().attach(gHost.window);
+  basalt::addColorSchemeObserver([](basalt::ColorScheme scheme) {
+    basalt::postToUiThread(
+        [scheme] { basalt::titleBar().setDarkMode(scheme == basalt::ColorScheme::Dark); });
+  });
 
   UINT dpi = GetDpiForWindow(gHost.window);
   gHost.scaleFactor = dpi >= 96 ? static_cast<int>(dpi / 96) : 1;

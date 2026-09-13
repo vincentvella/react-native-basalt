@@ -223,6 +223,12 @@ jobs:
         # Windows job runs it too. Needs nothing built.
         run: node --test scripts/test_cli.js
 
+      - name: Platform JavaScript tests
+        # react-native-basalt's JavaScript that needs no React Native to run --
+        # today, the title bar's request stack. Plain Node, like the CLI tests,
+        # and once: it cannot answer differently on another platform.
+        run: node --test scripts/test_platform_js.js
+
       - name: Include hygiene
         # Here only. It reads text, so it cannot answer differently on another
         # platform, and running it twice would be the same answer twice. What

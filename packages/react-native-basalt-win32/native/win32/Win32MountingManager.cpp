@@ -257,6 +257,10 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
     view->setTransform(transform.matrix.data());
   }
 
+  // Only a hidden title bar reads this, to find the drag regions an app marked
+  // with <TitleBar.DragRegion>.
+  view->setNativeId(props->nativeId);
+
   // TODO(props): per-corner radii, borders, pointerEvents. The GTK side has all
   // of them.
 }

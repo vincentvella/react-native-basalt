@@ -114,7 +114,11 @@ add_library(basalt_win32_view STATIC
   # Offscreen rendering, to a PNG or to pixels a test can read. The second is
   # why this is in the view target rather than beside the demo: it is what the
   # rendering assertions in tests/test_win32_paint.cpp are built on.
-  win32/Win32Snapshot.cpp)
+  win32/Win32Snapshot.cpp
+  # Where a hidden title bar's pieces are -- the caption buttons and the drag
+  # regions. Pure geometry over the view tree, so it is tested here with no
+  # window and no React Native.
+  win32/Win32TitleBarLayout.cpp)
 target_compile_options(basalt_win32_view PRIVATE ${BASALT_WIN32_WARNINGS})
 target_include_directories(basalt_win32_view PUBLIC win32)
 target_link_libraries(basalt_win32_view PUBLIC
@@ -144,7 +148,9 @@ set(BASALT_WIN32_TEST_SOURCES
   tests/test_win32_image.cpp
   # The UIA mapping. The React Native role name is what the cross-platform diff
   # compares; this is where the platform half is checked.
-  tests/test_win32_accessibility.cpp)
+  tests/test_win32_accessibility.cpp
+  # A hidden title bar's geometry: the caption buttons and the drag regions.
+  tests/test_win32_titlebar.cpp)
 
 # ---------------------------------------------------------------------------
 # basalt_win32_mounting — the Windows half of the Fabric mounting manager.
@@ -189,7 +195,12 @@ if(TARGET basalt_core)
     win32/ColorSchemeWin32.cpp
     # ...and of core/PlatformServices.h, which is also where postToUiThread
     # lives -- the marshalling the mounting manager depends on.
-    win32/PlatformServicesWin32.cpp)
+    win32/PlatformServicesWin32.cpp
+    # The window's title bar: DWM's colours and dark mode, and the caption the
+    # host draws when an app hides the system's. And BasaltWindow, the module
+    # JavaScript reaches it through.
+    win32/Win32TitleBar.cpp
+    win32/Win32WindowModule.cpp)
   target_compile_options(basalt_win32_mounting PRIVATE ${BASALT_WIN32_WARNINGS})
   target_include_directories(basalt_win32_mounting PUBLIC win32)
   target_link_libraries(basalt_win32_mounting PUBLIC basalt_win32_view basalt_core)
@@ -197,6 +208,8 @@ if(TARGET basalt_core)
   # <TextInput>'s EDIT peer is subclassed without breaking anything else that
   # subclasses it later.
   target_link_libraries(basalt_win32_mounting PUBLIC shell32 comctl32)
+  # dwmapi for the title bar's colours and dark mode.
+  target_link_libraries(basalt_win32_mounting PUBLIC dwmapi)
 
   # -------------------------------------------------------------------------
   # basalt_win32 — a ReactHost, Hermes, and one surface in an HWND.

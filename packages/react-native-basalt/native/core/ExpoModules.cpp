@@ -55,6 +55,15 @@ void loadExpoAppConfigBeside(const std::string &bundlePath) {
   }
 }
 
+std::string expoAppName() {
+  const auto &config = appConfig();
+  if (!config.has_value()) {
+    return {};
+  }
+  const folly::dynamic *name = config->get_ptr("name");
+  return name != nullptr && name->isString() ? name->getString() : std::string{};
+}
+
 #ifdef BASALT_HAS_EXPO
 
 namespace {
