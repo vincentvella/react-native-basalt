@@ -288,6 +288,122 @@ function compilerArgs(platform, env = process.env) {
 }
 
 /**
+ * Git Bash, found rather than assumed.
+ *
+ * bootstrap.sh runs under Git Bash on Windows, and `bash` by name is not it on
+ * any machine with WSL: System32\bash.exe and WindowsApps\bash.exe both come
+ * first on PATH, and both launch Linux. Run there, bootstrap sees a Linux host
+ * and a Windows checkout and fails in ways that name neither.
+ *
+ * So: BASALT_BASH if set; else the bash.exe beside whichever git.exe is on PATH
+ * (Git for Windows puts git.exe in <Git>\cmd and bash.exe in <Git>\bin); else
+ * the standard install locations. Anything under System32 or WindowsApps is
+ * refused wherever it came from.
+ */
+function findGitBash(env = process.env) {
+  // Either separator: a path handed in through BASALT_BASH or PATH may use
+  // forward slashes, and the tests run this on Linux too.
+  const isLauncher = candidate => /[\\/](system32|windowsapps)[\\/]/i.test(candidate);
+  const usable = candidate =>
+    candidate != null && !isLauncher(candidate) && fs.existsSync(candidate);
+
+  if (env.BASALT_BASH) {
+    return usable(env.BASALT_BASH) ? env.BASALT_BASH : null;
+  }
+
+  const found = [];
+  for (const dir of (env.PATH || env.Path || '').split(';').filter(Boolean)) {
+    if (fs.existsSync(path.join(dir, 'git.exe'))) {
+      // <Git>\cmd\git.exe, or <Git>\mingw64\bin\git.exe.
+      found.push(path.join(dir, '..', 'bin', 'bash.exe'));
+      found.push(path.join(dir, '..', '..', 'bin', 'bash.exe'));
+    }
+  }
+  for (const root of [env.ProgramW6432, env.ProgramFiles, env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs')]) {
+    if (root) {
+      found.push(path.join(root, 'Git', 'bin', 'bash.exe'));
+    }
+  }
+  return found.map(candidate => path.normalize(candidate)).find(usable) ?? null;
+}
+
+/**
+ * The environment `set` prints, as an object. Only lines of the form NAME=value;
+ * cmd prints nothing else there, but a banner from a profile script might.
+ */
+function parseSetOutput(output) {
+  const env = {};
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^([^=\s][^=]*)=(.*)$/.exec(line);
+    if (match) {
+      env[match[1]] = match[2];
+    }
+  }
+  return env;
+}
+
+/**
+ * The MSVC environment, loaded the way a Developer Command Prompt loads it.
+ *
+ * clang-cl needs the Windows SDK's headers and libraries, and only
+ * vcvars64.bat puts them on INCLUDE and LIB; the Visual Studio CMake component
+ * it also puts on PATH brings cmake and ninja. Without this, `--build` worked
+ * only from a shell somebody had already prepared, and preparing one from
+ * PowerShell meant a wrapper script -- which is how an example app came to
+ * forward its arguments into npm's npx.ps1 with @args, and lose every one of
+ * them.
+ *
+ * Skipped when the shell already has it (VCToolsInstallDir is vcvars' own
+ * marker). VCPKG_ROOT is left as it was: vcvars points it at the copy bundled
+ * with Visual Studio, which has nothing installed in it.
+ */
+function msvcEnvironment(env = process.env) {
+  if (env.VCToolsInstallDir) {
+    return env;
+  }
+  const programFilesX86 = env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+  if (!fs.existsSync(vswhere)) {
+    throw new Error(
+      'no Visual Studio found (vswhere.exe is missing). Building the host on Windows needs ' +
+        'the Visual Studio Build Tools with the C++ workload and clang-cl.',
+    );
+  }
+  const where = spawnSync(
+    vswhere,
+    ['-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Llvm.Clang', '-property', 'installationPath'],
+    {encoding: 'utf8'},
+  );
+  const installation = (where.stdout || '').trim().split(/\r?\n/)[0];
+  if (!installation) {
+    throw new Error(
+      'no Visual Studio with clang-cl found. Add "C++ Clang Compiler for Windows" to the ' +
+        'Build Tools installation.',
+    );
+  }
+  const vcvars = path.join(installation, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat');
+  // Quoted twice over. With /s, cmd strips the first and last quote from what
+  // follows /c and runs the rest, so a single pair around the path -- which has
+  // spaces in it, under Program Files (x86) -- loses both of its quotes and
+  // runs `C:\Program`. The outer pair is the one cmd removes.
+  const loaded = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${vcvars}" >nul 2>&1 && set"`], {
+    encoding: 'utf8',
+    env,
+    windowsVerbatimArguments: true,
+  });
+  if (loaded.status !== 0) {
+    throw new Error(`${vcvars} failed`);
+  }
+  const merged = {...env, ...parseSetOutput(loaded.stdout || '')};
+  if (env.VCPKG_ROOT === undefined) {
+    delete merged.VCPKG_ROOT;
+  } else {
+    merged.VCPKG_ROOT = env.VCPKG_ROOT;
+  }
+  return merged;
+}
+
+/**
  * The React Native monorepo root, when `reactNativePath` is inside a checkout.
  *
  * `reactNativePath` is the package directory, two levels below the root in a
@@ -356,10 +472,25 @@ function buildHost(context, options, target) {
   // executable bit is only there if whoever packed the package had one to
   // give: a tarball packed on Windows has none, and running the script directly
   // would fail with EACCES for exactly the people installing from npm.
+  //
+  // On Windows it has to be Git Bash specifically, and everything from here on
+  // needs the MSVC environment; see findGitBash and msvcEnvironment.
+  let buildEnv = process.env;
+  let bash = 'bash';
+  if (process.platform === 'win32') {
+    buildEnv = msvcEnvironment(process.env);
+    bash = findGitBash(buildEnv);
+    if (bash == null) {
+      throw new Error(
+        'building the host on Windows needs Git Bash, and none was found -- only a WSL ' +
+          'launcher, or nothing. Install Git for Windows, or set BASALT_BASH to its bash.exe.',
+      );
+    }
+  }
   run(
-    'bash',
+    bash,
     [bootstrap, sources.bootstrapArg],
-    {cwd: workDir, env: {...process.env, BASALT_THIRD_PARTY: thirdParty}},
+    {cwd: workDir, env: {...buildEnv, BASALT_THIRD_PARTY: thirdParty}},
     target.toolchain,
   );
 
@@ -383,13 +514,13 @@ function buildHost(context, options, target) {
       `-DBASALT_CORE_DIR=${target.coreDir}`,
       ...(target.configureArgs ?? []),
     ],
-    {},
+    {env: buildEnv},
     target.toolchain,
   );
 
   console.log('==> building');
   const jobs = options.jobs ? ['-j', String(options.jobs)] : [];
-  run('cmake', ['--build', buildDir, ...jobs], {}, target.toolchain);
+  run('cmake', ['--build', buildDir, ...jobs], {env: buildEnv}, target.toolchain);
 
   const binary = path.join(buildDir, target.binary);
   if (!isExecutable(binary)) {
@@ -617,10 +748,13 @@ module.exports = {
   buildHost,
   candidates,
   compilerArgs,
+  findGitBash,
   isExecutable,
   makeRunCommand,
   monorepoRoot,
+  msvcEnvironment,
   optionalNativeModules,
+  parseSetOutput,
   reactNativeSources,
   resolveHost,
   resolveModuleName,

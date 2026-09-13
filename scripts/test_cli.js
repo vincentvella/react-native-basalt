@@ -324,3 +324,51 @@ test('the build names clang rather than taking the system compiler', () => {
 
   fs.rmSync(home, {recursive: true, force: true});
 });
+
+test('Git Bash is found beside git, and a WSL launcher is never it', () => {
+  const root = scratch();
+  const make = file => {
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    fs.writeFileSync(file, '');
+    return file;
+  };
+
+  // Git for Windows: git.exe in <Git>\cmd, bash.exe in <Git>\bin.
+  const gitCmd = path.join(root, 'Git', 'cmd');
+  make(path.join(gitCmd, 'git.exe'));
+  const bash = make(path.join(root, 'Git', 'bin', 'bash.exe'));
+  // WSL's launcher, first on PATH the way it is on a real machine.
+  const system32 = path.join(root, 'Windows', 'System32');
+  make(path.join(system32, 'bash.exe'));
+
+  const found = desktop.findGitBash({PATH: [system32, gitCmd].join(';')});
+  assert.equal(found, path.normalize(bash));
+
+  // BASALT_BASH wins, but not if it names a launcher.
+  assert.equal(desktop.findGitBash({BASALT_BASH: bash, PATH: ''}), bash);
+  assert.equal(
+    desktop.findGitBash({BASALT_BASH: path.join(system32, 'bash.exe'), PATH: gitCmd}),
+    null,
+  );
+
+  // Nothing but a launcher: no answer, rather than the wrong one.
+  assert.equal(desktop.findGitBash({PATH: system32}), null);
+
+  fs.rmSync(root, {recursive: true, force: true});
+});
+
+test('the environment vcvars prints is read as NAME=value lines only', () => {
+  const parsed = desktop.parseSetOutput(
+    '**********\r\n' +
+      'INCLUDE=C:\SDK\include;C:\VC\include\r\n' +
+      'ProgramFiles(x86)=C:\Program Files (x86)\r\n' +
+      'EMPTY=\r\n' +
+      '=C:=C:\\r\n',
+  );
+  assert.equal(parsed.INCLUDE, 'C:\SDK\include;C:\VC\include');
+  assert.equal(parsed['ProgramFiles(x86)'], 'C:\Program Files (x86)');
+  assert.equal(parsed.EMPTY, '');
+  // cmd's hidden per-drive variables start with "=", and are not variables a
+  // child process can be given.
+  assert.ok(!Object.keys(parsed).some(name => name.startsWith('=')));
+});
