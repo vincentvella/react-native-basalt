@@ -288,22 +288,30 @@ are documented in the project README.
 | 9 | `<TextInput>` | **done** |
 | 10 | Point the host at a real app, and find out what breaks | **done** |
 | 11 | Run against a released React Native, not just `main` | **done** |
-| 12 | `run-linux` CLI and an installable package | in progress |
+| 12 | `run-linux`, `run-macos`, `run-windows`, and installable packages | **done**, not yet published |
 | 12a | Build from an installed React Native, on a pinned triple | **done** |
 | 13 | Port one third-party native module end to end | |
 | 14 | Expo's native runtime | **done** |
 | 15 | The asset pipeline | **done** |
-| 16 | Split the shared core from the toolkit | **started** |
+| 16 | Split the shared core from the toolkit | **done** |
 | 17 | A second view layer: macOS | **done** |
-| 17a | A third view layer: Windows, over Win32 and Direct2D | **started** |
-| 18 | Core modules: appearance, clipboard, linking, alerts | |
-| 16 | Desktop capabilities: windows, menus, file dialogs | |
-| 17 | Packaging: Arch, Flatpak | |
+| 17a | A third view layer: Windows, over Win32 and Direct2D | **done** |
+| 18 | Core modules: appearance, clipboard, linking, alerts | **done** |
+| 19 | CI on every push for Linux and Windows, and a release workflow | **done**; no release run yet |
+| 20 | An Expo app, installed from the packed packages, on Linux and Windows | **done** |
+| 21 | The window's title bar: colours, dark mode, an app-drawn header | **done** on Windows |
+| 22 | `npx react-native-basalt init` for an Expo app | **next** |
+| 23 | Fast Refresh end to end on Windows | **next** |
+| 24 | The title bar on Linux and macOS | |
+| 25 | A first release run; then prebuilt Hermes, and publishing | |
+| 26 | Desktop capabilities: more windows, menus, file dialogs | |
+| 27 | Packaging: Arch, Flatpak | |
 
-Phases 13 onwards are a proposal rather than a commitment. What is not a
-proposal is that they were previously one row reading "Expo, CLI, packaging",
-which hid that Expo alone is likely larger than the two phases before it. See
-`plan/backlog.md` for the detail behind each.
+Rows 22 onwards are the order the work is expected to happen in, and a proposal
+rather than a commitment; the README's "Next" says why each is where it is. The
+table has been wrong in that direction before -- the rows from 13 were once a
+single "Expo, CLI, packaging", which hid that Expo alone was larger than the two
+phases before it. See `plan/backlog.md` for the detail behind each.
 
 ## Which components a platform claims
 

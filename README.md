@@ -581,9 +581,10 @@ Not yet done:
 - **Nothing desktop-shaped.** One window, no menus, no native file dialogs, no
   drag and drop, no tray. React Native has no cross-platform API for any of it,
   so each is a design decision before it is an implementation.
-- **No way for anyone else to use this.** No npm package and no packaging. There
-  is a run command per desktop, and it can build a host, but it needs a React
-  Native *source checkout* to build against. And no third-party native module
+- **Nothing is published yet.** An Expo app can install these packages and get
+  a desktop -- `run-linux --build` and `run-windows --build` build the host
+  against the app's installed React Native -- but setting that up is manual, and
+  the first build compiles Hermes from source. And no third-party native module
   has been ported end to end, so what porting one costs is still unknown.
 
 See `plan/backlog.md` for the per-component detail.
@@ -799,17 +800,42 @@ compositor opacity rule, not the renderer.
 
 ## Next
 
-1. `main.cpp`: construct `ReactHost` with this mounting manager, wire
-   `RunLoopObserverManager` to the GTK frame clock, `createSurfaceRoot`, then
-   `startSurface` with `setSurfaceConstraints` driven by the window size. This
-   adds Hermes (`react/runtime` + `react/runtime/hermes`) to the build.
-2. Load a Metro bundle and get `<View>` with flexbox on screen with Fast
-   Refresh -- the first milestone where React itself is doing the reconciling.
-3. Replace the stub `TextLayoutManager` (`textlayoutmanager/platform/cxx`
-   measures nothing and returns `layoutConstraints.minimumSize`) with Pango.
-   Largest single remaining piece.
-4. `IImageLoader`, input/gestures, then the accessibility hooks
-   `IMountingManager` already declares against AT-SPI.
+In the order it is likely to be done. The per-area detail is
+`plan/backlog.md`; the history is the roadmap in `docs/ARCHITECTURE.md`.
+
+1. **`npx react-native-basalt init`.** Adding a desktop to an Expo app works
+   and is still manual: `@react-native/metro-config` and
+   `@react-native-community/cli` as dev dependencies, `withDesktopPlatforms` in
+   `metro.config.js`, and a script per desktop. One command should do all of
+   it, tested against a fresh `create-expo-app` the way `release.yml`'s install
+   job is.
+2. **Fast Refresh end to end on Windows.** `scripts/integration_test.py` still
+   skips the scenario there because `scripts/metro.sh` is a shell script. A
+   development run now goes through `run-windows`, which starts Metro itself,
+   and Fast Refresh works on Windows -- so the skip can go.
+3. **The title bar on Linux and macOS.** `useTitleBar`, `<TitleBar>` and
+   `useTitleBarMetrics` do nothing off Windows. GTK can drop its decorations
+   and take a header from the app; AppKit has a transparent, full-size-content
+   title bar that keeps the traffic lights.
+4. **A first release run.** `release.yml` has never run: its macOS job, Linux
+   and Windows built from nothing, and the Expo install job are all unproven on
+   hosted runners. Deliberately not yet. Windows belongs in the install job
+   before it does.
+5. **A faster first `--build`.** It compiles Hermes and React Native's C++
+   from source, twenty to thirty minutes. Prebuilt Hermes per platform and
+   React Native version is what would change that for someone trying it out.
+6. **Publishing.** Versions, an npm account, the publish step in
+   `release.yml`, and an install guide.
+
+Known, and waiting on upstream rather than on this list: on React Native 0.86,
+which current Expo installs, a full reload tears the host down (fixed in 0.87;
+see `supported-versions.json`), so an edit Fast Refresh cannot apply in place
+closes the app.
+
+Unverified since the Mac left: nothing touched since has been compiled for
+macOS. The one AppKit change is in `main_appkit.mm`, where the dev script URL
+now names `macos` rather than `linux` -- the fix that made Fast Refresh reach
+Windows, and very likely the reason it would not have reached macOS either.
 
 ## Caveat
 

@@ -140,9 +140,15 @@ and none of it is a missing half.
   without the retry; what was holding it was never caught, and 190 runs with
   logging on every refusal saw none.
 - **`scripts/integration_test.py` skips Fast Refresh on Windows**, because
-  `scripts/metro.sh` is a shell script. Everything it would prove about the
-  *host* is the same code on every platform; what would be platform-specific is
-  Metro's file watching, which is Metro's. The other four scenarios run.
+  `scripts/metro.sh` is a shell script. That reason has gone. A development run
+  goes through `run-windows`, which starts Metro itself, and Fast Refresh works
+  on Windows now -- an edit to a running Expo app reaches the tree. It did not
+  before, for three separate reasons: the host read its Metro entry from an
+  argument nothing passed, React Native's `start` command needs
+  `@react-native/metro-config` in the app, and every host reported a dev script
+  URL naming `linux`, so Metro sent Windows HMR updates for a Linux graph. The
+  scenario should start Metro the way the run command does and stop skipping.
+  The other four scenarios run.
 - ~~**CI does not build the Windows host.**~~ It does, as `windows-full`:
   vcpkg, Hermes from source, React Native's core under clang-cl, every Windows
   test, the demo bundle and the end-to-end suite. Green on its first run, and
@@ -233,7 +239,9 @@ and none of it is a missing half.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
-- CI is Linux only. macOS is covered by whoever is developing, not by a machine.
+- CI builds and tests Linux and Windows on every push. macOS is built only by
+  `release.yml`, which has not run yet, and otherwise by whoever is developing
+  on a Mac.
 - **The Fast Refresh scenario is skipped in CI**, so nothing on a machine
   protects development mode. Metro on a GitHub runner never notices an edit:
   the file changes on disk with a fresh mtime, a newly requested bundle still
@@ -446,8 +454,12 @@ has gone unrecorded until now.
 
 - **More than one window.** The host creates exactly one and mounts one surface
   in it. Fabric supports multiple surfaces; nothing above it does.
-- **Window title, size, position, fullscreen and close behaviour**, none of
-  which an app can currently influence.
+- **Window size, position, fullscreen and close behaviour**, none of which an
+  app can influence. The title can be, on Windows, with the title bar's colours
+  and a hidden style that lets the app draw its own header -- `useTitleBar`,
+  `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
+  react-native-basalt. Linux and macOS ignore those calls until their hosts
+  implement them.
 - **Menus**, both a menu bar and context menus.
 - **Native file dialogs.** `GtkFileDialog` exists; nothing exposes it. Note that
   kino's own macOS module ships a folder picker, so this is what a real app
@@ -628,6 +640,13 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   What is left before publishing is ordinary: versions, an npm account, the
   publish step, and an install guide. And a first `--build` that compiles Hermes
   and React Native's C++ from source, which is the part a user will notice.
+- **Adding a desktop to an Expo app is manual.** Two dev dependencies --
+  `@react-native/metro-config`, which React Native's `start` command requires
+  whatever the app's Metro config says, and `@react-native-community/cli`,
+  which is what provides `run-windows` -- plus `withDesktopPlatforms` in
+  `metro.config.js` and a script per desktop. `npx react-native-basalt init`
+  should do all of it, tested against a fresh `create-expo-app` as the release
+  job's install is. Next up; see the README.
 - **Porting a first third-party native module end to end**, to learn what the
   porting story actually costs. This is the largest unknown in the project: the
   TurboModule seam is proven, by `src/LinuxPlatformConstants.cpp`, but no
