@@ -692,6 +692,33 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   if (_clipsChildren) {
     [out appendString:@" clip"];
   }
+  // Per-corner radii and per-edge borders, in the same fields and the same
+  // order the GTK and Win32 sides print. They are here for the same reason
+  // `transform=` is, and the comment there names the precedent: a frame cannot
+  // show a border, so a bordered view and a bare one read as identical in this
+  // dump -- which is how this host went until phase 47 applying neither.
+  if (_hasBorderRadii) {
+    [out appendFormat:@" radii=(%g,%g,%g,%g,%g,%g,%g,%g)",
+                      (double)_borderRadii[0], (double)_borderRadii[1],
+                      (double)_borderRadii[2], (double)_borderRadii[3],
+                      (double)_borderRadii[4], (double)_borderRadii[5],
+                      (double)_borderRadii[6], (double)_borderRadii[7]];
+  }
+  if (_hasBorders) {
+    [out appendFormat:@" borderw=(%g,%g,%g,%g)",
+                      (double)_borderWidths[0], (double)_borderWidths[1],
+                      (double)_borderWidths[2], (double)_borderWidths[3]];
+    [out appendString:@" borderc=("];
+    for (int edge = 0; edge < 4; edge++) {
+      [out appendFormat:@"%s#%02x%02x%02x%02x",
+                        edge == 0 ? "" : ",",
+                        (unsigned)(_borderColors[edge * 4 + 0] * 255.0 + 0.5),
+                        (unsigned)(_borderColors[edge * 4 + 1] * 255.0 + 0.5),
+                        (unsigned)(_borderColors[edge * 4 + 2] * 255.0 + 0.5),
+                        (unsigned)(_borderColors[edge * 4 + 3] * 255.0 + 0.5)];
+    }
+    [out appendString:@")"];
+  }
   if (_hasTransform) {
     // The 2D affine part, which is all either platform draws, in the order
     // CSS writes a matrix(): a, b, c, d, tx, ty. The GTK side prints the same

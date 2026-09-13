@@ -489,6 +489,20 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
   if (clipsChildren_) {
     out += " clip";
   }
+  // Per-corner radii and per-edge borders, in the fields and the order the GTK
+  // and AppKit sides print them. This host has one circular radius rather than
+  // four elliptical ones, so it prints that radius eight times -- which is the
+  // truth about what it paints, and makes a view rounded here and there
+  // compare equal while an elliptical or per-corner one does not.
+  //
+  // There is no borderw=/borderc= here because this host does not draw borders
+  // at all yet; see setCornerRadius's note. That is a real divergence from
+  // Linux, and printing nothing is what lets scripts/compare_hosts.sh say so
+  // rather than hiding it behind a dump that cannot express it.
+  if (cornerRadius_ > 0.0f) {
+    const double r = static_cast<double>(cornerRadius_);
+    appendFormat(out, " radii=(%g,%g,%g,%g,%g,%g,%g,%g)", r, r, r, r, r, r, r, r);
+  }
   if (hasTransform_) {
     // The 2D affine part, in the order CSS writes a matrix(): a, b, c, d, tx,
     // ty. The other two platforms print the same six from their own matrix

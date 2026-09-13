@@ -761,6 +761,47 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   if (self->clips_children) {
     g_string_append(out, " clip");
   }
+  // Per-corner radii and per-edge borders. These are in the dump for the same
+  // reason `transform=` is: a frame cannot show them, so a view that is
+  // bordered on one desktop and bare on another reads as identical here. That
+  // is exactly how the macOS host went this long applying neither.
+  //
+  // Radii are eight numbers rather than four because React Native's are
+  // elliptical -- a horizontal and a vertical radius per corner -- in the order
+  // top-left, top-right, bottom-right, bottom-left.
+  if (self->has_border_radii) {
+    g_string_append_printf(out,
+                           " radii=(%g,%g,%g,%g,%g,%g,%g,%g)",
+                           static_cast<double>(self->border_radii[0].width),
+                           static_cast<double>(self->border_radii[0].height),
+                           static_cast<double>(self->border_radii[1].width),
+                           static_cast<double>(self->border_radii[1].height),
+                           static_cast<double>(self->border_radii[2].width),
+                           static_cast<double>(self->border_radii[2].height),
+                           static_cast<double>(self->border_radii[3].width),
+                           static_cast<double>(self->border_radii[3].height));
+  }
+  // Widths and colours are top, right, bottom, left -- the order CSS names
+  // them, and the order every platform here stores them in.
+  if (self->has_borders) {
+    g_string_append_printf(out,
+                           " borderw=(%g,%g,%g,%g)",
+                           static_cast<double>(self->border_widths[0]),
+                           static_cast<double>(self->border_widths[1]),
+                           static_cast<double>(self->border_widths[2]),
+                           static_cast<double>(self->border_widths[3]));
+    g_string_append(out, " borderc=(");
+    for (int i = 0; i < 4; i++) {
+      g_string_append_printf(out,
+                             "%s#%02x%02x%02x%02x",
+                             i == 0 ? "" : ",",
+                             static_cast<unsigned>(self->border_colors[i].red * 255.0 + 0.5),
+                             static_cast<unsigned>(self->border_colors[i].green * 255.0 + 0.5),
+                             static_cast<unsigned>(self->border_colors[i].blue * 255.0 + 0.5),
+                             static_cast<unsigned>(self->border_colors[i].alpha * 255.0 + 0.5));
+    }
+    g_string_append(out, ")");
+  }
   if (self->has_transform) {
     // The 2D affine part, in the order CSS writes a matrix(): a, b, c, d, tx,
     // ty. The AppKit side prints the same six from its CATransform3D. See the

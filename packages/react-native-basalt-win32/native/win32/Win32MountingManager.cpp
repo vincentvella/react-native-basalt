@@ -261,8 +261,14 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
   // with <TitleBar.DragRegion>.
   view->setNativeId(props->nativeId);
 
-  // TODO(props): per-corner radii, borders, pointerEvents. The GTK side has all
-  // of them.
+  // TODO(props): per-corner radii, borders, pointerEvents. The GTK and AppKit
+  // sides have all of them.
+  //
+  // Since phase 47 this gap is visible rather than asserted: `describeTree`
+  // prints `radii=` and `borderw=`/`borderc=`, so a bordered view dumps
+  // differently here than on the other two and scripts/compare_hosts.sh fails
+  // on it. That is deliberate -- it was invisible before, which is how AppKit
+  // went this long drawing no borders and still comparing equal.
 }
 
 // A <Paragraph> carries its text in state, not props: ParagraphShadowNode
