@@ -124,11 +124,24 @@ test('the host is looked for in the explicit places first', () => {
 
 test('a missing host explains how to make one rather than printing a path', () => {
   const project = scratch();
+  // The package's native directory is a scratch one too. The last place the
+  // host is looked for is the development checkout's build tree, found from
+  // nativeDir -- and with nativeDir inside this repository, that is this
+  // repository's build/, which on CI holds a real basalt_win32.exe by the time
+  // this runs. The test passed for as long as it ran before the build, and
+  // failed the first time it ran after one.
+  const windows = {...target('windows'), nativeDir: path.join(project, 'pkg', 'native')};
+  const previous = process.env.BASALT_HOST;
+  delete process.env.BASALT_HOST;
   let thrown = null;
   try {
-    desktop.resolveHost(project, {}, target('windows'));
+    desktop.resolveHost(project, {}, windows);
   } catch (error) {
     thrown = error;
+  } finally {
+    if (previous !== undefined) {
+      process.env.BASALT_HOST = previous;
+    }
   }
 
   assert.ok(thrown instanceof desktop.MissingHost);
