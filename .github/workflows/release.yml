@@ -165,21 +165,17 @@ jobs:
     # Linux because Linux is the target; the same test on macOS and Windows is
     # worth adding once this one passes.
     #
-    # **Expected to fail until two gaps close** -- both in plan/backlog.md, and
-    # both found writing this job:
+    # Writing this job found three reasons it could not pass, all in
+    # `--build`, and all fixed before it first ran: the command refused an
+    # installed react-native and demanded a source checkout, long after
+    # bootstrap and CMake had learned to build from one; it never passed
+    # -DBASALT_EXPO_MODULES_CORE, so the host had no Expo runtime; and it named
+    # no compiler, so Ubuntu's g++ met React Native's -Werror. The same steps
+    # passed in WSL on Ubuntu 24.04 before this was committed.
     #
-    # - `--build` needs a React Native *source checkout*, because the npm
-    #   package does not ship the C++ the host compiles against. This job
-    #   fetches one and names it as `reactNativePath` in the app's
-    #   react-native.config.js, which an app developer would have to know to
-    #   do. It is a config key, not a flag: --react-native-path does not exist,
-    #   whatever run-linux's own error message used to say.
-    # - `--build` does not pass -DBASALT_EXPO_MODULES_CORE, so the host it
-    #   builds has no Expo runtime, and an Expo app fails at its first import
-    #   of one.
-    #
-    # So this is the job that says when installing alongside Expo actually
-    # works, rather than a job that is green because it was told how.
+    # Nothing here tells the app anything an app developer would not do.
+    # That is the point: this job is green because installing works, not
+    # because it was shown how.
     env:
       DISPLAY: ":99"
       GDK_BACKEND: x11
@@ -233,32 +229,11 @@ jobs:
           module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
           EOF
 
-      - name: Fetch React Native's sources, at the app's version
-        # See the first gap above.
-        run: |
-          version=$(node -p "require('./app/node_modules/react-native/package.json').version")
-          echo "the app installed react-native $version"
-          mkdir -p react-native-src && cd react-native-src
-          git init -q
-          git remote add origin https://github.com/react/react-native
-          git fetch -q --depth 1 origin "refs/tags/v$version"
-          git checkout -q FETCH_HEAD
-
       - name: Start a display
         run: |
           Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
           disown
           for _ in $(seq 1 30); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
-
-      - name: Point the app at those sources
-        # See the first gap above: a config key, read by React Native's CLI.
-        working-directory: app
-        run: |
-          cat > react-native.config.js <<'EOF'
-          module.exports = {
-            reactNativePath: '../react-native-src/packages/react-native',
-          };
-          EOF
 
       - name: run-linux --build
         # Expo apps register "main" whatever app.json says. The template's one

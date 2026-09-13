@@ -214,3 +214,113 @@ test('a monorepo root is only found above a real checkout', () => {
 
   fs.rmSync(root, {recursive: true, force: true});
 });
+
+test('an installed react-native is built from, not refused', () => {
+  const project = scratch();
+
+  // What every app has: the package, with ReactCommon in it and no monorepo
+  // above it.
+  const installed = path.join(project, 'node_modules', 'react-native');
+  fs.mkdirSync(path.join(installed, 'ReactCommon'), {recursive: true});
+  const fromPackage = desktop.reactNativeSources(installed);
+  assert.equal(fromPackage.layout, 'installed');
+  assert.equal(fromPackage.bootstrapArg, fs.realpathSync(installed));
+  assert.equal(fromPackage.rnDir, fs.realpathSync(installed));
+
+  // A checkout still hands bootstrap the root and CMake the package under it.
+  const checkout = path.join(project, 'react-native');
+  fs.mkdirSync(path.join(checkout, 'packages', 'react-native', 'ReactCommon'), {recursive: true});
+  const fromCheckout = desktop.reactNativeSources(
+    path.join(checkout, 'packages', 'react-native'),
+  );
+  assert.equal(fromCheckout.layout, 'checkout');
+  assert.equal(fromCheckout.bootstrapArg, fs.realpathSync(checkout));
+  assert.equal(
+    fromCheckout.rnDir,
+    path.join(fs.realpathSync(checkout), 'packages', 'react-native'),
+  );
+
+  // Neither: say so, rather than handing bootstrap a directory it will refuse.
+  const empty = path.join(project, 'empty');
+  fs.mkdirSync(empty);
+  assert.throws(() => desktop.reactNativeSources(empty), /no ReactCommon/);
+
+  fs.rmSync(project, {recursive: true, force: true});
+});
+
+test('the native halves an app has installed are the ones built', () => {
+  const project = scratch();
+  const install = (under, name) => {
+    const dir = path.join(under, 'node_modules', name);
+    fs.mkdirSync(dir, {recursive: true});
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({name}));
+    return dir;
+  };
+  const cmakePath = dir => dir.split(path.sep).join('/');
+
+  // A plain React Native app builds none of them.
+  assert.deepEqual(desktop.optionalNativeModules(project).args, []);
+
+  // expo-modules-core beneath expo, where a package manager that does not
+  // hoist leaves it -- found all the same.
+  const expo = install(project, 'expo');
+  const expoCore = install(expo, 'expo-modules-core');
+  assert.deepEqual(desktop.optionalNativeModules(project).args, [
+    `-DBASALT_EXPO_MODULES_CORE=${cmakePath(expoCore)}`,
+  ]);
+
+  // Reanimated without worklets is skipped with a note, not passed to a
+  // configure that would refuse it.
+  const reanimated = install(project, 'react-native-reanimated');
+  let found = desktop.optionalNativeModules(project);
+  assert.ok(!found.args.some(arg => arg.startsWith('-DBASALT_REANIMATED')));
+  assert.ok(found.notes.some(note => note.includes('react-native-worklets')));
+
+  const worklets = install(project, 'react-native-worklets');
+  found = desktop.optionalNativeModules(project);
+  assert.ok(found.args.includes(`-DBASALT_WORKLETS=${cmakePath(worklets)}`));
+  assert.ok(found.args.includes(`-DBASALT_REANIMATED=${cmakePath(reanimated)}`));
+
+  fs.rmSync(project, {recursive: true, force: true});
+});
+
+test('the build names clang rather than taking the system compiler', () => {
+  // Linux and macOS: clang, unless the environment names a compiler itself.
+  assert.deepEqual(desktop.compilerArgs('linux', {}), [
+    '-DCMAKE_C_COMPILER=clang',
+    '-DCMAKE_CXX_COMPILER=clang++',
+  ]);
+  assert.deepEqual(desktop.compilerArgs('macos', {CXX: 'g++-14'}), []);
+
+  // Windows: clang-cl and a build type always; the compiler yields to CC/CXX,
+  // the build type does not.
+  const bare = desktop.compilerArgs('windows', {});
+  assert.ok(bare.includes('-DCMAKE_CXX_COMPILER=clang-cl'));
+  assert.ok(bare.includes('-DCMAKE_BUILD_TYPE=RelWithDebInfo'));
+  const named = desktop.compilerArgs('windows', {CC: 'cl', CXX: 'cl'});
+  assert.ok(!named.some(arg => arg.startsWith('-DCMAKE_CXX_COMPILER')));
+  assert.ok(named.includes('-DCMAKE_BUILD_TYPE=RelWithDebInfo'));
+
+  // vcpkg is chosen by whether its packages are installed, not by VCPKG_ROOT:
+  // vcvars64.bat points that at Visual Studio's empty copy, and the one with
+  // glog in it is elsewhere.
+  const home = scratch();
+  const empty = path.join(home, 'vs-bundled-vcpkg');
+  fs.mkdirSync(path.join(empty, 'scripts', 'buildsystems'), {recursive: true});
+  fs.writeFileSync(path.join(empty, 'scripts', 'buildsystems', 'vcpkg.cmake'), '');
+  const real = path.join(home, 'Tools', 'vcpkg');
+  fs.mkdirSync(path.join(real, 'scripts', 'buildsystems'), {recursive: true});
+  fs.writeFileSync(path.join(real, 'scripts', 'buildsystems', 'vcpkg.cmake'), '');
+  fs.mkdirSync(path.join(real, 'installed', 'x64-windows', 'include', 'glog'), {recursive: true});
+  fs.writeFileSync(path.join(real, 'installed', 'x64-windows', 'include', 'glog', 'logging.h'), '');
+
+  const toolchain = desktop
+    .compilerArgs('windows', {VCPKG_ROOT: empty, USERPROFILE: home})
+    .find(arg => arg.startsWith('-DCMAKE_TOOLCHAIN_FILE='));
+  assert.equal(
+    toolchain,
+    `-DCMAKE_TOOLCHAIN_FILE=${path.join(real, 'scripts', 'buildsystems', 'vcpkg.cmake').split(path.sep).join('/')}`,
+  );
+
+  fs.rmSync(home, {recursive: true, force: true});
+});

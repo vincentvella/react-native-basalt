@@ -103,7 +103,7 @@ function resolveHost(projectRoot, options, target) {
       '\n\n' +
       'Build one with:\n\n' +
       `  react-native ${target.command} --build\n\n` +
-      `That needs a React Native source checkout, cmake, ninja, and ${target.toolchain}. ` +
+      `That needs cmake, ninja, and ${target.toolchain}. ` +
       'Or build it\nyourself and point at it with --host-binary <path> or BASALT_HOST.',
   );
 }
@@ -124,11 +124,175 @@ function run(command, args, options, toolchain) {
 }
 
 /**
- * The React Native monorepo root, which is what bootstrap wants.
+ * The React Native to build against, in either of the two shapes bootstrap
+ * accepts.
+ *
+ * A checkout, where bootstrap is handed the monorepo root and CMake the
+ * packages/react-native beneath it; or an installed package, where both are
+ * handed the package itself. The second is what every app has. React Native's
+ * npm package ships everything the host compiles against except
+ * ReactCxxPlatform, and bootstrap fetches that at the app's exact version --
+ * see plan/13-upstream-reactcxxplatform.md.
+ *
+ * This used to refuse an installed package outright, saying the npm package
+ * lacked the C++, long after bootstrap and CMake had learned to build from one.
+ * The command was the only part that had not.
+ */
+function reactNativeSources(reactNativePath) {
+  const root = monorepoRoot(reactNativePath);
+  if (root != null) {
+    return {
+      layout: 'checkout',
+      bootstrapArg: root,
+      rnDir: path.join(root, 'packages', 'react-native'),
+    };
+  }
+
+  let real = reactNativePath;
+  try {
+    real = fs.realpathSync(reactNativePath);
+  } catch {
+    // Keep the original; the check below reports it.
+  }
+  if (!fs.existsSync(path.join(real, 'ReactCommon'))) {
+    throw new Error(
+      `react-native resolves to ${reactNativePath}, which has no ReactCommon: it is ` +
+        'neither a React Native checkout nor an installed react-native package.',
+    );
+  }
+  return {layout: 'installed', bootstrapArg: real, rnDir: real};
+}
+
+/**
+ * A package's directory, found the way Node finds one: node_modules/<name> in
+ * `from` or in any directory above it.
+ *
+ * Walked by hand rather than through require.resolve, because resolving
+ * `<name>/package.json` throws for any package whose `exports` does not list
+ * it, and the only question here is where the package is on disk.
+ */
+function findPackage(name, from) {
+  let dir = path.resolve(from);
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', name);
+    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+
+/**
+ * The optional native halves an app brings with it, as CMake definitions.
+ *
+ * Expo's runtime, worklets and Reanimated each compile from the app's own copy
+ * of the package (cmake/Expo.cmake and its siblings), and each is off unless
+ * named. `--build` never named them, so the host it built for an Expo app had
+ * no Expo runtime and the app failed at its first Expo import. Now whatever the
+ * app has installed is what gets built.
+ *
+ * expo-modules-core is looked for beside `expo` as well, since it is `expo`'s
+ * dependency rather than the app's, and a package manager that does not hoist
+ * leaves it there. Reanimated without worklets is skipped with a note rather
+ * than failing the configure: Reanimated 4 is built on worklets and
+ * Reanimated.cmake requires both.
+ */
+function optionalNativeModules(projectRoot) {
+  const args = [];
+  const notes = [];
+  // Forward slashes: CMake reads a backslash in a -D value as an escape.
+  const define = (name, dir) => args.push(`-D${name}=${dir.split(path.sep).join('/')}`);
+
+  const expo = findPackage('expo', projectRoot);
+  const expoCore =
+    findPackage('expo-modules-core', projectRoot) ??
+    (expo != null ? findPackage('expo-modules-core', expo) : null);
+  if (expoCore != null) {
+    define('BASALT_EXPO_MODULES_CORE', expoCore);
+    notes.push(`Expo's runtime, from ${expoCore}`);
+  }
+
+  const worklets = findPackage('react-native-worklets', projectRoot);
+  if (worklets != null) {
+    define('BASALT_WORKLETS', worklets);
+    notes.push(`worklets, from ${worklets}`);
+  }
+
+  const reanimated = findPackage('react-native-reanimated', projectRoot);
+  if (reanimated != null && worklets != null) {
+    define('BASALT_REANIMATED', reanimated);
+    notes.push(`Reanimated, from ${reanimated}`);
+  } else if (reanimated != null) {
+    notes.push(
+      `not building react-native-reanimated (${reanimated}): it needs ` +
+        'react-native-worklets, which is not installed',
+    );
+  }
+
+  return {args, notes};
+}
+
+/**
+ * What the configure step has to name rather than leave to CMake's defaults.
+ *
+ * **The compiler.** React Native's C++ is built -Wall -Werror -Wpedantic and is
+ * warning-clean only under clang, which is why bootstrap's own configure line,
+ * CI and the README all name it. Left alone, CMake picks the system default --
+ * g++ on Ubuntu, cl on Windows -- and `--build` left it alone: a fresh Expo
+ * app's first build on Ubuntu 24.04 compiled Hermes (bootstrap names clang)
+ * and then stopped in ReactCommon on GCC's class-memaccess and pedantic
+ * __int128 errors. CC and CXX still win, as they would for a plain cmake.
+ *
+ * **On Windows, two more.** CMAKE_BUILD_TYPE, because unset MSVC picks the debug
+ * runtime and vcpkg follows it, while Hermes was built Release, and lld-link's
+ * complaint about _ITERATOR_DEBUG_LEVEL names neither. And vcpkg's toolchain
+ * file, found the way bootstrap.sh finds vcpkg: by a header it cannot do
+ * without, not by VCPKG_ROOT, which vcvars64.bat points at an empty copy.
+ */
+function compilerArgs(platform, env = process.env) {
+  const args = [];
+  const named = Boolean(env.CC || env.CXX);
+
+  if (platform !== 'windows') {
+    if (!named) {
+      args.push('-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++');
+    }
+    return args;
+  }
+
+  if (!named) {
+    args.push('-DCMAKE_C_COMPILER=clang-cl', '-DCMAKE_CXX_COMPILER=clang-cl');
+  }
+  args.push('-DCMAKE_BUILD_TYPE=RelWithDebInfo');
+
+  const home = env.USERPROFILE || env.HOME || '';
+  const roots = [
+    env.VCPKG_ROOT,
+    home && path.join(home, 'Tools', 'vcpkg'),
+    home && path.join(home, 'vcpkg'),
+    'C:/vcpkg',
+  ].filter(Boolean);
+  for (const root of roots) {
+    const toolchain = path.join(root, 'scripts', 'buildsystems', 'vcpkg.cmake');
+    const glog = path.join(root, 'installed', 'x64-windows', 'include', 'glog', 'logging.h');
+    if (fs.existsSync(toolchain) && fs.existsSync(glog)) {
+      args.push(`-DCMAKE_TOOLCHAIN_FILE=${toolchain.split(path.sep).join('/')}`);
+      break;
+    }
+  }
+  return args;
+}
+
+/**
+ * The React Native monorepo root, when `reactNativePath` is inside a checkout.
  *
  * `reactNativePath` is the package directory, two levels below the root in a
- * checkout. An installed react-native has no monorepo above it, and bootstrap
- * needs one because it runs React Native's own codegen script from there.
+ * checkout. An installed react-native has no monorepo above it, and this
+ * returns null for one; reactNativeSources above decides what to do then.
  */
 function monorepoRoot(reactNativePath) {
   // Through the symlink first. A workspace, a pnpm store and `npm link` all
@@ -173,33 +337,28 @@ function buildHost(context, options, target) {
   const buildDir = path.join(workDir, 'build');
   const thirdParty = path.join(workDir, 'third_party');
 
-  const reactNativeRoot = monorepoRoot(context.reactNativePath);
-  if (reactNativeRoot == null) {
-    throw new Error(
-      'building the host needs a React Native source checkout, and this project ' +
-        `resolves react-native to ${context.reactNativePath}, which is an ` +
-        'installed package rather than a checkout.\n\n' +
-        'That is a real limitation, not a misconfiguration: the host is compiled ' +
-        "against React Native's C++ sources, and the npm package does not ship " +
-        'them. Point at a checkout of the same version by setting reactNativePath ' +
-        "in the app's react-native.config.js (to its packages/react-native), " +
-        'or build the host yourself and pass --host-binary.',
-    );
-  }
+  const sources = reactNativeSources(context.reactNativePath);
+  const nativeModules = optionalNativeModules(projectRoot);
 
   fs.mkdirSync(workDir, {recursive: true});
+
+  console.log(`==> React Native from ${sources.layout === 'installed' ? 'the installed package' : 'a checkout'}: ${sources.rnDir}`);
+  for (const note of nativeModules.notes) {
+    console.log(`    ${note}`);
+  }
 
   console.log("==> vendoring React Native's C++ dependencies");
   console.log('    The first run compiles Hermes and takes a while.');
   const bootstrap = path.join(target.coreDir, 'bootstrap.sh');
-  // Through bash by name on Windows, where a .sh file is not executable and
-  // there is no shebang handling -- and where the shell that runs it is Git
-  // Bash, which is what bootstrap.sh detects and expects.
-  const [runner, runnerArgs] =
-    process.platform === 'win32' ? ['bash', [bootstrap]] : [bootstrap, []];
+  // Through bash by name, everywhere. On Windows a .sh file is not executable
+  // and there is no shebang handling, and the shell that runs it is Git Bash,
+  // which is what bootstrap.sh detects and expects. And on Linux and macOS the
+  // executable bit is only there if whoever packed the package had one to
+  // give: a tarball packed on Windows has none, and running the script directly
+  // would fail with EACCES for exactly the people installing from npm.
   run(
-    runner,
-    [...runnerArgs, reactNativeRoot],
+    'bash',
+    [bootstrap, sources.bootstrapArg],
     {cwd: workDir, env: {...process.env, BASALT_THIRD_PARTY: thirdParty}},
     target.toolchain,
   );
@@ -214,7 +373,9 @@ function buildHost(context, options, target) {
       buildDir,
       '-G',
       target.generator ?? 'Ninja',
-      `-DRN_DIR=${path.join(reactNativeRoot, 'packages', 'react-native')}`,
+      `-DRN_DIR=${sources.rnDir}`,
+      ...nativeModules.args,
+      ...compilerArgs(target.platform),
       `-DBASALT_THIRD_PARTY=${thirdParty}`,
       // Where the shared half is. CMake has a default that covers a checkout
       // and a hoisted node_modules, and naming it here covers pnpm's store too,
@@ -455,9 +616,12 @@ module.exports = {
   MissingHost,
   buildHost,
   candidates,
+  compilerArgs,
   isExecutable,
   makeRunCommand,
   monorepoRoot,
+  optionalNativeModules,
+  reactNativeSources,
   resolveHost,
   resolveModuleName,
 };

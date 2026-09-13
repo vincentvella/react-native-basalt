@@ -595,23 +595,29 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
 
 ## Ecosystem
 
-- **Nobody else can use this yet.** The commands exist -- `run-linux`,
-  `run-macos`, `run-windows` -- and the packages are shaped to be installed, but
-  none is published, and an Expo app that installed them would still not get a
-  desktop. `.github/workflows/release.yml` has a job that does exactly that
-  install, from the packed tarballs into a fresh `create-expo-app`, and it is
-  expected to fail until two things here close:
-  - **`--build` needs a React Native source checkout.** The npm package does
-    not ship the C++ the host compiles against (see the `ReactCxxPlatform`
-    entry under Upstream), so `buildHost` refuses an installed `react-native`
-    and the app developer has to fetch the matching sources and name them as
-    `reactNativePath` in `react-native.config.js`. The error message used to
-    tell them to pass `--react-native-path`, which is not a flag.
-  - **`--build` does not wire in Expo.** It never passes
-    `-DBASALT_EXPO_MODULES_CORE` (or worklets, or Reanimated), so the host it
-    builds for an Expo app has no Expo runtime and the app fails at its first
-    Expo import. The app's own `node_modules` has everything needed; the
-    command only has to look.
+- **Nobody else can use this yet** -- because nothing is published, and no
+  longer because installing would not work. A fresh `create-expo-app` (SDK 57,
+  React Native 0.86.3) with the four packages installed from their tarballs
+  runs `react-native run-linux --build` and renders the template's text, with
+  nothing from this repository on the path. `.github/workflows/release.yml`
+  does exactly that on every release. Three things stood in the way, all in
+  `--build`, and all found by writing that job:
+  - ~~**It demanded a React Native source checkout.**~~ `buildHost` refused an
+    installed `react-native`, long after bootstrap had learned to fetch the
+    one directory the npm package lacks and CMake to build from the rest (see
+    the `ReactCxxPlatform` entry under Upstream). Its error message told people
+    to pass `--react-native-path`, which is not a flag.
+  - ~~**It never wired in Expo.**~~ Nothing passed
+    `-DBASALT_EXPO_MODULES_CORE`, worklets or Reanimated, so an Expo app got a
+    host with no Expo runtime. It now passes whichever the app has installed.
+  - ~~**It named no compiler.**~~ CMake took the system default, g++ on Ubuntu,
+    and React Native's `-Werror` stopped it in ReactCommon. It names clang now,
+    and on Windows clang-cl, a build type and vcpkg's toolchain file -- the
+    Windows half of which has not yet been through a real Expo build.
+
+  What is left before publishing is ordinary: versions, an npm account, the
+  publish step, and an install guide. And a first `--build` that compiles Hermes
+  and React Native's C++ from source, which is the part a user will notice.
 - **Porting a first third-party native module end to end**, to learn what the
   porting story actually costs. This is the largest unknown in the project: the
   TurboModule seam is proven, by `src/LinuxPlatformConstants.cpp`, but no

@@ -343,6 +343,11 @@ own `node_modules`, so the versions can never drift from the JavaScript:
 on worklets. Without them a plain React Native app is unaffected and an app that
 imports one fails at that import, which is what it did before.
 
+`react-native run-linux --build` -- and `run-macos` and `run-windows` -- passes
+whichever of the three the app has installed, and builds against the app's
+installed `react-native` rather than asking for a checkout, so these flags are
+only for building the host by hand.
+
 ### Dependencies
 
 System packages.
