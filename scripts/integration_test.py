@@ -414,9 +414,15 @@ class Metro:
             return f"could not tell ({error})"
 
     def fetch_bundle(self) -> str:
+        # The platform of the run, not a fixed one. Both callers care:
+        # `prewarm` is warming the bundle *this host* is about to ask for, and
+        # `serves_edit` is diagnosing the bundle it actually ran. Hardcoding
+        # `linux` made a macOS run prewarm the wrong bundle -- leaving the real
+        # one cold, which is the race prewarm exists to lose -- and then report
+        # on a bundle nothing had loaded.
         url = (
             f"http://localhost:{METRO_PORT}/index.bundle"
-            "?platform=linux&dev=true&minify=false"
+            f"?platform={PLATFORM}&dev=true&minify=false"
         )
         with urllib.request.urlopen(url, timeout=300) as response:
             if response.status != 200:
@@ -431,6 +437,11 @@ class Metro:
         is willing to wait, so without this the app quietly runs the *release*
         bundle and no edit will ever reach it -- which is what CI saw, reported
         as "Metro never pushed an update".
+
+        Warming alone is all this is for. It used to do a second job by
+        accident: the graph it built was the one HMRClient subscribed to, so on
+        Linux Fast Refresh worked because of this call rather than because the
+        host was right. See plan/48-fast-refresh.md.
         """
         try:
             self.fetch_bundle()
