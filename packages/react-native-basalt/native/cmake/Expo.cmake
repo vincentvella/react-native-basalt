@@ -32,6 +32,48 @@ file(GLOB EXPO_CORE_SRC CONFIGURE_DEPENDS
         ${EXPO_CPP_DIR}/JSI/*.cpp)
 list(FILTER EXPO_CORE_SRC EXCLUDE REGEX "/tests?/")
 
+# On Windows, a copy with `#import` spelled `#include`.
+#
+# expo-modules-core's C++ is written for clang and GCC, where `#import` is an
+# include that happens once. clang-cl reads it the way MSVC does -- as a COM
+# type-library import -- and refuses it ("#import of type library is an
+# unsupported Microsoft feature"), and nothing turns that reading off without
+# also turning off the Microsoft compatibility the Windows SDK's headers need.
+# In the expo-modules-core that SDK 57 installs it is one line, in
+# JSI/ObjectDeallocator.h, and every file that includes that header fails with
+# it -- this platform's own ExpoRuntime.cpp included, which is why the copy is
+# also what goes on the include path.
+#
+# A copy in the build tree rather than an edit to node_modules, which npm
+# rewrites on every install. Both directories are copied whole, headers and
+# all, because a quoted include is looked for beside the file that includes it
+# before any include path is consulted. Every header already carries
+# `#pragma once`, so `#include` loses nothing `#import` gave. Worth reporting
+# upstream: a C++ header has no need of an Objective-C directive.
+if(WIN32)
+  set(EXPO_CPP_COPY ${CMAKE_CURRENT_BINARY_DIR}/expo-modules-core-cpp)
+  file(GLOB EXPO_CPP_FILES CONFIGURE_DEPENDS
+          ${EXPO_CPP_DIR}/*.h ${EXPO_CPP_DIR}/*.cpp
+          ${EXPO_CPP_DIR}/JSI/*.h ${EXPO_CPP_DIR}/JSI/*.cpp)
+  foreach(source ${EXPO_CPP_FILES})
+    file(RELATIVE_PATH relative ${EXPO_CPP_DIR} ${source})
+    file(READ ${source} contents)
+    string(REGEX REPLACE "(^|\n)([ \t]*)#([ \t]*)import([ \t])" "\\1\\2#\\3include\\4" contents "${contents}")
+    # Only written when it differs, so a reconfigure does not touch every
+    # object's timestamp and rebuild them all.
+    set(copy ${EXPO_CPP_COPY}/${relative})
+    set(existing "")
+    if(EXISTS ${copy})
+      file(READ ${copy} existing)
+    endif()
+    if(NOT existing STREQUAL contents)
+      file(WRITE ${copy} "${contents}")
+    endif()
+  endforeach()
+  list(TRANSFORM EXPO_CORE_SRC REPLACE "^${EXPO_CPP_DIR}" "${EXPO_CPP_COPY}")
+  set(EXPO_CPP_DIR ${EXPO_CPP_COPY})
+endif()
+
 add_library(expo_core OBJECT ${EXPO_CORE_SRC})
 # SYSTEM, and warnings off: these are somebody else's sources held to somebody
 # else's warning set, and this project's -Wall -Wextra is about its own code.
@@ -39,6 +81,14 @@ target_include_directories(expo_core SYSTEM PUBLIC
         ${EXPO_CPP_DIR} ${EXPO_CPP_DIR}/JSI
         ${RN_DIR}/ReactCommon ${RN_DIR}/ReactCommon/jsi ${FOLLY_DIR})
 target_compile_options(expo_core PRIVATE -w)
+# TypedArray.cpp throws std::runtime_error without including <stdexcept>.
+# libstdc++ and libc++ happen to pull it in through <string>; Microsoft's
+# standard library does not. Force-included rather than patched into the copy
+# above, because it is a missing include rather than a wrong directive, and the
+# next file to make the same assumption will not need its own fix.
+if(MSVC)
+  target_compile_options(expo_core PRIVATE /FIstdexcept)
+endif()
 target_link_libraries(expo_core folly_runtime glog)
 
 message(STATUS "Expo core from ${EXPO_CORE_DIR}")

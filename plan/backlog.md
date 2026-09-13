@@ -612,8 +612,18 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
     host with no Expo runtime. It now passes whichever the app has installed.
   - ~~**It named no compiler.**~~ CMake took the system default, g++ on Ubuntu,
     and React Native's `-Werror` stopped it in ReactCommon. It names clang now,
-    and on Windows clang-cl, a build type and vcpkg's toolchain file -- the
-    Windows half of which has not yet been through a real Expo build.
+    and on Windows clang-cl, a build type and vcpkg's toolchain file.
+
+  On Windows the same app runs too, from `npm run windows -- --build` in a
+  plain PowerShell: WSL's `bash.exe` first on PATH, no cmake, no vcvars.
+  Getting there took `--build` finding Git Bash and loading the MSVC
+  environment itself, and two fixes for expo-modules-core's C++, which had
+  never been compiled by anything but clang and GCC: `JSI/ObjectDeallocator.h`
+  says `#import`, which clang-cl reads as a COM type-library import, so on
+  Windows the build compiles a copy with it spelled `#include`; and
+  `TypedArray.cpp` throws `std::runtime_error` without `<stdexcept>`, which
+  Microsoft's standard library does not pull in for it. Both are worth
+  reporting to Expo.
 
   What is left before publishing is ordinary: versions, an npm account, the
   publish step, and an install guide. And a first `--build` that compiles Hermes
