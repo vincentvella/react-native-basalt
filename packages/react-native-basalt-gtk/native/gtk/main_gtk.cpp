@@ -577,7 +577,8 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                       config.devServerHost,
                                                       config.devServerPort,
                                                       host->sourcePath.empty() ? "index"
-                                                                               : host->sourcePath),
+                                                                               : host->sourcePath,
+                                                      "linux"),
                                                                   config.enableDevMode),
                                                   nullptr,
                                                   nullptr,

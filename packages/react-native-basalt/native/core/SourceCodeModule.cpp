@@ -14,14 +14,17 @@ std::string scriptURLFor(const std::string &bundlePath,
                          bool devMode,
                          const std::string &devHost,
                          unsigned int devPort,
-                         const std::string &devEntry) {
+                         const std::string &devEntry,
+                         const std::string &platform) {
   if (devMode) {
     // Shaped like the URL the dev server actually served, because React Native
     // recovers the server's address by stripping the path off this. Assets then
     // resolve to that server, which is what makes them work in development
-    // without anything being copied anywhere.
+    // without anything being copied anywhere. And the platform is the host's
+    // own, because HMRClient registers this URL for Fast Refresh; see the
+    // header.
     return "http://" + devHost + ":" + std::to_string(devPort) + "/" + devEntry +
-        ".bundle?platform=linux&dev=true";
+        ".bundle?platform=" + platform + "&dev=true";
   }
 
   // Absolute and fully formed: React Native tests this with

@@ -12,6 +12,7 @@
 #include "TestHarness.h"
 
 #include "DevBundle.h"
+#include "SourceCodeModule.h"
 
 #include <sstream>
 #include <string>
@@ -83,4 +84,20 @@ TEST(a_body_that_is_not_metros_is_kept_whole) {
   EXPECT(error.has_value());
   EXPECT_EQ(static_cast<int>(error->status), 502);
   EXPECT_EQ(error->message, std::string("<html>Bad Gateway</html>"));
+}
+
+TEST(a_dev_script_url_names_the_hosts_own_platform) {
+  // HMRClient registers this URL with Metro for Fast Refresh, and Metro sends
+  // updates for the platform it names. It used to say linux on every host, so
+  // a Windows app registered a Linux module graph and no edit ever reached it.
+  EXPECT_EQ(basalt::scriptURLFor("build/main.jsbundle.js", true, "localhost", 8081, "index", "windows"),
+            std::string("http://localhost:8081/index.bundle?platform=windows&dev=true"));
+  EXPECT_EQ(basalt::scriptURLFor("x.js", true, "127.0.0.1", 19000, "node_modules/expo/AppEntry", "macos"),
+            std::string("http://127.0.0.1:19000/node_modules/expo/AppEntry.bundle?platform=macos&dev=true"));
+
+  // Out of dev mode the platform plays no part: the answer is the file.
+  const std::string file =
+      basalt::scriptURLFor("build/main.jsbundle.js", false, "localhost", 8081, "index", "windows");
+  EXPECT(file.rfind("file://", 0) == 0);
+  EXPECT(file.find("main.jsbundle.js") != std::string::npos);
 }

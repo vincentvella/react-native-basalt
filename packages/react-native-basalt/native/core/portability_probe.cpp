@@ -92,7 +92,8 @@ int main() {
   using basalt::DesktopStatusBarModule;
 
   // Each of these is a symbol the linker must find in the core alone.
-  const std::string url = basalt::scriptURLFor("bundle.js", false, "localhost", 8081, "index");
+  const std::string url =
+      basalt::scriptURLFor("bundle.js", false, "localhost", 8081, "index", "probe");
   const bool expo = basalt::hasExpoRuntime();
   const bool worklets = basalt::hasWorklets();
 

@@ -37,10 +37,17 @@ class DesktopSourceCodeModule
 // A file URL has to be absolute and fully formed: React Native tests it with
 // `startsWith('file://')` and then takes the directory beside it, so a relative
 // path silently produces an asset URL that resolves nowhere.
+//
+// A dev server URL has to name the host's platform. React Native's HMRClient
+// registers exactly this URL with Metro, and Metro keys the module graph it
+// sends updates for by the platform in it. This used to say `linux` on every
+// host, so on Windows Metro dutifully sent Fast Refresh updates for a Linux
+// graph that the running app did not have, and no edit ever appeared.
 std::string scriptURLFor(const std::string &bundlePath,
                          bool devMode,
                          const std::string &devHost,
                          unsigned int devPort,
-                         const std::string &devEntry);
+                         const std::string &devEntry,
+                         const std::string &platform);
 
 } // namespace basalt
