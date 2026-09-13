@@ -447,7 +447,17 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
         }
-        if (name == basalt::DesktopSourceCodeModule::kModuleName) {
+        // Only outside dev mode, for the same reason DevSettings is above.
+        //
+        // This module's scriptURL is what HMRClient registers with Metro as its
+        // entry point, and Metro resolves that URL to a *graph*. The URL
+        // synthesised here is not the one DevServerHelper actually fetched --
+        // that one carries lazy, minify, runModule and app -- so it names a
+        // graph nobody built, Metro answers GraphNotFoundError, and Fast
+        // Refresh silently never starts. ReactCxxPlatform's own SourceCode
+        // module reports the URL the bundle really came from, which is the one
+        // whose graph exists. See plan/48-fast-refresh.md.
+        if (!devMode && name == basalt::DesktopSourceCodeModule::kModuleName) {
           return std::make_shared<basalt::DesktopSourceCodeModule>(jsInvoker, scriptURL);
         }
         return nullptr;
