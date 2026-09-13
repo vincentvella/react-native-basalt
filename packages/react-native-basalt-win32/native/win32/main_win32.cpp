@@ -927,7 +927,20 @@ int main(int argc, char **argv) {
   // render with holes in it. A React app that stays inside <View>, <Text>,
   // <Image> and <Pressable> -- js/press.js, say -- runs from here.
   gHost.moduleName = argc > 2 ? argv[2] : "";
-  gHost.sourcePath = argc > 3 ? argv[3] : "";
+  // Metro's entry, as the GTK and AppKit hosts read it: BASALT_DEV_ENTRY, which
+  // is what `run-windows` sets, and "index" otherwise. A third argument still
+  // wins for anyone passing one. This used to read the argument alone, which
+  // nothing passes, so sourcePath was empty in every development run --
+  // DevServerHelper then builds no URL at all ("Failed to download JS bundle
+  // from Url: ."), and loadScript quietly fell back to the on-disk bundle: the
+  // window opened, and no edit ever reached it.
+  if (argc > 3) {
+    gHost.sourcePath = argv[3];
+  } else if (const char *entry = std::getenv("BASALT_DEV_ENTRY")) {
+    gHost.sourcePath = entry;
+  } else {
+    gHost.sourcePath = "index";
+  }
 
   // Per-monitor DPI, declared in code rather than in a manifest so that running
   // the binary straight out of the build directory behaves the same as running
