@@ -256,12 +256,20 @@ jobs:
           # still carries the old text, with nothing in Metro's log. What was
           # ruled out first, so the next person does not repeat it: fs.watch
           # sees the same edit on the same runner, the inotify limits are
-          # already 655360 and 1280, both sides run Node 24.20.0, neither has
-          # watchman so both use the same node watcher, and CI's layout with
-          # React Native inside the checkout reproduces green in a local VM.
+          # already 655360 and 1280, both sides run Node 24.20.0, and CI's
+          # layout with React Native inside the checkout reproduces green in a
+          # local VM.
+          #
+          # Watchman was the standing theory and it is now ruled out too. With
+          # the upstream build installed -- not Ubuntu's 4.9.0 from 2017, which
+          # would have proved nothing -- `watchman watch-project js` reported
+          # `"watcher": "inotify"` over exactly the root Metro was given, a
+          # .watchmanconfig was in place, and the scenario failed the same way.
+          # `serves_edit` answered *no*, so Metro had not seen the change at
+          # all. See plan/backlog.md for what is left to try.
           #
           # It runs on developer machines, on macOS and on Linux, where it
-          # passes. See plan/backlog.md.
+          # passes.
           BASALT_SKIP_FAST_REFRESH: "1"
         run: scripts/integration_test.py
 

@@ -247,34 +247,48 @@ and none of it is a missing half.
   the file changes on disk with a fresh mtime, a newly requested bundle still
   carries the old text, and Metro logs nothing. Ruled out already: `fs.watch`
   sees the same edit on the same runner; the inotify limits are 655360 watches
-  and 1280 instances; both sides run Node 24.20.0; neither has watchman, so
-  both use the same node watcher; and CI's layout, with React Native inside the
-  checkout, reproduces green in a local VM. The scenario passes on macOS and on
-  Linux in a VM, so this is about the runner rather than the code.
+  and 1280 instances; both sides run Node 24.20.0; and CI's layout, with React
+  Native inside the checkout, reproduces green in a local VM. The scenario
+  passes on macOS and on Linux in a VM, so this is about the runner rather than
+  the code.
+
+  **Watchman was the standing theory, and it is now ruled out.** It was tried
+  on the `ci` branch and did not fix the scenario. What the run established,
+  so that none of it needs doing again:
+
+  - The upstream build was used, not Ubuntu's 4.9.0 from 2017, so a failure
+    here says something about the theory rather than about an ancient client.
+    It has to come from a GitHub release: watchman is not in apt, and
+    facebook/watchman stopped attaching release assets after v2026.07.27.00,
+    which is the last version that ships a Linux binary at all.
+  - It ran. `watchman --version` answered `20260727.012849.0`, and
+    `watchman watch-project js` reported `"watcher": "inotify"` over exactly
+    the root Metro was given.
+  - A `.watchmanconfig` was added at the project root -- React Native ships one
+    and this repo never had it -- so watch-project resolved the root Metro
+    asked about rather than some parent. That file is still in the repo, since
+    it is correct regardless of CI.
+  - The scenario failed the same way, and `serves_edit` answered **no**: a
+    freshly requested bundle still carried the old text, so Metro had not seen
+    the change at all.
+
+  What that leaves is the one thing the run did not establish: whether
+  *metro-file-map* used watchman, or found it and fell back anyway. The
+  `watch-project` call above was made by the workflow, not by Metro, so a watch
+  existing proves nothing about which watcher Metro chose.
 
   Next thing to try, in order of effort:
 
-  1. **Install watchman in CI** and see whether the scenario passes. Both sides
-     currently fall back to metro-file-map's own node watcher, and that is the
-     component under suspicion, so putting watchman in front of it on the
-     runner both tests the theory and would be the fix if it works. Add it to
-     the dependencies step, then drop `BASALT_SKIP_FAST_REFRESH` from the
-     end-to-end step and read the result.
-
-     Two things to know before starting. Ubuntu noble packages watchman, but
-     at 4.9.0, which is from 2017; whether metro-file-map's client is happy
-     with something that old is the first thing to find out, and a failure
-     there would say nothing about the theory. Homebrew's is current, so a Mac
-     and an apt-installed Linux box would not be running the same watchman
-     either. And it would leave CI and development machines on different
-     watchers, with development on the untested one -- so if watchman does fix
-     CI, installing it locally too is the honest follow-up rather than
-     declaring the problem solved.
-  2. `DEBUG=metro:*` on the CI Metro, to see what the watcher thinks it is
-     doing rather than inferring it from what the bundle contains.
-  3. Shrink `watchFolders`. The React Native checkout is the bulk of the eight
-     thousand directories; if the node watcher is falling over on volume, a
-     narrower watch would show it.
+  1. **`DEBUG=metro:*` on the CI Metro**, to see what the watcher thinks it is
+     doing rather than inferring it from what the bundle contains -- starting
+     with whether it picked watchman at all, which is the question the run
+     above left open.
+  2. Shrink `watchFolders`. The React Native checkout is the bulk of the eight
+     thousand directories; if the watcher is falling over on volume, a narrower
+     watch would show it.
+  3. Have the scenario poll Metro for the edit rather than waiting on the host,
+     which would at least separate "Metro never saw it" from "Metro saw it and
+     the client missed it" without another CI round trip per hypothesis.
 - CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
 ## Compatibility
