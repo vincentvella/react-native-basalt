@@ -289,6 +289,34 @@ and none of it is a missing half.
   3. Have the scenario poll Metro for the edit rather than waiting on the host,
      which would at least separate "Metro never saw it" from "Metro saw it and
      the client missed it" without another CI round trip per hypothesis.
+- **The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains
+  it.** `focus a TextInput, type, and see it round-trip through React` failed
+  three runs in a row on 2026-09-13 with *"the focus command did not move focus
+  to the field"*, then passed six in a row, on the same build and the same
+  machine. No change was made between the two states that touches focus.
+
+  It was running the **GTK host on macOS**, over the quartz backend, which
+  `docs/HANDOFF.md` already warns is not the target: keyboard focus there is
+  the window server's to give, and the scenario needs the window to have it
+  before `TextInput.focus()` can mean anything. CI, on real Linux under Xvfb,
+  was green across the whole period and has never reproduced it.
+
+  What was ruled out: it is not a code change. The one edit in flight touched
+  `main_gtk.cpp` and was reverted, rebuilt and re-run, and the failure
+  survived that -- so it was already failing before anything that day touched
+  the host. The suspicion is that a pile of stray `basalt_gtk` and
+  `basalt_appkit` processes from earlier runs were holding or stealing focus,
+  since killing them is the only thing that happened between the last failure
+  and the first pass. That is a correlation and nothing more; it was not
+  tested by reproducing it.
+
+  Worth doing before trusting it: reproduce deliberately -- leave a host
+  running and start another -- and if that is it, have the scenario fail with
+  "another host is already running" rather than with a focus error, which is
+  the misleading half. If it cannot be reproduced that way, the next suspect
+  is the quartz backend itself, and the answer is that this scenario should
+  not be believed off a real Linux session at all.
+
 - CI has no rendering assertions, so it cannot catch what the cairo renderer did.
 
 ## Compatibility
