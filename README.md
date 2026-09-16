@@ -809,17 +809,15 @@ In the order it is likely to be done. The per-area detail is
    `metro.config.js`, and a script per desktop. One command should do all of
    it, tested against a fresh `create-expo-app` the way `release.yml`'s install
    job is.
-2. **Fast Refresh end to end on Windows**, which has never been seen to work
-   there rather than being known to. Two separate skips hide it, and removing
-   either alone changes nothing. `scripts/integration_test.py` skips the
-   scenario on Windows because `scripts/metro.sh` is a shell script; and CI
-   sets `BASALT_SKIP_FAST_REFRESH` on *both* jobs, because Metro on a GitHub
-   runner never notices an edit -- so the scenario has never run in CI on any
-   platform. Phase 48 fixed a bug that took Fast Refresh out everywhere, and
-   the Windows half of that fix is compiled and nothing more. `run-windows`
-   starting Metro itself is what a development run needs; proving it needs a
-   Windows path for the scenario and a runner whose file watching works, and
-   `plan/backlog.md` has what is left to try on the second.
+2. **Fast Refresh end to end on Windows.** It works there -- observed, on a
+   development run through `run-windows`, which is what phase 43 was for. What
+   it is not is *tested*, anywhere, on any platform: `integration_test.py`
+   skips the scenario on Windows because `scripts/metro.sh` is a shell script,
+   and CI sets `BASALT_SKIP_FAST_REFRESH` on both jobs besides, because Metro
+   on a GitHub runner never notices an edit. So the one thing standing between
+   a working feature and a guarded one is a Windows path for the scenario, and
+   then a runner whose file watching works -- `plan/backlog.md` has what is
+   left to try on the second.
 3. **The title bar on Linux and macOS.** `useTitleBar`, `<TitleBar>` and
    `useTitleBarMetrics` do nothing off Windows. GTK can drop its decorations
    and take a header from the app; AppKit has a transparent, full-size-content
