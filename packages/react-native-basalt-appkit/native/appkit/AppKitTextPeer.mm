@@ -37,6 +37,7 @@
 @interface RnAppKitTextView : NSTextView
 @property(nonatomic, assign) NSInteger rnTag;
 @property(nonatomic, weak) id<RnAppKitTextPeerOwner> rnOwner;
+@property(nonatomic, strong, nullable) NSAttributedString *rnPlaceholder;
 @end
 
 @implementation RnAppKitTextView
@@ -46,6 +47,28 @@
     [_rnOwner rnFieldDidBecomeFirstResponder:_rnTag];
   }
   return became;
+}
+
+// An NSTextView has no placeholder, so it is drawn. Over the top of whatever
+// the view drew, which is nothing when the field is empty, and only when it
+// is empty -- the one case a placeholder means anything.
+- (void)drawRect:(NSRect)dirtyRect {
+  [super drawRect:dirtyRect];
+  if (_rnPlaceholder == nil || self.string.length > 0) {
+    return;
+  }
+  // The same origin the first line of real text would take, so the placeholder
+  // does not shift when the user starts typing.
+  [_rnPlaceholder drawAtPoint:NSMakePoint(self.textContainerInset.width +
+                                              self.textContainer.lineFragmentPadding,
+                                          self.textContainerInset.height)];
+}
+
+// Going from empty to one character, and back, changes whether the placeholder
+// should be there at all -- and AppKit has no reason to know that.
+- (void)didChangeText {
+  [super didChangeText];
+  self.needsDisplay = YES;
 }
 @end
 
@@ -224,10 +247,26 @@ void RnPeerSetTextStyle(NSView *peer, NSFont *font, NSColor *colour, NSTextAlign
 }
 
 void RnPeerSetPlaceholder(NSView *peer, NSAttributedString *placeholder) {
-  if (peer == nil || RnPeerIsMultiline(peer)) {
+  if (peer == nil) {
+    return;
+  }
+  if (RnPeerIsMultiline(peer)) {
+    RnAppKitTextView *view = (RnAppKitTextView *)peer;
+    view.rnPlaceholder = placeholder;
+    view.needsDisplay = YES;
     return;
   }
   ((NSTextField *)peer).placeholderAttributedString = placeholder;
+}
+
+NSAttributedString *RnPeerPlaceholder(NSView *peer) {
+  if (peer == nil) {
+    return nil;
+  }
+  if (RnPeerIsMultiline(peer)) {
+    return ((RnAppKitTextView *)peer).rnPlaceholder;
+  }
+  return ((NSTextField *)peer).placeholderAttributedString;
 }
 
 // A formatter that refuses anything longer than the limit. NSTextField has no

@@ -61,9 +61,10 @@ G_BEGIN_DECLS
 // the single-line path already had a comment about.
 void rn_peer_set_attributes(GtkWidget *peer, PangoAttrList *attributes);
 
-// The placeholder, which only a GtkText has. A no-op for a GtkTextView, whose
-// equivalent would be drawing the text ourselves; see plan/backlog.md.
+// The placeholder. A GtkText has a property for it; a GtkTextView has none, so
+// its peer is a subclass that draws one when the buffer is empty.
 void rn_peer_set_placeholder(GtkWidget *peer, const char *placeholder);
+const char *rn_peer_get_placeholder(GtkWidget *peer);
 
 // Hidden characters, for `secureTextEntry`. Single line only: a multiline
 // secure field is not a thing React Native offers, and GtkTextView has no

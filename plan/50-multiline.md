@@ -165,7 +165,16 @@ single-line AppKit field takes an NSFormatter, which is what AppKit offers
 instead. Refused whole rather than truncated, so a paste that would overflow
 leaves what was there, which is what GtkText already did with its own limit.
 
-What a multiline field still does not have, on either host, is a placeholder.
-Neither `GtkTextView` nor `NSTextView` has one, and the equivalent is drawing
-the text when the field is empty -- real work on both, and in
-`plan/backlog.md`.
+The placeholder is done too, in phase 57, and it is drawn rather than set --
+neither `GtkTextView` nor `NSTextView` has one. `NSTextView` already had a
+subclass to hang it on; `GtkTextView` got one, `RnTextView`, whose `snapshot`
+chains up and then draws the text when the buffer is empty. A subclass rather
+than an overlay on either, because the peer is one widget and `RnView`'s
+allocation places exactly one.
+
+Its colour is the field's own foreground at 45% alpha rather than a fixed
+grey, so a placeholder stays legible against whatever background the app
+chose. And both redraw when the buffer goes empty-to-not and back, which
+neither toolkit has any reason to do by itself.
+
+So a multiline field now has everything the single-line one does.

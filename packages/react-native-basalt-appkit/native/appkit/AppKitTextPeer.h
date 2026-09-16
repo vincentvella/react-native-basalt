@@ -49,9 +49,10 @@ void RnPeerSetEditable(NSView *_Nullable peer, BOOL editable);
 void RnPeerSetTextStyle(NSView *_Nullable peer, NSFont *_Nullable font,
                         NSColor *_Nullable colour, NSTextAlignment alignment);
 
-// Single line only. An NSTextView has no placeholder -- the equivalent would be
-// drawing the text -- and no character limit.
+// An NSTextField has a placeholder property; an NSTextView has none, so its
+// peer draws one when it is empty. Same call for both.
 void RnPeerSetPlaceholder(NSView *_Nullable peer, NSAttributedString *_Nullable placeholder);
+NSAttributedString *_Nullable RnPeerPlaceholder(NSView *_Nullable peer);
 
 // `maxLength`. Zero means no limit.
 //

@@ -494,6 +494,35 @@ TEST(textinput_multiline_refuses_text_past_max_length) {
   g_object_unref(view);
 }
 
+// A placeholder on the peer that has no property for it. Drawn rather than set,
+// so what a test can reach is the string the peer was given -- the drawing
+// itself is in the screenshot that went with phase 57.
+TEST(textinput_multiline_takes_a_placeholder) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view,
+                 makeTextInput(10, folly::dynamic::object("text", "")("multiline", true)(
+                                       "placeholder", "type here")));
+  GtkWidget *peer = rn_view_get_editable(view);
+  EXPECT(rn_peer_is_multiline(peer));
+  const char *got = rn_peer_get_placeholder(peer);
+  EXPECT_EQ(std::string(got != nullptr ? got : ""), std::string("type here"));
+
+  // And the single-line peer still takes its own, which is a property rather
+  // than something drawn.
+  RnView *single = rn_view_new(11);
+  g_object_ref_sink(single);
+  manager.update(single,
+                 makeTextInput(11, folly::dynamic::object("text", "")("placeholder", "type here")));
+  const char *single_got = rn_peer_get_placeholder(rn_view_get_editable(single));
+  EXPECT_EQ(std::string(single_got != nullptr ? single_got : ""), std::string("type here"));
+
+  g_object_unref(single);
+  g_object_unref(view);
+}
+
 TEST(textinput_drops_its_peer_when_the_field_is_removed) {
   RnView *view = rn_view_new(10);
   g_object_ref_sink(view);

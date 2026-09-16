@@ -1,5 +1,88 @@
 #include "GtkTextPeer.h"
 
+// A GtkTextView that draws a placeholder.
+//
+// GtkText has a placeholder property and GtkTextView has nothing, so the text
+// is drawn -- over what the view drew, which is nothing when the buffer is
+// empty, and only when it is empty.
+//
+// A subclass rather than an overlay because the peer is one widget parented
+// inside the RnView, and the allocation path in RnView.cpp places exactly one.
+
+#define RN_TYPE_TEXT_VIEW (rn_text_view_get_type())
+G_DECLARE_FINAL_TYPE(RnTextView, rn_text_view, RN, TEXT_VIEW, GtkTextView)
+
+struct _RnTextView {
+  GtkTextView parent_instance;
+  char *placeholder;
+  PangoAttrList *attributes;
+};
+
+G_DEFINE_TYPE(RnTextView, rn_text_view, GTK_TYPE_TEXT_VIEW)
+
+static void rn_text_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
+  GTK_WIDGET_CLASS(rn_text_view_parent_class)->snapshot(widget, snapshot);
+
+  RnTextView *self = RN_TEXT_VIEW(widget);
+  if (self->placeholder == nullptr || *self->placeholder == '\0') {
+    return;
+  }
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(widget));
+  if (gtk_text_buffer_get_char_count(buffer) > 0) {
+    return;
+  }
+
+  PangoLayout *layout = gtk_widget_create_pango_layout(widget, self->placeholder);
+  if (self->attributes != nullptr) {
+    pango_layout_set_attributes(layout, self->attributes);
+  }
+
+  // The text colour, dimmed. GTK's own placeholder is the theme's dim
+  // foreground, and this field's foreground came from React Native's props --
+  // so dimming that keeps the placeholder legible against whatever background
+  // the app chose, which a fixed grey would not.
+  GdkRGBA colour = {0.5F, 0.5F, 0.5F, 0.5F};
+  if (self->attributes != nullptr) {
+    PangoAttrIterator *iter = pango_attr_list_get_iterator(self->attributes);
+    if (iter != nullptr) {
+      if (const PangoAttribute *found = pango_attr_iterator_get(iter, PANGO_ATTR_FOREGROUND)) {
+        const PangoColor &from = reinterpret_cast<const PangoAttrColor *>(found)->color;
+        colour.red = static_cast<float>(from.red / 65535.0);
+        colour.green = static_cast<float>(from.green / 65535.0);
+        colour.blue = static_cast<float>(from.blue / 65535.0);
+      }
+      pango_attr_iterator_destroy(iter);
+    }
+  }
+  colour.alpha = 0.45F;
+
+  gtk_snapshot_append_layout(snapshot, layout, &colour);
+  g_object_unref(layout);
+}
+
+static void rn_text_view_finalize(GObject *object) {
+  RnTextView *self = RN_TEXT_VIEW(object);
+  g_clear_pointer(&self->placeholder, g_free);
+  g_clear_pointer(&self->attributes, pango_attr_list_unref);
+  G_OBJECT_CLASS(rn_text_view_parent_class)->finalize(object);
+}
+
+static void rn_text_view_class_init(RnTextViewClass *klass) {
+  G_OBJECT_CLASS(klass)->finalize = rn_text_view_finalize;
+  GTK_WIDGET_CLASS(klass)->snapshot = rn_text_view_snapshot;
+}
+
+static void rn_text_view_init(RnTextView *self) {
+  self->placeholder = nullptr;
+  self->attributes = nullptr;
+}
+
+// Empty to non-empty and back changes whether the placeholder belongs on
+// screen, and GTK has no reason to know that.
+static void on_buffer_changed_redraw(GtkTextBuffer * /*buffer*/, gpointer widget) {
+  gtk_widget_queue_draw(GTK_WIDGET(widget));
+}
+
 // A GtkTextView paints a background of its own, from the GTK theme, straight
 // over the one the RnView drew from React Native's props -- which is a white
 // box where a styled field should be, and white text invisible inside it. A
@@ -38,7 +121,9 @@ GtkWidget *rn_peer_new(gboolean multiline) {
   }
 
   ensure_peer_css();
-  GtkWidget *view = gtk_text_view_new();
+  GtkWidget *view = GTK_WIDGET(g_object_new(RN_TYPE_TEXT_VIEW, nullptr));
+  g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(view)), "changed",
+                   G_CALLBACK(on_buffer_changed_redraw), view);
   // The measured box is already tall enough for the wrapped text -- the shadow
   // node measures a multiline input against the real constraints -- so without
   // wrapping here the text would run off one line inside a box sized for
@@ -199,6 +284,12 @@ void rn_peer_set_attributes(GtkWidget *peer, PangoAttrList *attributes) {
   // A tag over the whole buffer. Named, so the same one is reused and the tag
   // table does not grow a new entry on every prop update -- which it would,
   // and a controlled field updates on every keystroke.
+  // Kept for the placeholder, which is drawn rather than laid out by the
+  // buffer and so needs the font and colour in its own right.
+  RnTextView *self = RN_TEXT_VIEW(peer);
+  g_clear_pointer(&self->attributes, pango_attr_list_unref);
+  self->attributes = attributes != nullptr ? pango_attr_list_ref(attributes) : nullptr;
+
   GtkTextBuffer *buffer = buffer_of(peer);
   GtkTextTagTable *table = gtk_text_buffer_get_tag_table(buffer);
   GtkTextTag *tag = gtk_text_tag_table_lookup(table, "rn-style");
@@ -238,12 +329,29 @@ void rn_peer_set_attributes(GtkWidget *peer, PangoAttrList *attributes) {
 }
 
 void rn_peer_set_placeholder(GtkWidget *peer, const char *placeholder) {
-  if (peer == nullptr || rn_peer_is_multiline(peer)) {
+  if (peer == nullptr) {
     return;
   }
-  gtk_text_set_placeholder_text(GTK_TEXT(peer),
-                                placeholder != nullptr && *placeholder != '\0' ? placeholder
-                                                                              : nullptr);
+  const char *value = placeholder != nullptr && *placeholder != '\0' ? placeholder : nullptr;
+  if (!rn_peer_is_multiline(peer)) {
+    gtk_text_set_placeholder_text(GTK_TEXT(peer), value);
+    return;
+  }
+
+  RnTextView *self = RN_TEXT_VIEW(peer);
+  g_clear_pointer(&self->placeholder, g_free);
+  self->placeholder = value != nullptr ? g_strdup(value) : nullptr;
+  gtk_widget_queue_draw(peer);
+}
+
+const char *rn_peer_get_placeholder(GtkWidget *peer) {
+  if (peer == nullptr) {
+    return nullptr;
+  }
+  if (!rn_peer_is_multiline(peer)) {
+    return gtk_text_get_placeholder_text(GTK_TEXT(peer));
+  }
+  return RN_TEXT_VIEW(peer)->placeholder;
 }
 
 void rn_peer_set_visibility(GtkWidget *peer, gboolean visible) {

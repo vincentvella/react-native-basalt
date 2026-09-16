@@ -294,8 +294,6 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
     }
   }
 
-  // Single line only: an NSTextView has no placeholder, and drawing one is its
-  // own piece of work. See plan/backlog.md.
   if (props->placeholder.empty()) {
     RnPeerSetPlaceholder(entry.field, nil);
   } else {

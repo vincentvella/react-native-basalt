@@ -492,6 +492,26 @@ TEST(textinput_max_length_is_enforced_on_both_peers) {
   }
 }
 
+// A placeholder on the peer that has no property for it.
+TEST(textinput_multiline_takes_a_placeholder) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(
+        manager, 73,
+        folly::dynamic::object("text", "")("multiline", true)("placeholder", "type here"));
+
+    NSAttributedString *placeholder = RnPeerPlaceholder(fieldOf(view));
+    EXPECT(placeholder != nil);
+    EXPECT([placeholder.string isEqualToString:@"type here"]);
+
+    // And the single-line peer still takes its own, through the property
+    // AppKit gives it.
+    RnAppKitView *single =
+        mountField(manager, 74, folly::dynamic::object("text", "")("placeholder", "type here"));
+    EXPECT([RnPeerPlaceholder(fieldOf(single)).string isEqualToString:@"type here"]);
+  }
+}
+
 TEST(textinput_commands_survive_an_unknown_tag) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
