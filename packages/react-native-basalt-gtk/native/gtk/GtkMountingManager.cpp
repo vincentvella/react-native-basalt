@@ -203,7 +203,25 @@ RnView *GtkMountingManager::createView(const ShadowView &shadowView) {
       roleName = "image";
     }
   }
-  const GtkAccessibleRole role = toAccessibleRole(roleName);
+  GtkAccessibleRole role = toAccessibleRole(roleName);
+
+  // A <TextInput>'s wrapper is not a control, and should not be an element.
+  //
+  // The peer inside it is a real GtkText and is already the text box AT-SPI
+  // presents; the wrapper around it adds a second stop that says the same
+  // thing or nothing. Presentation is how GTK says "I am scaffolding" -- and
+  // it has to be decided here because a GtkAccessible role is construct-only,
+  // which is the whole reason the AppKit side could do this in
+  // applyAccessibility and this one could not.
+  //
+  // `roleName` is deliberately left empty rather than set to something like
+  // "presentation": it is React Native's vocabulary and it prints in
+  // describeTree, where AppKit has nothing to print. That asymmetry already
+  // broke the cross-host diff once, in phase 53.
+  if (roleName.empty() && shadowView.componentName != nullptr &&
+      std::string_view(shadowView.componentName) == "TextInput") {
+    role = GTK_ACCESSIBLE_ROLE_PRESENTATION;
+  }
 
   RnView *view = rn_view_new_with_role(static_cast<int>(shadowView.tag), role);
 

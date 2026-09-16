@@ -169,6 +169,21 @@ TEST(a_text_input_label_lands_on_the_peer_not_the_wrapper) {
   EXPECT(mismatch != nullptr);
   g_free(mismatch);
 
+  // The wrapper is scaffolding rather than a control, so it is presentational
+  // and a screen reader walks past it to the peer. Decided at construction
+  // because a GtkAccessible role cannot be changed later.
+  EXPECT_EQ(static_cast<int>(gtk_accessible_get_accessible_role(GTK_ACCESSIBLE(view))),
+            static_cast<int>(GTK_ACCESSIBLE_ROLE_PRESENTATION));
+
+  // And the tree dump says nothing about it. React Native has no role here to
+  // report, AppKit prints none either, and a name invented for GTK's benefit
+  // would make the two hosts disagree on this view alone.
+  std::ostringstream dump;
+  char *text = rn_view_describe_tree(view);
+  dump << text;
+  g_free(text);
+  EXPECT(dump.str().find("role=") == std::string::npos);
+
   manager.destroySurfaceRoot(kSurfaceId);
 }
 

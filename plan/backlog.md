@@ -720,15 +720,22 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   permission that goes with it, and on Linux means xdotool -- which CI already
   has, and which is where this is worth adding.
 
-- **A `<TextInput>`'s wrapper is still an element of its own on GTK and
-  Windows.** Fixed for the label in phase 53: the name now lands on the peer,
-  which is what a screen reader reaches, rather than on the `RnView` around it.
-  What is left is the redundant element. On AppKit the wrapper takes the role
-  `none` and disappears; on GTK it cannot, because a `GtkAccessible` role is
-  construct-only and the wrapper is built before anything knows it will hold a
-  field. Fixing it there means deciding the role at construction, which is
-  where the `<Text>` and `<Image>` roles are already decided. Windows has not
-  been looked at.
+- **A `<TextInput>`'s wrapper is still an element of its own on Windows.**
+  Fixed on the other two in phase 53: the accessible name lands on the peer,
+  which is what a screen reader reaches, and the wrapper leaves the tree --
+  `accessibilityElement = NO` on AppKit, and `GTK_ACCESSIBLE_ROLE_PRESENTATION`
+  chosen at construction on GTK, which is the only moment a GtkAccessible role
+  can be chosen at all.
+
+  Windows has not been looked at. UI Automation is the one that works
+  differently -- a provider answers questions rather than a view carrying
+  properties -- so the question there is whether the wrapper's provider should
+  refuse to be a control, and whether the `EDIT` peer is exposed as its own
+  element at all. `RnWin32Accessible.cpp` is where it would go.
+
+  Whatever the answer, it must not print in `describeTree`: the other two say
+  nothing about this view and a third vocabulary would put the cross-host diff
+  back where phase 53 found it.
 
 - **No unit test can observe an event.** Neither suite attaches an
   `EventEmitter` to the shadow views it builds, and `test_appkit_textinput.mm`
