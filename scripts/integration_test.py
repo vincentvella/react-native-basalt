@@ -579,8 +579,7 @@ def bundle_app(build: Path, entry: str) -> Path:
     bundled = build / f"{entry}.{PLATFORM}.jsbundle.js"
     if bundled.exists():
         return bundled
-    command = [
-        str(REPO / "scripts" / "bundle.sh"),
+    arguments = [
         "--prod",
         "--platform", PLATFORM,
         "--entry", f"{entry}.js",
@@ -591,11 +590,26 @@ def bundle_app(build: Path, entry: str) -> Path:
     # "%1 is not a valid Win32 application" -- which says nothing about shells.
     # Git for Windows brings bash, and CI's own bundle step already runs this
     # same script through it.
+    #
+    # A relative path, and only here: bash on Windows reads a backslash as an
+    # escape, so an absolute `D:\a\...\bundle.sh` is not the path it looks
+    # like. Everything below runs with cwd=REPO anyway.
     if os.name == "nt":
-        command.insert(0, "bash")
+        command = ["bash", "scripts/bundle.sh", *arguments]
+    else:
+        command = [str(REPO / "scripts" / "bundle.sh"), *arguments]
+
     built = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=600)
     if built.returncode != 0 or not bundled.exists():
-        raise Failure(f"could not bundle js/{entry}.js:\n{tail_text(built.stderr, 40)}")
+        # Both streams and the exit code: bundle.sh puts Metro's own output on
+        # stdout, and a failure that reports neither is a failure nobody can act
+        # on -- which is exactly how this first failed on a runner.
+        raise Failure(
+            f"could not bundle js/{entry}.js (exit {built.returncode}, "
+            f"{'wrote' if bundled.exists() else 'no'} bundle):\n"
+            f"--- stdout ---\n{tail_text(built.stdout, 30)}\n"
+            f"--- stderr ---\n{tail_text(built.stderr, 30)}"
+        )
     return bundled
 
 
