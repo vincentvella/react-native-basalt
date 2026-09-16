@@ -156,5 +156,16 @@ Two things fell out that were not about multiline at all.
   two moments, different names: `textDidChange:` and `textDidEndEditing:`
   beside the `controlText...` pair.
 
-What a multiline field still does not have, on either host: a placeholder, and
-`maxLength`. Both are in `plan/backlog.md`.
+`maxLength` is no longer among the gaps -- phase 56 closed it, and found it was
+wider than multiline: AppKit had never enforced it on *either* peer, with a
+comment saying so. Neither platform offers a property for it on the multiline
+peer, so both refuse the edit that would cross the limit -- a GtkTextBuffer
+through `insert-text`, an NSTextView through its delegate -- and the
+single-line AppKit field takes an NSFormatter, which is what AppKit offers
+instead. Refused whole rather than truncated, so a paste that would overflow
+leaves what was there, which is what GtkText already did with its own limit.
+
+What a multiline field still does not have, on either host, is a placeholder.
+Neither `GtkTextView` nor `NSTextView` has one, and the equivalent is drawing
+the text when the field is empty -- real work on both, and in
+`plan/backlog.md`.

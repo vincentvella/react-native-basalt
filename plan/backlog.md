@@ -750,11 +750,21 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   worked once, on the machine they were written on, and no evidence at all
   against a regression.
 
-  The fix is to give the suites a stub emitter: the managers already take an
-  `EmitterLookup` in their constructor, so a test could hand back an emitter
-  that records what it was asked to dispatch, and assertions become ordinary.
-  `onKeyPress` firing before `onChange` is the case that most wants this, since
-  it is an *ordering* guarantee that currently nothing checks.
+  A stub emitter handed back through `EmitterLookup` was the obvious fix and it
+  does not work, which is worth recording so it is not tried twice.
+  `TextInputEventEmitter` has no virtual methods at all -- the header contains
+  the word `virtual` zero times -- so there is nothing to override, and
+  constructing a *real* one reaches `EventDispatcher`, which needs an
+  `EventBeat`, which needs a `RuntimeScheduler` and so a JavaScript runtime.
+  That is the whole machinery the unit suites exist to avoid.
+
+  What would work is a seam in the managers: route every emission through one
+  private `emit(tag, kind, metrics)` that calls the emitter by default and can
+  be pointed at a recorder in a test. Thirty-odd lines across the two managers,
+  and it is production code carrying a test hook -- a trade worth making
+  deliberately rather than by accident, which is why it is written here rather
+  than done. `onKeyPress` firing before `onChange` is the case that most wants
+  it, being an ordering guarantee nothing currently checks.
 
 - **One flaky end-to-end scenario.** "focus a TextInput, type, and see it
   round-trip through React" failed once in five consecutive runs of

@@ -1,5 +1,7 @@
 #import "AppKitTextPeer.h"
 
+#import <objc/runtime.h>
+
 // Both peers report gaining focus the same way, and neither superclass does it
 // for us. See the protocol's header comment for why only the gaining half.
 @interface RnAppKitTextField : NSTextField
@@ -226,6 +228,80 @@ void RnPeerSetPlaceholder(NSView *peer, NSAttributedString *placeholder) {
     return;
   }
   ((NSTextField *)peer).placeholderAttributedString = placeholder;
+}
+
+// A formatter that refuses anything longer than the limit. NSTextField has no
+// maximum length of its own, and a formatter is what AppKit offers instead --
+// it is consulted on every edit, which is exactly the hook needed.
+@interface RnAppKitLengthFormatter : NSFormatter
+@property(nonatomic, assign) NSInteger maxLength;
+@end
+
+@implementation RnAppKitLengthFormatter
+- (NSString *)stringForObjectValue:(id)object {
+  return [object isKindOfClass:[NSString class]] ? object : nil;
+}
+
+- (BOOL)getObjectValue:(out id *)object
+             forString:(NSString *)string
+      errorDescription:(out NSString **)error {
+  if (object != nullptr) {
+    *object = string;
+  }
+  return YES;
+}
+
+- (BOOL)isPartialStringValid:(NSString *)partial
+            newEditingString:(NSString **)newString
+            errorDescription:(NSString **)error {
+  if (_maxLength <= 0 || (NSInteger)partial.length <= _maxLength) {
+    return YES;
+  }
+  // NO with no replacement: the edit is refused and what was there stays.
+  if (newString != nullptr) {
+    *newString = nil;
+  }
+  if (error != nullptr) {
+    *error = nil;
+  }
+  return NO;
+}
+@end
+
+void RnPeerSetMaxLength(NSView *peer, NSInteger maxLength) {
+  if (peer == nil) {
+    return;
+  }
+  if (RnPeerIsMultiline(peer)) {
+    // Stored, and read back by the delegate through RnPeerAllowsChange. An
+    // NSTextView has no formatter.
+    objc_setAssociatedObject(peer, @selector(RnPeerSetMaxLength), @(maxLength),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return;
+  }
+
+  NSTextField *field = (NSTextField *)peer;
+  if (maxLength <= 0) {
+    field.formatter = nil;
+    return;
+  }
+  RnAppKitLengthFormatter *formatter = [[RnAppKitLengthFormatter alloc] init];
+  formatter.maxLength = maxLength;
+  field.formatter = formatter;
+}
+
+BOOL RnPeerAllowsChange(NSView *peer, NSRange range, NSString *replacement) {
+  if (peer == nil || !RnPeerIsMultiline(peer)) {
+    return YES;
+  }
+  NSNumber *limit = objc_getAssociatedObject(peer, @selector(RnPeerSetMaxLength));
+  const NSInteger maxLength = limit != nil ? limit.integerValue : 0;
+  if (maxLength <= 0) {
+    return YES;
+  }
+  const NSInteger current = (NSInteger)((NSTextView *)peer).string.length;
+  const NSInteger after = current - (NSInteger)range.length + (NSInteger)replacement.length;
+  return after <= maxLength;
 }
 
 NSResponder *RnPeerEditor(NSView *peer) {

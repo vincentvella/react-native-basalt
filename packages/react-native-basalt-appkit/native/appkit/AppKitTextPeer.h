@@ -53,6 +53,18 @@ void RnPeerSetTextStyle(NSView *_Nullable peer, NSFont *_Nullable font,
 // drawing the text -- and no character limit.
 void RnPeerSetPlaceholder(NSView *_Nullable peer, NSAttributedString *_Nullable placeholder);
 
+// `maxLength`. Zero means no limit.
+//
+// AppKit offers nothing for this on either peer, so both refuse the edit that
+// would cross the limit: an NSTextView through its delegate, and an NSTextField
+// through an NSFormatter, which is the documented way to constrain one.
+void RnPeerSetMaxLength(NSView *_Nullable peer, NSInteger maxLength);
+
+// Whether an edit is allowed, for the delegate to ask. Refusing whole rather
+// than truncating, so a paste that would overflow is rejected instead of
+// half-applied.
+BOOL RnPeerAllowsChange(NSView *_Nullable peer, NSRange range, NSString *_Nullable replacement);
+
 // The responder that does the editing: the field editor for an NSTextField,
 // and the view itself for an NSTextView, which is its own editor. This is what
 // tells whether a key or a selection change belongs to this peer.

@@ -464,6 +464,36 @@ TEST(textinput_switching_multiline_rebuilds_the_peer) {
   g_object_unref(view);
 }
 
+// maxLength, on the peer that has no property for it. GtkText enforces its own;
+// a buffer refuses the insertion that would cross the limit instead.
+TEST(textinput_multiline_refuses_text_past_max_length) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view,
+                 makeTextInput(10, folly::dynamic::object("text", "")("multiline", true)(
+                                       "maxLength", 5)));
+  GtkWidget *peer = rn_view_get_editable(view);
+
+  int at = 0;
+  rn_peer_insert_text(peer, "abcd", 4, &at);
+  EXPECT_EQ(textOf(view), std::string("abcd"));
+
+  // Refused whole rather than truncated, which is what GtkText does with its
+  // own limit -- a paste that would overflow leaves what was there.
+  at = 4;
+  rn_peer_insert_text(peer, "efgh", 4, &at);
+  EXPECT_EQ(textOf(view), std::string("abcd"));
+
+  // And one that fits still lands.
+  at = 4;
+  rn_peer_insert_text(peer, "e", 1, &at);
+  EXPECT_EQ(textOf(view), std::string("abcde"));
+
+  g_object_unref(view);
+}
+
 TEST(textinput_drops_its_peer_when_the_field_is_removed) {
   RnView *view = rn_view_new(10);
   g_object_ref_sink(view);

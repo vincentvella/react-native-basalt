@@ -93,6 +93,13 @@ static NSInteger RnTagOf(id object) {
 // The multiline halves of the two above. An NSTextView is not an NSControl, so
 // it posts NSText's notifications through NSTextViewDelegate rather than
 // NSControl's -- different names, same two moments.
+// maxLength for a multiline peer, which has no formatter to hold it.
+- (BOOL)textView:(NSTextView *)textView
+    shouldChangeTextInRange:(NSRange)range
+          replacementString:(NSString *)replacement {
+  return RnPeerAllowsChange(textView, range, replacement != nil ? replacement : @"");
+}
+
 - (void)textDidChange:(NSNotification *)notification {
   if (_manager != nullptr) {
     _manager->handleChanged(static_cast<facebook::react::Tag>(RnTagOf(notification.object)));
@@ -308,11 +315,12 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
   // and React Native honours both.
   RnPeerSetEditable(entry.field, props->traits.editable && !props->readOnly);
 
-  if (props->maxLength > 0 && props->maxLength < 1000000) {
-    // NSTextField has no maximum length; enforcing one needs a formatter or a
-    // delegate that rejects edits. Not implemented, and saying so beats
-    // silently accepting more than the app asked for.
-  }
+  // Zero means no limit, and so does the absurd default React Native uses when
+  // the prop is absent.
+  RnPeerSetMaxLength(entry.field,
+                     (props->maxLength > 0 && props->maxLength < 1000000)
+                         ? (NSInteger)props->maxLength
+                         : 0);
 
   if (inserted && props->autoFocus) {
     [entry.view.window makeFirstResponder:entry.field];

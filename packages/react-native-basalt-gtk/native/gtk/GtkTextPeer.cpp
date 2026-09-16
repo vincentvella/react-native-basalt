@@ -253,11 +253,46 @@ void rn_peer_set_visibility(GtkWidget *peer, gboolean visible) {
   gtk_text_set_visibility(GTK_TEXT(peer), visible);
 }
 
-void rn_peer_set_max_length(GtkWidget *peer, int max_length) {
-  if (peer == nullptr || rn_peer_is_multiline(peer)) {
+// The buffer's half of maxLength. GtkText has a property for it; GtkTextBuffer
+// has nothing, so the limit is enforced by refusing the insertion that would
+// cross it -- which is what GtkText does internally too.
+static void on_buffer_insert(GtkTextBuffer *buffer,
+                             GtkTextIter * /*location*/,
+                             const char *text,
+                             int length,
+                             gpointer /*data*/) {
+  const int limit = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(buffer), "rn-max-length"));
+  if (limit <= 0) {
     return;
   }
-  gtk_text_set_max_length(GTK_TEXT(peer), max_length);
+  const int existing = gtk_text_buffer_get_char_count(buffer);
+  const long incoming = g_utf8_strlen(text, length);
+  if (existing + incoming <= limit) {
+    return;
+  }
+  // Refused whole rather than truncated: a paste that would overflow is
+  // rejected, which is what GtkText does with its own max-length and what
+  // stops a half-pasted string appearing.
+  g_signal_stop_emission_by_name(buffer, "insert-text");
+}
+
+void rn_peer_set_max_length(GtkWidget *peer, int max_length) {
+  if (peer == nullptr) {
+    return;
+  }
+  if (!rn_peer_is_multiline(peer)) {
+    gtk_text_set_max_length(GTK_TEXT(peer), max_length);
+    return;
+  }
+
+  GtkTextBuffer *buffer = buffer_of(peer);
+  g_object_set_data(G_OBJECT(buffer), "rn-max-length", GINT_TO_POINTER(max_length));
+  // Connected once. The handler reads the limit back out of the buffer, so a
+  // changed maxLength needs no reconnection.
+  if (g_object_get_data(G_OBJECT(buffer), "rn-max-length-connected") == nullptr) {
+    g_object_set_data(G_OBJECT(buffer), "rn-max-length-connected", GINT_TO_POINTER(1));
+    g_signal_connect(buffer, "insert-text", G_CALLBACK(on_buffer_insert), nullptr);
+  }
 }
 
 void rn_peer_insert_text(GtkWidget *peer, const char *text, int length, int *position) {

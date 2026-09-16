@@ -173,9 +173,12 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
 
   rn_peer_set_visibility(entry.editable, props->traits.secureTextEntry ? FALSE : TRUE);
 
-  if (props->maxLength > 0 && props->maxLength < 1000000) {
-    rn_peer_set_max_length(entry.editable, props->maxLength);
-  }
+  // Zero means no limit, and so does the absurd default React Native uses when
+  // the prop is absent -- passing that through would be a limit nobody asked
+  // for on a field that had none.
+  rn_peer_set_max_length(
+      entry.editable,
+      (props->maxLength > 0 && props->maxLength < 1000000) ? props->maxLength : 0);
 
   if (inserted && props->autoFocus) {
     gtk_widget_grab_focus(entry.editable);

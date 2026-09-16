@@ -457,6 +457,41 @@ TEST(textinput_single_line_does_not_wrap) {
   }
 }
 
+// maxLength, which AppKit offers nothing for on either peer.
+TEST(textinput_max_length_is_enforced_on_both_peers) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+
+    // A single-line field takes a formatter, which is what AppKit offers.
+    RnAppKitView *single =
+        mountField(manager, 70, folly::dynamic::object("text", "")("maxLength", 5));
+    NSTextField *field = (NSTextField *)fieldOf(single);
+    EXPECT(field.formatter != nil);
+    NSString *replacement = nil;
+    NSString *error = nil;
+    EXPECT([field.formatter isPartialStringValid:@"abcde"
+                                newEditingString:&replacement
+                                errorDescription:&error]);
+    EXPECT(![field.formatter isPartialStringValid:@"abcdef"
+                                 newEditingString:&replacement
+                                 errorDescription:&error]);
+
+    // A multiline one has no formatter, so the limit is asked about instead --
+    // refused whole rather than truncated.
+    RnAppKitView *multi = mountField(
+        manager, 71, folly::dynamic::object("text", "abcd")("multiline", true)("maxLength", 5));
+    NSView *peer = fieldOf(multi);
+    EXPECT(RnPeerAllowsChange(peer, NSMakeRange(4, 0), @"e"));
+    EXPECT(!RnPeerAllowsChange(peer, NSMakeRange(4, 0), @"efgh"));
+    // Replacing a selection makes room, so length alone is not the question.
+    EXPECT(RnPeerAllowsChange(peer, NSMakeRange(0, 4), @"vwxyz"));
+
+    // And no limit means no limit.
+    RnAppKitView *free = mountField(manager, 72, folly::dynamic::object("text", "")("multiline", true));
+    EXPECT(RnPeerAllowsChange(fieldOf(free), NSMakeRange(0, 0), @"as long as you like"));
+  }
+}
+
 TEST(textinput_commands_survive_an_unknown_tag) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;
