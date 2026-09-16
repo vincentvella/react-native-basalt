@@ -23,8 +23,30 @@ std::string cssColor(uint32_t argb) {
 } // namespace
 
 void GtkTitleBar::attach(GtkWindow *window, GtkWidget *controls) {
+  // Weak, so these become NULL when the widgets go rather than dangling.
+  //
+  // This outlives the window: it is a process-wide singleton and the window is
+  // destroyed at quit, or by close() below, or by the user. Every method here
+  // is reachable from JavaScript, which is still running at that point -- so a
+  // raw pointer is a use-after-free waiting for a late setTitle. AppKit's half
+  // gets this for free from __weak; GTK has to ask.
+  if (window_ != nullptr) {
+    g_object_remove_weak_pointer(G_OBJECT(window_), reinterpret_cast<gpointer *>(&window_));
+  }
+  if (controls_ != nullptr) {
+    g_object_remove_weak_pointer(G_OBJECT(controls_), reinterpret_cast<gpointer *>(&controls_));
+  }
+
   window_ = window;
   controls_ = controls;
+  header_ = nullptr;
+
+  if (window_ != nullptr) {
+    g_object_add_weak_pointer(G_OBJECT(window_), reinterpret_cast<gpointer *>(&window_));
+  }
+  if (controls_ != nullptr) {
+    g_object_add_weak_pointer(G_OBJECT(controls_), reinterpret_cast<gpointer *>(&controls_));
+  }
 
   apply();
 }
@@ -50,6 +72,43 @@ void GtkTitleBar::setStyle(TitleBarStyle style) {
   style_ = style;
   apply();
   notify();
+}
+
+void GtkTitleBar::minimize() {
+  if (window_ != nullptr) {
+    gtk_window_minimize(window_);
+  }
+}
+
+void GtkTitleBar::toggleMaximize() {
+  if (window_ == nullptr) {
+    return;
+  }
+  // GTK has a maximised state to read, unlike AppKit's zoom, so this really is
+  // a toggle rather than a request to swap frames.
+  if (gtk_window_is_maximized(window_)) {
+    gtk_window_unmaximize(window_);
+  } else {
+    gtk_window_maximize(window_);
+  }
+}
+
+void GtkTitleBar::close() {
+  if (window_ != nullptr) {
+    // close() rather than destroy(): it asks, so a close-request handler still
+    // gets its say, which is how the real button behaves.
+    gtk_window_close(window_);
+  }
+}
+
+void GtkTitleBar::startDrag() {
+  // Nothing to do here, and that is the answer rather than a gap.
+  //
+  // GTK moves a window through GtkWindowHandle, which is a widget: anything
+  // inside one drags the window, and there is no "begin a drag now" call to
+  // make from a press. The host's overlay could wrap the app's drag regions in
+  // one, which is where this belongs -- not in a method JavaScript calls after
+  // the press has already been delivered elsewhere. See plan/backlog.md.
 }
 
 TitleBarMetrics GtkTitleBar::metrics() const {
@@ -126,16 +185,22 @@ void GtkTitleBar::apply() {
     header_ = gtk_header_bar_new();
     gtk_header_bar_set_show_title_buttons(GTK_HEADER_BAR(header_), TRUE);
     gtk_window_set_titlebar(window_, header_);
+    g_object_add_weak_pointer(G_OBJECT(header_), reinterpret_cast<gpointer *>(&header_));
     gtk_widget_set_visible(header_, hidden ? FALSE : TRUE);
   }
 
   // Colours, as CSS on the header bar. There is no property for any of this:
   // a GtkWindow's decorations are styled or they are the theme's.
   if (provider_ == nullptr) {
+    GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(window_));
+    if (display == nullptr) {
+      // No display yet, so nothing to style and nothing drawn. The next call
+      // installs it.
+      return;
+    }
     provider_ = gtk_css_provider_new();
-    gtk_style_context_add_provider_for_display(gtk_widget_get_display(GTK_WIDGET(window_)),
-                                               GTK_STYLE_PROVIDER(provider_),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk_style_context_add_provider_for_display(
+        display, GTK_STYLE_PROVIDER(provider_), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   }
 
   std::string css;

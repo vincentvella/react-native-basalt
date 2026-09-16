@@ -53,6 +53,13 @@ class GtkTitleBar {
                  std::optional<uint32_t> border);
   void setStyle(TitleBarStyle style);
 
+  // What the caption buttons do, for an app that draws its own. The system's
+  // buttons work without any of this; a header the app drew does not.
+  void minimize();
+  void toggleMaximize();
+  void close();
+  void startDrag();
+
   TitleBarMetrics metrics() const;
 
   void setMetricsListener(std::function<void(const TitleBarMetrics &)> listener);

@@ -59,6 +59,37 @@ void AppKitTitleBar::setStyle(TitleBarStyle style) {
   notify();
 }
 
+void AppKitTitleBar::minimize() {
+  [window_ miniaturize:nil];
+}
+
+void AppKitTitleBar::toggleMaximize() {
+  // `zoom:` rather than a maximised flag: on macOS the green button toggles
+  // between the window's frame and the "best" one for the screen, and there is
+  // no maximised state to set.
+  [window_ zoom:nil];
+}
+
+void AppKitTitleBar::close() {
+  // performClose: rather than close:, so the delegate gets its say and the
+  // window closes the way the red button closes it.
+  [window_ performClose:nil];
+}
+
+void AppKitTitleBar::startDrag() {
+  NSWindow *window = window_;
+  if (window == nil) {
+    return;
+  }
+  // The event currently being handled, which is the press that started this.
+  // AppKit takes over the drag from there and runs it until the mouse is
+  // released.
+  NSEvent *event = NSApp.currentEvent;
+  if (event != nil) {
+    [window performWindowDragWithEvent:event];
+  }
+}
+
 TitleBarMetrics AppKitTitleBar::metrics() const {
   TitleBarMetrics result;
   result.style = style_;

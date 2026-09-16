@@ -52,6 +52,19 @@ class AppKitTitleBar {
                  std::optional<uint32_t> border);
   void setStyle(TitleBarStyle style);
 
+  // What the caption buttons do, for an app that draws its own.
+  //
+  // The system's buttons work without any of this -- they are the system's --
+  // but a header the app drew has no way to act on itself otherwise, which
+  // makes the hidden style a picture of a title bar rather than one.
+  void minimize();
+  void toggleMaximize();
+  void close();
+  // Begins a window drag from the pointer's current position, which is what a
+  // caption does when you press it and move. Wanted for the same reason:
+  // without it an app-drawn header cannot move its own window.
+  void startDrag();
+
   TitleBarMetrics metrics() const;
 
   // Called whenever the metrics change, so JavaScript can re-lay-out. Cleared

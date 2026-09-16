@@ -11,6 +11,8 @@
  * the top right corner, and the app says which parts of its header drag the
  * window:
  *
+ *   Window.minimize(); Window.toggleMaximize(); Window.close();
+ *
  *   const {height, buttonsWidth} = useTitleBarMetrics();
  *   <TitleBar.DragRegion style={{height, paddingRight: buttonsWidth}}>
  *     <Text>Inbox</Text>
@@ -156,6 +158,37 @@ function readMetrics() {
     return NO_METRICS;
   }
 }
+
+/**
+ * What the caption buttons do, for an app drawing its own header.
+ *
+ * The system's buttons need none of this -- they are the system's -- but a
+ * header the app drew has no way to act on itself otherwise, which makes the
+ * hidden style a picture of a title bar rather than one.
+ *
+ * Every call is ignored on a host with no window module, like the rest of this
+ * file, so the same code runs everywhere.
+ */
+export const Window = {
+  minimize() {
+    NativeWindow?.minimize();
+  },
+  toggleMaximize() {
+    NativeWindow?.toggleMaximize();
+  },
+  close() {
+    NativeWindow?.close();
+  },
+  /**
+   * Starts dragging the window, to be called from a press on an app-drawn
+   * caption. A no-op where the host moves windows some other way: GTK does it
+   * through a widget rather than a call, so the drag regions handle it and
+   * this has nothing to begin.
+   */
+  startDrag() {
+    NativeWindow?.startWindowDrag();
+  },
+};
 
 // How much of the window a hidden title bar's caption takes: its height, and
 // the width of the buttons in the top right corner, both in layout units. All

@@ -49,6 +49,10 @@ GtkWindowModule::GtkWindowModule(std::shared_ptr<facebook::react::CallInvoker> j
   methodMap_["setTitleBarColors"] = MethodMetadata{3, setTitleBarColors};
   methodMap_["setTitleBarStyle"] = MethodMetadata{1, setTitleBarStyle};
   methodMap_["getTitleBarMetrics"] = MethodMetadata{0, getTitleBarMetrics};
+  methodMap_["minimize"] = MethodMetadata{0, minimize};
+  methodMap_["toggleMaximize"] = MethodMetadata{0, toggleMaximize};
+  methodMap_["close"] = MethodMetadata{0, closeWindow};
+  methodMap_["startWindowDrag"] = MethodMetadata{0, startWindowDrag};
   // What a NativeEventEmitter over this module calls; the events go out as
   // device events either way.
   methodMap_["addListener"] = MethodMetadata{1, noop};
@@ -105,6 +109,38 @@ Value GtkWindowModule::getTitleBarMetrics(Runtime &runtime,
                                              const Value * /*args*/,
                                              size_t /*count*/) {
   return metricsValue(runtime, titleBar().metrics());
+}
+
+Value GtkWindowModule::minimize(Runtime & /*runtime*/,
+                      TurboModule & /*module*/,
+                      const Value * /*args*/,
+                      size_t /*count*/) {
+  postToUiThread([] { titleBar().minimize(); });
+  return Value::undefined();
+}
+
+Value GtkWindowModule::toggleMaximize(Runtime & /*runtime*/,
+                            TurboModule & /*module*/,
+                            const Value * /*args*/,
+                            size_t /*count*/) {
+  postToUiThread([] { titleBar().toggleMaximize(); });
+  return Value::undefined();
+}
+
+Value GtkWindowModule::closeWindow(Runtime & /*runtime*/,
+                         TurboModule & /*module*/,
+                         const Value * /*args*/,
+                         size_t /*count*/) {
+  postToUiThread([] { titleBar().close(); });
+  return Value::undefined();
+}
+
+Value GtkWindowModule::startWindowDrag(Runtime & /*runtime*/,
+                             TurboModule & /*module*/,
+                             const Value * /*args*/,
+                             size_t /*count*/) {
+  postToUiThread([] { titleBar().startDrag(); });
+  return Value::undefined();
 }
 
 Value GtkWindowModule::noop(Runtime & /*runtime*/,

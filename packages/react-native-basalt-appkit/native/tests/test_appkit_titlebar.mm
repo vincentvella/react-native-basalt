@@ -89,3 +89,19 @@ TEST(titlebar_takes_a_title_and_a_colour) {
     EXPECT([window.appearance.name isEqualToString:NSAppearanceNameAqua]);
   }
 }
+
+// The caption buttons' functions. What they do was checked live -- a probe
+// drove the window from 900x700 to maximised and back, then minimised and
+// closed it. What a test pins is the half with no window on the other end: the
+// module outlives the window at shutdown, and a call arriving then must not
+// take the process with it.
+TEST(titlebar_actions_are_safe_with_no_window) {
+  @autoreleasepool {
+    basalt::titleBar().attach(nil);
+    basalt::titleBar().minimize();
+    basalt::titleBar().toggleMaximize();
+    basalt::titleBar().close();
+    basalt::titleBar().startDrag();
+    EXPECT(true);
+  }
+}

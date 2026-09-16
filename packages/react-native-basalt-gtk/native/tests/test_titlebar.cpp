@@ -81,3 +81,57 @@ TEST(titlebar_takes_a_title) {
   const char *title = gtk_window_get_title(fixture.window);
   EXPECT_EQ(std::string(title != nullptr ? title : ""), std::string("Inbox"));
 }
+
+// The caption buttons' functions, for an app drawing its own header.
+//
+// What these *do* was checked live -- a probe drove the window from 900x700 to
+// maximised and back on both hosts, then minimised and closed it. What a test
+// can pin is the half that has no window on the other end: the module outlives
+// the window at shutdown, and a JavaScript call arriving then must not take the
+// process with it.
+TEST(titlebar_actions_are_safe_with_no_window) {
+  basalt::titleBar().attach(nullptr, nullptr);
+  basalt::titleBar().minimize();
+  basalt::titleBar().toggleMaximize();
+  basalt::titleBar().close();
+  basalt::titleBar().startDrag();
+  EXPECT(true);
+}
+
+TEST(titlebar_toggles_maximize) {
+  Fixture fixture;
+  basalt::titleBar().setStyle(basalt::TitleBarStyle::Native);
+
+  // An unmapped window still records the request, which is what this asks
+  // about -- whether the toggle reads the state and flips it rather than
+  // always maximising.
+  basalt::titleBar().toggleMaximize();
+  EXPECT(gtk_window_is_maximized(fixture.window));
+  basalt::titleBar().toggleMaximize();
+  EXPECT(!gtk_window_is_maximized(fixture.window));
+}
+
+// The window going away underneath it, which is what happens at quit and what
+// Window.close() does on purpose -- with JavaScript still running and still
+// able to call any of this.
+TEST(titlebar_survives_its_window_being_destroyed) {
+  GtkWindow *window = GTK_WINDOW(gtk_window_new());
+  GtkWidget *controls = gtk_window_controls_new(GTK_PACK_END);
+  GtkWidget *overlay = gtk_overlay_new();
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), controls);
+  gtk_window_set_child(window, overlay);
+
+  basalt::titleBar().attach(window, controls);
+  basalt::titleBar().setStyle(basalt::TitleBarStyle::Hidden);
+
+  gtk_window_destroy(window);
+
+  // Every one of these is reachable from JavaScript after the window has gone.
+  basalt::titleBar().setTitle(std::string("late"));
+  basalt::titleBar().setColors(0xFF4285F4u, std::nullopt, std::nullopt);
+  basalt::titleBar().minimize();
+  basalt::titleBar().toggleMaximize();
+  basalt::titleBar().close();
+  const auto metrics = basalt::titleBar().metrics();
+  EXPECT_EQ(metrics.height, 0.0);
+}
