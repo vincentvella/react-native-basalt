@@ -1,5 +1,7 @@
 #import "RnAppKitView.h"
 
+#include "FocusRing.h"
+
 #import "AppKitTextPeer.h"
 
 #include <cmath>
@@ -489,7 +491,8 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 // knowing about the other.
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  if (_textLayout == nil && _image == nullptr && !_hasBorders) {
+  const BOOL ring = [self rnShowsFocusRing];
+  if (_textLayout == nil && _image == nullptr && !_hasBorders && !ring) {
     return;
   }
   CGContextRef context = [NSGraphicsContext currentContext].CGContext;
@@ -529,6 +532,42 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   if (_hasBorders) {
     [self rnDrawBordersInContext:context size:size];
   }
+
+  // The focus ring, over everything including the border, because it is the
+  // answer to "where am I" and must not be hidden by what it is drawn on.
+  //
+  // Inside the bounds rather than outside: drawRect: is clipped to them, and a
+  // ring that is inset here and outset on Linux would be a difference an app
+  // did not ask for. It follows the view's own corner radii, so it hugs a
+  // rounded button.
+  if (ring) {
+    [self rnDrawFocusRingInContext:context size:size];
+  }
+}
+
+- (void)rnDrawFocusRingInContext:(CGContextRef)context size:(NSSize)size {
+  const CGFloat width = basalt::kFocusRingWidth;
+  // Stroked down the middle of the line, so the path is inset by half of it to
+  // keep the whole ring inside the view.
+  const NSRect rect = NSMakeRect(width / 2.0, width / 2.0,
+                                 MAX(0.0, size.width - width),
+                                 MAX(0.0, size.height - width));
+  CGFloat radii[8];
+  for (int i = 0; i < 8; i++) {
+    radii[i] = _hasBorderRadii ? MAX(0.0, _borderRadii[i] - width / 2.0) : 0.0;
+  }
+  CGPathRef path = RnAppKitCreateRoundedPath(rect, radii);
+  CGContextSaveGState(context);
+  CGContextSetRGBStrokeColor(context,
+                             basalt::kFocusRingRed,
+                             basalt::kFocusRingGreen,
+                             basalt::kFocusRingBlue,
+                             basalt::kFocusRingAlpha);
+  CGContextSetLineWidth(context, width);
+  CGContextAddPath(context, path);
+  CGContextStrokePath(context);
+  CGContextRestoreGState(context);
+  CGPathRelease(path);
 }
 
 // The four edges, each its own width and colour.
@@ -937,6 +976,14 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   if (_roleName != nil) {
     [out appendFormat:@" role=%@", _roleName];
   }
+  // Whether Tab stops here, after `role=` because that is where the GTK side
+  // prints it and this dump is diffed line by line. Whether it is focused *now*
+  // is deliberately not printed: that depends on what the window server did
+  // when the window opened, which is not a property of the platform and would
+  // make this dump differ between two machines running the same app.
+  if (self.rnFocusable) {
+    [out appendString:@" focusable"];
+  }
   [out appendString:@"\n"];
 
   for (NSView *child in self.subviews) {
@@ -956,6 +1003,91 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 // Not overriding hitTest: to make the root swallow everything instead: that
 // would also swallow the cursor rectangles, tooltips and tracking areas any
 // later component needs, and AppKit's own hit testing is doing no harm here.
+
+// Keyboard focus.
+//
+// AppKit's key-view loop is the chain: a view that accepts first responder
+// status is reached by Tab, and `nextValidKeyView` walks the view hierarchy, so
+// the order is tree order without this project deciding what "next" means. The
+// GTK host gets the same for the same reason; the Win32 host has no such loop
+// and builds one. See AppKitFocus.h.
+
+- (BOOL)acceptsFirstResponder {
+  return _rnFocusable;
+}
+
+- (BOOL)canBecomeKeyView {
+  // Not inherited: NSView's default also consults the Full Keyboard Access
+  // setting for some views, and a React Native app's buttons are not AppKit
+  // controls that a user has opted into tabbing to -- they are the whole
+  // interface.
+  return _rnFocusable && !self.isHiddenOrHasHiddenAncestor;
+}
+
+- (nullable id<RnAppKitFocusHandler>)rnFocusHandlerForTree {
+  NSView *view = self;
+  while (view != nil) {
+    if ([view isKindOfClass:[RnAppKitView class]]) {
+      id<RnAppKitFocusHandler> handler = ((RnAppKitView *)view).rnFocusHandler;
+      if (handler != nil) {
+        return handler;
+      }
+    }
+    view = view.superview;
+  }
+  return nil;
+}
+
+- (BOOL)becomeFirstResponder {
+  if (![super becomeFirstResponder]) {
+    return NO;
+  }
+  // The ring is drawn by this view, so it has to redraw when focus arrives.
+  self.needsDisplay = YES;
+  [[self rnFocusHandlerForTree] rnView:self didChangeFocus:YES];
+  return YES;
+}
+
+- (BOOL)resignFirstResponder {
+  if (![super resignFirstResponder]) {
+    return NO;
+  }
+  self.needsDisplay = YES;
+  [[self rnFocusHandlerForTree] rnView:self didChangeFocus:NO];
+  return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+  // Return, enter and space, which are the two keys that activate a control on
+  // every desktop and in the browser. Anything else goes on, so a view with
+  // focus does not swallow the window's own shortcuts.
+  const unichar first = event.charactersIgnoringModifiers.length > 0
+      ? [event.charactersIgnoringModifiers characterAtIndex:0]
+      : 0;
+  const BOOL activates = first == NSCarriageReturnCharacter ||
+      first == NSEnterCharacter || first == ' ';
+  if (activates && [[self rnFocusHandlerForTree] rnActivateView:self]) {
+    return;
+  }
+  // Tab, which on this platform is this project's own: AppKit's key-view loop
+  // does nothing for a window built without a nib. Shift-Tab arrives as the
+  // same character with the shift modifier set.
+  if (first == NSTabCharacter || first == NSBackTabCharacter) {
+    const BOOL forward = first == NSTabCharacter &&
+        (event.modifierFlags & NSEventModifierFlagShift) == 0;
+    if ([[self rnFocusHandlerForTree] rnMoveFocusForward:forward]) {
+      return;
+    }
+  }
+  [super keyDown:event];
+}
+
+// Whether to paint the ring: focused, and focused by this window rather than by
+// a window that is not in front.
+- (BOOL)rnShowsFocusRing {
+  NSWindow *window = self.window;
+  return _rnFocusable && window != nil && window.firstResponder == self;
+}
 
 - (nullable id<RnAppKitInputHandler>)rnHandler:(NSView **)outRoot {
   NSView *view = self;

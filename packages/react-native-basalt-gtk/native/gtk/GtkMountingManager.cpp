@@ -536,6 +536,13 @@ void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shad
     rn_view_set_accessible_state(view, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET, RN_A11Y_UNSET);
   }
 
+  // Keyboard focus. `accessible` is the signal because React Native's
+  // `focusable` prop never reaches this platform -- see GtkFocus.h -- and
+  // because it is what <Pressable> sets on everything it renders. A hidden view
+  // is not focusable whatever it says: Tab stopping on something nobody can see
+  // is worse than Tab skipping it.
+  rn_view_set_focusable(view, props->accessible && !props->accessibilityElementsHidden ? TRUE : FALSE);
+
   // accessibilityElementsHidden hides the subtree; importantForAccessibility
   // NoHideDescendants is Android's spelling of the same idea.
   const bool hidden = props->accessibilityElementsHidden ||

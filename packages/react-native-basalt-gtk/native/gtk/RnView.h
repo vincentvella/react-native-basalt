@@ -94,6 +94,22 @@ typedef enum {
 void rn_view_set_pointer_events(RnView *self, RnPointerEvents mode);
 RnPointerEvents rn_view_get_pointer_events(RnView *self);
 
+// Whether this view takes keyboard focus, and therefore whether Tab stops on
+// it.
+//
+// React Native has a `focusable` prop and it does not reach this platform:
+// ReactCommon parses it only into Android's and tvOS's HostPlatformViewProps,
+// and the C++ host's is a bare alias of BaseViewProps. What does reach here is
+// `accessible`, which is what <Pressable> sets on everything it renders and
+// what an app sets on anything else it means as a control -- so that is the
+// signal, and it is also the one both desktops use for their own focus rings.
+// See GtkFocus.h.
+//
+// GTK owns the chain: a focusable widget joins the window's focus order, so Tab
+// and Shift+Tab work without this project deciding what "next" means.
+void rn_view_set_focusable(RnView *self, gboolean focusable);
+gboolean rn_view_get_focusable(RnView *self);
+
 // The text of a <Paragraph>, already laid out.
 //
 // A Paragraph is a View that also paints text, so it gets no separate widget

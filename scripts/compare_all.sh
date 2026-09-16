@@ -27,6 +27,7 @@ APPS=(
   "views:BasaltViews"
   "press:BasaltPress"
   "pointerevents:BasaltPointerEvents"
+  "focus:BasaltFocus"
   "scroll:BasaltScroll"
   "image:BasaltImage"
   "text:BasaltText"

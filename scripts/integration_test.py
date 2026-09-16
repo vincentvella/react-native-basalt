@@ -1010,6 +1010,75 @@ def test_pointer_events(bundle: Path) -> None:
         )
 
 
+def test_keyboard_focus(bundle: Path) -> None:
+    """An app driven entirely from the keyboard.
+
+    Runs js/focus.js: three buttons and a text field, in that order. The field
+    is the interesting neighbour -- it takes focus because it is a real GtkText,
+    NSTextField or EDIT control, and it has to sit in the same Tab order as the
+    buttons around it without either side knowing about the other.
+
+    Tab reaching a `<Pressable>` is not something React Native gives a platform
+    for free: its `focusable` prop is parsed only into Android's and tvOS's
+    props, and the C++ host's are a bare alias of the base ones. So `accessible`
+    is the signal on all three hosts, and this is what says they agree about it.
+
+    Activating a focused button dispatches `topClick` with an empty payload --
+    what React Native for Android sends from a focusable view -- which
+    Pressability turns into the `onPress` the app already handles. So the last
+    assertion is that a keyboard press and a mouse press are the same press.
+
+    Injected on every platform, unlike the tap scenarios. A real Tab needs a
+    window the display server considers focused, which an automated run does not
+    reliably have on any of the three.
+    """
+    app = bundle_app(bundle.parent, "focus")
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "14000"
+    env["BASALT_TEST_FOCUS"] = "tab;activate;tab;tab;tab;shift-tab"
+    env.pop("BASALT_TEST_TAP", None)
+    env.pop("BASALT_TEST_TYPE", None)
+    env.pop("BASALT_TEST_HOVER", None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltFocus"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+
+    # Both streams: GLib sends g_message to stdout and only warnings to stderr.
+    events = [
+        line.split("[js] ", 1)[1].strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if "[js] " in line and line.split("[js] ", 1)[1].strip().split(" ")[0]
+        in ("focus", "blur", "press")
+    ]
+
+    expected = [
+        "focus first",
+        # Enter on a focused button is the same press a click produces.
+        "press first",
+        "blur first",
+        "focus second",
+        "blur second",
+        "focus third",
+        # The text field is a stop like any other, in tree order.
+        "blur third",
+        "focus field",
+        # And back the way it came.
+        "blur field",
+        "focus third",
+    ]
+    if events != expected:
+        raise Failure(
+            "the keyboard did not move focus where it should have.\n"
+            f"expected: {expected}\n"
+            f"got:      {events}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1018,6 +1087,7 @@ SCENARIOS = [
     ("click a TextInput with a real mouse and see it focus", test_click_focuses_a_field),
     ("hover across nested views and see enter, leave, over and out", test_hover),
     ("pointerEvents decides what four taps land on", test_pointer_events),
+    ("Tab reaches a Pressable, and Enter presses it", test_keyboard_focus),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

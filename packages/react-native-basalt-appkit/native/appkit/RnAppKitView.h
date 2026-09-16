@@ -52,6 +52,22 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)rnMouseExited;
 @end
 
+// Where a view sends a change of keyboard focus.
+//
+// Set on the surface root, like RnAppKitInputHandler, and found by walking up
+// from whichever view gained or lost it. AppKit has no reliable notification
+// for "the window's first responder changed" -- NSWindow's firstResponder is
+// not KVO-observable -- so the views that can hold focus report it themselves.
+@protocol RnAppKitFocusHandler <NSObject>
+- (void)rnView:(RnAppKitView *)view didChangeFocus:(BOOL)focused;
+// Enter or space on a focused view. Returns YES if it was handled, so a view
+// with nothing listening passes the key on rather than swallowing it.
+- (BOOL)rnActivateView:(RnAppKitView *)view;
+// Tab and Shift-Tab. AppKit's own key-view loop cannot do this for a window
+// built without a nib; see AppKitFocus.h.
+- (BOOL)rnMoveFocusForward:(BOOL)forward;
+@end
+
 // Where a scrolling view sends the wheel.
 //
 // Set only on views that are ScrollViews. A view with none calls super, which
@@ -173,6 +189,20 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // what a press finds and never what is drawn.
 @property(nonatomic) RnAppKitPointerEvents rnPointerEvents;
 
+// Whether this view takes keyboard focus, and therefore whether Tab stops on
+// it.
+//
+// React Native has a `focusable` prop and it does not reach this platform:
+// ReactCommon parses it only into Android's and tvOS's HostPlatformViewProps,
+// and the C++ host's is a bare alias of BaseViewProps. What does reach here is
+// `accessible`, which is what <Pressable> sets on everything it renders. See
+// AppKitFocus.h.
+//
+// AppKit owns the chain: a view that accepts first responder status joins the
+// window's key-view loop, so Tab and Shift+Tab work without this project
+// deciding what "next" means.
+@property(nonatomic) BOOL rnFocusable;
+
 // This view's children in the order they paint: back to front, stably sorted
 // by zIndex. The same list hit testing walks in reverse, so what is on top is
 // what is hit -- the Win32 host pairs them the same way.
@@ -232,6 +262,9 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 
 // Set on the surface root. See RnAppKitInputHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
+
+// Set on the surface root. See RnAppKitFocusHandler.
+@property(nonatomic, weak, nullable) id<RnAppKitFocusHandler> rnFocusHandler;
 
 // The text field this view hosts, for <TextInput>.
 //

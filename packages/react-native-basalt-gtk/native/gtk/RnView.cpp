@@ -1,5 +1,6 @@
 #include "RnView.h"
 
+#include "FocusRing.h"
 #include "GtkTextPeer.h"
 
 #include <cstring>
@@ -163,6 +164,7 @@ struct _RnView {
   int z_index;
 
   RnPointerEvents pointer_events;
+  gboolean focusable;
 
   // Border plus padding, for the native peer below. React Native calls this a
   // content inset and Yoga has already resolved it; a GtkText knows nothing
@@ -353,6 +355,32 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
   // Borders paint over the content, as they do on every other platform.
   if (self->has_borders) {
     gtk_snapshot_append_border(snapshot, &box, self->border_widths, self->border_colors);
+  }
+
+  // The focus ring, over everything including the border, because it is the
+  // answer to "where am I" and must not be hidden by what it is drawn on.
+  //
+  // Drawn rather than delegated: GTK's own focus rendering is a CSS outline on
+  // a themed widget, and these widgets have no theme -- React Native decided
+  // every colour here. The ring follows the view's own corner radii so it hugs
+  // a rounded button, and `has-visible-focus` is what keeps it from appearing
+  // when focus was moved by a click rather than by the keyboard.
+  if (gtk_widget_has_visible_focus(widget)) {
+    // Inside the view's own bounds rather than around them. The AppKit side
+    // draws its ring in a drawRect: that is clipped to the view, so a ring that
+    // sat outside here and inside there would be a difference an app did not
+    // ask for -- and one that would only show up as a pixel diff.
+    GskRoundedRect ring = box;
+    const float widths[4] = {basalt::kFocusRingWidth,
+                             basalt::kFocusRingWidth,
+                             basalt::kFocusRingWidth,
+                             basalt::kFocusRingWidth};
+    const GdkRGBA ringColor{basalt::kFocusRingRed,
+                            basalt::kFocusRingGreen,
+                            basalt::kFocusRingBlue,
+                            basalt::kFocusRingAlpha};
+    const GdkRGBA colors[4] = {ringColor, ringColor, ringColor, ringColor};
+    gtk_snapshot_append_border(snapshot, &ring, widths, colors);
   }
 
   if (needs_opacity_layer) {
@@ -741,6 +769,25 @@ RnPointerEvents rn_view_get_pointer_events(RnView *self) {
   return self->pointer_events;
 }
 
+void rn_view_set_focusable(RnView *self, gboolean focusable) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->focusable == focusable) {
+    return;
+  }
+  self->focusable = focusable;
+  // `focusable` is whether the widget can hold focus at all; `can-focus` is
+  // whether Tab will give it any. GTK wants both, and a widget with only the
+  // first is reachable by a click and never by the keyboard.
+  gtk_widget_set_focusable(GTK_WIDGET(self), focusable);
+  gtk_widget_set_can_focus(GTK_WIDGET(self), focusable);
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+gboolean rn_view_get_focusable(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), FALSE);
+  return self->focusable;
+}
+
 void rn_view_set_clips_children(RnView *self, gboolean clips) {
   g_return_if_fail(RN_IS_VIEW(self));
   if (self->clips_children == clips) {
@@ -929,6 +976,12 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   if (self->role_name != nullptr && *self->role_name != '\0') {
     g_string_append_printf(out, " role=%s", self->role_name);
   }
+  // Whether Tab stops here. GTK's own answer rather than the flag this project
+  // set, which is the stronger statement: it says the widget really did join
+  // the focus chain. Whether it is focused *now* is deliberately not printed --
+  // that depends on what the window manager did when the window opened, which
+  // is not a property of the platform and would make this dump differ between
+  // two machines running the same app.
   if (gtk_accessible_get_platform_state(GTK_ACCESSIBLE(self), GTK_ACCESSIBLE_PLATFORM_STATE_FOCUSABLE)) {
     g_string_append(out, " focusable");
   }

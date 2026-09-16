@@ -140,6 +140,23 @@ class RnWin32View {
   void setPointerEvents(PointerEvents mode) { pointerEvents_ = mode; }
   PointerEvents pointerEvents() const { return pointerEvents_; }
 
+  // Whether this view takes keyboard focus, and therefore whether Tab stops on
+  // it.
+  //
+  // React Native has a `focusable` prop and it does not reach this platform:
+  // ReactCommon parses it only into Android's and tvOS's HostPlatformViewProps,
+  // and the C++ host's is a bare alias of BaseViewProps. What does reach here
+  // is `accessible`, which is what <Pressable> sets on everything it renders.
+  // See Win32Focus.h.
+  void setFocusable(bool focusable) { focusable_ = focusable; }
+  bool focusable() const { return focusable_; }
+
+  // Whether to paint a focus ring. A view is not its own window here, so there
+  // is no Win32 focus to ask about -- Win32FocusManager owns the answer and
+  // sets it, exactly as it owns the Tab order.
+  void setShowsFocusRing(bool shows) { showsFocusRing_ = shows; }
+  bool showsFocusRing() const { return showsFocusRing_; }
+
   // `display: none`. A hidden view is neither painted nor hit, and neither are
   // its children. Distinct from `opacity: 0`, which paints nothing and is still
   // there to be pressed.
@@ -276,6 +293,8 @@ class RnWin32View {
   std::string nativeId_;
   int zIndex_ = 0;
   PointerEvents pointerEvents_ = PointerEvents::Auto;
+  bool focusable_ = false;
+  bool showsFocusRing_ = false;
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;
 

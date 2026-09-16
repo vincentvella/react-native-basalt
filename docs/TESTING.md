@@ -369,6 +369,13 @@ equivalent because a real hover means moving the machine's actual cursor onto
 the window and leaving it there, which takes the pointer away from whoever is
 using the machine -- `xdotool mousemove` included.
 
+Keyboard focus is injected everywhere too, for the same reason.
+`BASALT_TEST_FOCUS` takes actions separated by `;` -- `tab`, `shift-tab` and
+`activate` -- and enters at each host's focus manager. A real Tab needs a window
+the display server considers focused, which an automated run does not reliably
+have on any of the three; what the instrument skips is the delivery of the
+keystroke and nothing above it.
+
 That cuts the other way too, and it is worth knowing before a tree looks wrong:
 a window that opens under someone's cursor *is* hovered, before either host has
 drawn anything. `js/hover.js` is left out of `scripts/compare_all.sh` for that

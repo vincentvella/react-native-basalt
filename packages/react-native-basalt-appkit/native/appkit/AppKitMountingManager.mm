@@ -658,6 +658,13 @@ void AppKitMountingManager::applyAccessibility(RnAppKitView *view, const ShadowV
                                   busy:RnAppKitAccessibleUnset];
   }
 
+  // Keyboard focus. `accessible` is the signal because React Native's
+  // `focusable` prop never reaches this platform -- see AppKitFocus.h -- and
+  // because it is what <Pressable> sets on everything it renders. A hidden view
+  // is not focusable whatever it says: Tab stopping on something nobody can see
+  // is worse than Tab skipping it.
+  view.rnFocusable = props->accessible && !props->accessibilityElementsHidden ? YES : NO;
+
   // accessibilityElementsHidden hides the subtree; importantForAccessibility
   // NoHideDescendants is Android's spelling of the same idea.
   const bool hidden = props->accessibilityElementsHidden ||

@@ -41,6 +41,7 @@
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
+#include "Win32Focus.h"
 #include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
 #include "Win32TitleBar.h"
@@ -132,6 +133,7 @@ struct Host {
   std::shared_ptr<basalt::Win32AnimationChoreographer> choreographer;
   std::unique_ptr<ReactHost> reactHost;
   std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::Win32FocusManager> focusManager;
 
   std::string bundlePath;
   // Empty means the bundle is a raw Fabric script rather than a React app.
@@ -458,7 +460,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Hover, Drag, Wheel, Type };
+  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -571,6 +573,23 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                   WM_MOUSEWHEEL,
                   MAKEWPARAM(0, delta),
                   MAKELPARAM(static_cast<WORD>(screen.x), static_cast<WORD>(screen.y)));
+      break;
+    }
+
+    case ScriptedInput::Kind::Focus: {
+      std::fprintf(stderr, "BASALT_TEST_FOCUS: %s\n", action.text.c_str());
+      if (gHost.focusManager != nullptr) {
+        if (action.text == "tab") {
+          gHost.focusManager->moveFocus(true);
+        } else if (action.text == "shift-tab") {
+          gHost.focusManager->moveFocus(false);
+        } else if (action.text == "activate") {
+          gHost.focusManager->activateFocused();
+        } else {
+          std::fprintf(stderr, "BASALT_TEST_FOCUS: unknown action\n");
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
       break;
     }
 
@@ -857,6 +876,17 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       }
       return 0;
 
+    // Tab, Enter and space. A <TextInput>'s peer is a real child window and
+    // takes its keys directly, so anything reaching here is meant for the
+    // painted views -- which have no window and so no focus of Windows' own.
+    case WM_KEYDOWN:
+      if (gHost.focusManager != nullptr &&
+          gHost.focusManager->handleKeyDown(static_cast<unsigned int>(wparam))) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+      }
+      break;
+
     case WM_MOUSELEAVE:
       gHost.trackingMouseLeave = false;
       basalt::titleBar().clearHover();
@@ -920,6 +950,14 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // all: on GTK and AppKit the widget is the view and the toolkit routes this
     // without a host in the middle.
     case WM_COMMAND:
+      // A field taking focus is the other half of the focus rule: the peer is a
+      // real window and holds real Win32 focus, so whichever painted view was
+      // wearing the ring has to give it up. Only one of the two kinds of focus
+      // can be true at a time.
+      if (HIWORD(wparam) == EN_SETFOCUS && gHost.focusManager != nullptr) {
+        gHost.focusManager->textInputTookFocus();
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
       if (gHost.mountingManager != nullptr &&
           gHost.mountingManager->handleControlCommand(wparam, lparam)) {
         return 0;
@@ -1207,6 +1245,11 @@ int main(int argc, char **argv) {
   // outlives every transaction mounted into it.
   gHost.touchDispatcher = std::make_unique<basalt::Win32TouchDispatcher>(
       gHost.mountingManager.get(), gHost.root);
+  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+  // All of it is this project's -- a React Native view is not a window here, so
+  // there is nothing for Windows to focus. See Win32Focus.h.
+  gHost.focusManager =
+      std::make_unique<basalt::Win32FocusManager>(gHost.mountingManager.get(), gHost.root);
 
   // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
   // fails, which is right when nothing is listening and wrong when Metro
@@ -1273,6 +1316,28 @@ int main(int argc, char **argv) {
   if (const char *scrolls = std::getenv("BASALT_TEST_SCROLL")) {
     scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
   }
+  // BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
+  // `shift-tab` and `activate`. The same reason the other instruments exist: a
+  // real Tab needs a window the system considers focused, which an automated
+  // run does not reliably have.
+  if (const char *focus = std::getenv("BASALT_TEST_FOCUS")) {
+    const std::string all(focus);
+    size_t start = 0;
+    while (start <= all.size()) {
+      const size_t semicolon = all.find(';', start);
+      const std::string action =
+          all.substr(start, semicolon == std::string::npos ? std::string::npos : semicolon - start);
+      if (!action.empty()) {
+        scriptedDelayMs = scheduleScriptedInput(
+            ScriptedInput{.kind = ScriptedInput::Kind::Focus, .text = action}, scriptedDelayMs);
+      }
+      if (semicolon == std::string::npos) {
+        break;
+      }
+      start = semicolon + 1;
+    }
+  }
+
   // BASALT_TEST_TYPE: text for whichever field has focus. Last, so that a tap
   // scheduled above has already put focus somewhere.
   if (const char *text = std::getenv("BASALT_TEST_TYPE")) {
@@ -1307,7 +1372,7 @@ int main(int argc, char **argv) {
 // React screen renders with holes in it without them, which is why this host
 // still defaults to the raw-Fabric script rather than to a React app.
 //
-// Keyboard input is missing with <TextInput>, and for the same reason: there is
-// nothing yet that focus could belong to. WM_CHAR and WM_KEYDOWN reach this
-// window and stop here, which is the shape the mouse was in before
-// Win32TouchDispatcher.
+// Keyboard input is no longer among them. A <TextInput>'s peer is a real child
+// window and takes its own keys; everything else is reached by Tab through
+// Win32Focus.h, which owns the whole chain because a React Native view here is
+// not a window and so has no focus of Windows' own.

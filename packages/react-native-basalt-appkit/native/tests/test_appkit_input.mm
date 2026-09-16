@@ -13,6 +13,7 @@
 
 #include "TestHarness.h"
 
+#import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
 #import "RnAppKitView.h"
 
@@ -465,6 +466,135 @@ TEST(pointer_events_reaches_the_view_from_the_props_and_the_tree_dump) {
     NSString *tree = [root describeTree];
     EXPECT([tree containsString:@"pe=box-none"]);
 
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// Keyboard focus: what Tab stops on, in what order, and what Enter does.
+//
+// A window, because focus is the one part of input that needs one: AppKit's
+// first responder belongs to a window, and `makeFirstResponder:` has nowhere to
+// put it without one. The window is never ordered in front -- these run in an
+// automated session that has no front.
+namespace {
+
+ShadowView makeAccessibleView(Tag tag, float y, bool accessible) {
+  auto props = std::make_shared<facebook::react::ViewProps>();
+  props->accessible = accessible;
+
+  LayoutMetrics metrics;
+  metrics.frame = {.origin = {.x = 0, .y = y}, .size = {.width = 200, .height = 40}};
+
+  ShadowView view;
+  view.componentName = "View";
+  view.surfaceId = kSurfaceId;
+  view.tag = tag;
+  view.props = props;
+  view.layoutMetrics = metrics;
+  return view;
+}
+
+void mountAll(basalt::AppKitMountingManager &manager, std::initializer_list<ShadowView> views) {
+  ShadowViewMutationList mutations;
+  int index = 0;
+  for (const ShadowView &view : views) {
+    mutations.push_back(ShadowViewMutation::CreateMutation(view));
+    mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, view, index++));
+  }
+  apply(manager, std::move(mutations));
+}
+
+} // namespace
+
+TEST(focus_accessible_views_are_the_ones_tab_stops_on) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:400];
+    // React Native's `focusable` prop never reaches this platform, so
+    // `accessible` is the signal -- and it is what <Pressable> sets on
+    // everything it renders.
+    mountAll(manager,
+             {makeAccessibleView(10, 0, true),
+              makeAccessibleView(11, 50, false),
+              makeAccessibleView(12, 100, true)});
+
+    EXPECT(manager.viewForTag(10).rnFocusable);
+    EXPECT(!manager.viewForTag(11).rnFocusable);
+    EXPECT(manager.viewForTag(12).rnFocusable);
+    // And it shows up in the tree dump, so the cross-host diff can say the prop
+    // arrived on all three.
+    EXPECT([[root describeTree] containsString:@"focusable"]);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+TEST(focus_tab_visits_focusable_views_in_tree_order_and_wraps) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:400];
+
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 400)
+                                                   styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:NO];
+    window.contentView = root;
+
+    basalt::AppKitFocusManager focus(&manager, root);
+    mountAll(manager,
+             {makeAccessibleView(10, 0, true),
+              makeAccessibleView(11, 50, false),
+              makeAccessibleView(12, 100, true)});
+
+    // Nothing is focused when a window opens, on either desktop.
+    EXPECT_EQ((long)focus.focusedTag(), 0L);
+
+    EXPECT(focus.moveFocus(true));
+    EXPECT_EQ((long)focus.focusedTag(), 10L);
+    // 11 is not accessible, so Tab goes past it.
+    EXPECT(focus.moveFocus(true));
+    EXPECT_EQ((long)focus.focusedTag(), 12L);
+    // And round again: a window's Tab order wraps.
+    EXPECT(focus.moveFocus(true));
+    EXPECT_EQ((long)focus.focusedTag(), 10L);
+    // Backwards is the same order in reverse.
+    EXPECT(focus.moveFocus(false));
+    EXPECT_EQ((long)focus.focusedTag(), 12L);
+
+    window.contentView = nil;
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+TEST(focus_activating_nothing_is_not_a_click) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:400];
+
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 400)
+                                                   styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:NO];
+    window.contentView = root;
+
+    basalt::AppKitFocusManager focus(&manager, root);
+    mountAll(manager, {makeAccessibleView(10, 0, true)});
+
+    // Nothing has focus yet, so there is nothing to activate -- and reporting a
+    // press with no target is how a keystroke reaches the wrong view.
+    EXPECT(!focus.activateFocused());
+
+    focus.moveFocus(true);
+    // No emitter is attached to these hand-built shadow views, so the click has
+    // nowhere to deliver. It must not crash, and the key is still consumed:
+    // that is exactly the shape of Enter arriving between a Remove and its
+    // Delete.
+    EXPECT(focus.activateFocused());
+
+    window.contentView = nil;
     manager.destroySurfaceRoot(kSurfaceId);
   }
 }

@@ -73,6 +73,12 @@ add_library(basalt_appkit_view STATIC
   appkit/AppKitSnapshot.mm)
 target_compile_options(basalt_appkit_view PRIVATE -Wall -Wextra -fobjc-arc)
 target_include_directories(basalt_appkit_view PUBLIC appkit)
+# core/FocusRing.h, and nothing else from there. It is a header of four
+# constants with no React Native in it, so taking it does not make this target
+# depend on the half that does -- and the alternative is a focus ring that is a
+# different blue on each desktop.
+target_include_directories(basalt_appkit_view PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../react-native-basalt/native/core)
 target_link_libraries(basalt_appkit_view PUBLIC
   "-framework Cocoa" "-framework QuartzCore" "-framework CoreText")
 
@@ -148,6 +154,7 @@ if(TARGET basalt_core)
     appkit/main_appkit.mm
     appkit/AppKitRunLoopObserver.mm
     appkit/AppKitAnimationChoreographer.mm
+    appkit/AppKitFocus.mm
     appkit/AppKitTouchDispatcher.mm)
   target_compile_options(basalt_appkit PRIVATE -Wall -Wextra -fobjc-arc)
   target_link_libraries(basalt_appkit PRIVATE basalt_appkit_mounting)
@@ -165,6 +172,7 @@ if(TARGET basalt_core)
     tests/test_appkit_mounting.mm
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
+    appkit/AppKitFocus.mm
     appkit/AppKitTouchDispatcher.mm
     tests/test_appkit_input.mm
     # <TextInput>'s controlled-value loop, through real mutations.

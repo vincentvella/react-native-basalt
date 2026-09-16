@@ -121,6 +121,12 @@ add_library(basalt_win32_view STATIC
   win32/Win32TitleBarLayout.cpp)
 target_compile_options(basalt_win32_view PRIVATE ${BASALT_WIN32_WARNINGS})
 target_include_directories(basalt_win32_view PUBLIC win32)
+# core/FocusRing.h, and nothing else from there. It is a header of four
+# constants with no React Native in it, so taking it does not make this target
+# depend on the half that does -- and the alternative is a focus ring that is a
+# different blue on each desktop.
+target_include_directories(basalt_win32_view PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../react-native-basalt/native/core)
 target_link_libraries(basalt_win32_view PUBLIC
   d2d1 dwrite windowscodecs uiautomationcore ole32 oleaut32 user32)
 
@@ -168,6 +174,7 @@ if(TARGET basalt_core)
     # Mouse messages -> React Native touches. In the library rather than in the
     # host so that tests can drive it, which is the only way the touch state
     # machine is provable without a cursor.
+    win32/Win32Focus.cpp
     win32/Win32TouchDispatcher.cpp
     # <ScrollView>: the offset, the unthrottled state write-back, the wheel and
     # the commands. Routing the wheel is this platform's alone -- there is no
@@ -245,6 +252,7 @@ if(TARGET basalt_core)
     tests/test_win32_input.cpp
     # <ScrollView>: the clamp, the throttle, the state write-back, the wheel's
     # innermost-first routing and the commands.
+    tests/test_win32_focus.cpp
     tests/test_win32_scrollview.cpp
     # <TextInput>. The only tests here that make a window, because a text
     # field's peer is one -- see the file.

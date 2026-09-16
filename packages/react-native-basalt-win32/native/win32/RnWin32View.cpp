@@ -1,5 +1,6 @@
 #include "RnWin32View.h"
 
+#include "FocusRing.h"
 #include "RnWin32Image.h"
 #include "RnWin32TextLayout.h"
 #include "Win32Clip.h"
@@ -22,6 +23,13 @@
 using Microsoft::WRL::ComPtr;
 
 namespace basalt::win32 {
+
+using basalt::kFocusRingAlpha;
+using basalt::kFocusRingBlue;
+using basalt::kFocusRingGreen;
+using basalt::kFocusRingRed;
+using basalt::kFocusRingWidth;
+
 namespace {
 
 // A scoped opacity layer, for `opacity` on a view.
@@ -374,6 +382,36 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
     }
 
     paintChildren(target);
+
+    // The focus ring, over everything including the children, because it is the
+    // answer to "where am I" and must not be hidden by what it is drawn on.
+    //
+    // Inside the view's own bounds rather than around them, which is where both
+    // other hosts draw it -- AppKit's is clipped to the view and GTK's matches
+    // that on purpose. Stroked down the middle of the line, so the rectangle is
+    // inset by half of it to keep the whole ring inside.
+    if (showsFocusRing_) {
+      ComPtr<ID2D1SolidColorBrush> brush;
+      const D2D1_COLOR_F colour = D2D1::ColorF(
+          kFocusRingRed, kFocusRingGreen, kFocusRingBlue, kFocusRingAlpha);
+      if (SUCCEEDED(target->CreateSolidColorBrush(colour, brush.GetAddressOf()))) {
+        const float inset = kFocusRingWidth / 2.0f;
+        const D2D1_RECT_F ring = D2D1::RectF(inset,
+                                             inset,
+                                             (std::max)(inset, frame_.width - inset),
+                                             (std::max)(inset, frame_.height - inset));
+        if (cornerRadius_ > 0.0f) {
+          target->DrawRoundedRectangle(
+              D2D1::RoundedRect(ring,
+                                (std::max)(0.0f, cornerRadius_ - inset),
+                                (std::max)(0.0f, cornerRadius_ - inset)),
+              brush.Get(),
+              kFocusRingWidth);
+        } else {
+          target->DrawRectangle(ring, brush.Get(), kFocusRingWidth);
+        }
+      }
+    }
   }
 
   target->SetTransform(parentTransform);
@@ -617,6 +655,14 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
   // belongs.
   if (!accessible_.role.empty()) {
     appendFormat(out, " role=%s", accessible_.role.c_str());
+  }
+  // Whether Tab stops here, after `role=` because that is where the other two
+  // hosts print it and this dump is diffed line by line. Whether it is focused
+  // *now* is deliberately not printed: that depends on what the window manager
+  // did when the window opened, which is not a property of the platform and
+  // would make this dump differ between two machines running the same app.
+  if (focusable_) {
+    out += " focusable";
   }
 
   out += "\n";

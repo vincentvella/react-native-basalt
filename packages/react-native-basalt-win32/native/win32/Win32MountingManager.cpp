@@ -476,6 +476,13 @@ void Win32MountingManager::applyAccessibility(RnWin32View *view, const ShadowVie
       props->importantForAccessibility == facebook::react::ImportantForAccessibility::NoHideDescendants;
 
   view->setAccessibleInfo(info);
+
+  // Keyboard focus. `accessible` is the signal because React Native's
+  // `focusable` prop never reaches this platform -- see Win32Focus.h -- and
+  // because it is what <Pressable> sets on everything it renders. A hidden view
+  // is not focusable whatever it says: Tab stopping on something nobody can see
+  // is worse than Tab skipping it.
+  view->setFocusable(props->accessible && !props->accessibilityElementsHidden);
 }
 
 void Win32MountingManager::applyLayoutMetrics(RnWin32View *view, const ShadowView &shadowView) {

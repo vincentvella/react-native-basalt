@@ -551,12 +551,33 @@ has gone unrecorded until now.
 - `Touch::offsetPoint` carries page coordinates rather than coordinates relative
   to the target view. Pressability does not read it; anything doing its own hit
   maths would.
-- No keyboard focus model outside `<TextInput>`, which takes focus only because
-  GtkText does. Nothing else is reachable by Tab, and no key events are
-  emitted. A desktop application that cannot read a keypress is not really a
-  desktop application; note that React Native has no cross-platform key event
-  API to be compatible with, so this needs a decision as well as an
-  implementation.
+- ~~No keyboard focus model outside `<TextInput>`.~~ Tab reaches a
+  `<Pressable>` on all three hosts, Enter and space press it, and `onFocus` and
+  `onBlur` fire. The decision the old entry asked for went this way, and both
+  halves came from React Native's own Android implementation:
+
+  **What is focusable:** `accessible`. React Native's `focusable` prop never
+  arrives -- ReactCommon parses it only into Android's and tvOS's
+  `HostPlatformViewProps`, and the C++ host's is a bare alias of
+  `BaseViewProps`. `accessible` is what `<Pressable>` sets on everything it
+  renders and what a screen reader stops on, so Tab order follows the
+  accessibility tree, which is what both desktops do with their own widgets.
+
+  **What activation is:** `topClick` with an empty payload, which is what
+  `ReactViewManager.setFocusable` dispatches on Android. Pressability turns it
+  into `onPress`, but only for a payload with no `pointerType` -- so it cannot
+  go through `TouchEventEmitter::onClick`, which always carries one.
+
+  The chain is the one place the three genuinely differ. GTK hands its focus
+  chain over outright. AppKit has a key-view loop that is unusable for a window
+  built without a nib -- `selectNextKeyView:` simply does nothing -- so the
+  order is walked in tree order there. Win32 has no focus to speak of, because a
+  React Native view is not a window, so all of it is this project's.
+
+  What is still missing is **key events**: `onKeyPress` on a `<TextInput>`
+  exists, and there is nothing for a `<View>`. React Native has no
+  cross-platform key event API to be compatible with, so that is still a
+  decision as well as an implementation.
 - `PanResponder` works, verified with real pointer motion through an X server
   against a probe that drags a view. Worth stating because it was never
   deliberately built, and a real app uses it for every drag it has.

@@ -20,6 +20,7 @@
 #include "GtkAnimationChoreographer.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
+#include "GtkFocus.h"
 #include "GtkTouchDispatcher.h"
 #include "RnView.h"
 
@@ -102,6 +103,7 @@ struct Host {
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::GtkAnimationChoreographer> choreographer;
   std::unique_ptr<basalt::GtkTouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::GtkFocusManager> focusManager;
   std::unique_ptr<ReactHost> reactHost;
 
   // Drives RunLoopObserverManager::onRender, without which no event an emitter
@@ -291,6 +293,51 @@ guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
     g_strfreev(parts);
   }
   g_strfreev(points);
+  return delayMs;
+}
+
+// BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
+// `shift-tab` and `activate`, each fired a second apart.
+//
+// The same reason the other instruments exist, one step further out. A real Tab
+// needs a window the display server considers focused, and an automated run on
+// a headless compositor has no such thing: the key event is delivered to
+// nothing. This enters at GtkFocusManager, so it exercises GTK's own focus
+// chain, the focus and blur events and the click dispatch, and skips only the
+// delivery of the keystroke itself.
+struct PendingFocus {
+  Host *host;
+  std::string action;
+};
+
+gboolean fireTestFocus(gpointer data) {
+  std::unique_ptr<PendingFocus> pending{static_cast<PendingFocus *>(data)};
+  g_message("BASALT_TEST_FOCUS: %s", pending->action.c_str());
+  if (pending->host->focusManager == nullptr) {
+    return G_SOURCE_REMOVE;
+  }
+  if (pending->action == "tab") {
+    pending->host->focusManager->moveFocus(true);
+  } else if (pending->action == "shift-tab") {
+    pending->host->focusManager->moveFocus(false);
+  } else if (pending->action == "activate") {
+    pending->host->focusManager->activateFocused();
+  } else {
+    g_warning("BASALT_TEST_FOCUS: unknown action \"%s\"", pending->action.c_str());
+  }
+  return G_SOURCE_REMOVE;
+}
+
+guint scheduleTestFocus(Host *host, const char *spec, guint delayMs) {
+  char **actions = g_strsplit(spec, ";", -1);
+  for (char **action = actions; *action != nullptr; ++action) {
+    if (**action == '\0') {
+      continue;
+    }
+    g_timeout_add(delayMs, fireTestFocus, new PendingFocus{host, *action});
+    delayMs += 1000;
+  }
+  g_strfreev(actions);
   return delayMs;
 }
 
@@ -582,6 +629,9 @@ void onActivate(GtkApplication *app, gpointer data) {
   // Input. Attached to the root, which is where hit testing starts.
   host->touchDispatcher =
       std::make_unique<basalt::GtkTouchDispatcher>(host->mountingManager.get(), host->root);
+  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+  host->focusManager =
+      std::make_unique<basalt::GtkFocusManager>(host->mountingManager.get(), host->root);
 
   // Say what this host needs rather than inheriting a default that moves.
   //
@@ -731,6 +781,9 @@ void onActivate(GtkApplication *app, gpointer data) {
   if (const char *hovers = g_getenv("BASALT_TEST_HOVER")) {
     scriptedDelayMs = scheduleTestHovers(host, hovers, scriptedDelayMs);
   }
+  if (const char *focus = g_getenv("BASALT_TEST_FOCUS")) {
+    scriptedDelayMs = scheduleTestFocus(host, focus, scriptedDelayMs);
+  }
   if (const char *drag = g_getenv("BASALT_TEST_DRAG")) {
     scheduleTestDrag(host, drag, scriptedDelayMs);
     scriptedDelayMs += 1000;
@@ -780,6 +833,7 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
   // Stop feeding the beat before the manager it points at is released.
   basalt::removeRunLoopObserver(host->runLoopObserver);
   host->runLoopObserver = nullptr;
+  host->focusManager.reset();
   host->touchDispatcher.reset();
   if (host->reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.

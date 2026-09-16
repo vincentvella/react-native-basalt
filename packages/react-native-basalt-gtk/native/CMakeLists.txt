@@ -83,6 +83,12 @@ add_library(basalt_gtk_view STATIC gtk/RnView.cpp gtk/GtkTextPeer.cpp)
 # its targets set their own flags, and these are PRIVATE so they never reach it.
 target_compile_options(basalt_gtk_view PRIVATE -Wall -Wextra)
 target_include_directories(basalt_gtk_view PUBLIC gtk)
+# core/FocusRing.h, and nothing else from there. It is a header of four
+# constants with no React Native in it, so taking it does not make this target
+# depend on the half that does -- and the alternative is a focus ring that is a
+# different blue on each desktop.
+target_include_directories(basalt_gtk_view PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../react-native-basalt/native/core)
 target_link_libraries(basalt_gtk_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
 
 # ---------------------------------------------------------------------------
@@ -194,6 +200,7 @@ if(TARGET basalt_core)
     gtk/main_gtk.cpp
     gtk/GtkAnimationChoreographer.cpp
     gtk/GtkRunLoopObserver.cpp
+    gtk/GtkFocus.cpp
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk PRIVATE basalt_gtk_mounting)
   target_compile_options(basalt_gtk PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
@@ -212,6 +219,7 @@ if(TARGET basalt_core)
     tests/test_mounting.cpp
     tests/test_view.cpp
     tests/test_text.cpp
+    tests/test_focus.cpp
     tests/test_hittest.cpp
     tests/test_scrollview.cpp
     tests/test_image.cpp
@@ -222,6 +230,7 @@ if(TARGET basalt_core)
     tests/test_version.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
+    gtk/GtkFocus.cpp
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk_tests PRIVATE basalt_gtk_mounting)
   target_include_directories(basalt_gtk_tests PRIVATE tests ${BASALT_TEST_INCLUDE})

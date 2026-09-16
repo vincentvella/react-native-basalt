@@ -30,6 +30,7 @@
 #import "AppKitAnimationChoreographer.h"
 #import "AppKitMountingManager.h"
 #import "AppKitRunLoopObserver.h"
+#import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
 #import "AppKitSnapshot.h"
 #import "RnAppKitView.h"
@@ -104,6 +105,7 @@ struct Host {
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::AppKitAnimationChoreographer> choreographer;
   std::unique_ptr<basalt::AppKitTouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::AppKitFocusManager> focusManager;
   std::unique_ptr<ReactHost> reactHost;
 
   CFRunLoopObserverRef runLoopObserver{nullptr};
@@ -360,6 +362,7 @@ void shutdown() {
   basalt::removeRunLoopObserver(gHost.runLoopObserver);
   gHost.runLoopObserver = nullptr;
 
+  gHost.focusManager.reset();
   gHost.touchDispatcher.reset();
   if (gHost.reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
@@ -490,6 +493,9 @@ int main(int argc, const char *argv[]) {
     // Input. Attached to the root, which is where hit testing starts.
     gHost.touchDispatcher =
         std::make_unique<basalt::AppKitTouchDispatcher>(gHost.mountingManager.get(), gHost.root);
+    // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+    gHost.focusManager =
+        std::make_unique<basalt::AppKitFocusManager>(gHost.mountingManager.get(), gHost.root);
 
     gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
     gHost.choreographer = std::make_shared<basalt::AppKitAnimationChoreographer>();
@@ -683,6 +689,44 @@ int main(int argc, const char *argv[]) {
                          NSLog(@"BASALT_TEST_HOVER: hovering (%.0f, %.0f)", x, y);
                          if (gHost.touchDispatcher != nullptr) {
                            gHost.touchDispatcher->synthesiseHover(x, y);
+                         }
+                       });
+        delayMs += 1000;
+      }
+    }
+
+    // BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
+    // `shift-tab` and `activate`, each fired a second apart.
+    //
+    // The same reason the other instruments exist, one step further out. A real
+    // Tab needs a window the window server considers key, which an automated
+    // run does not reliably have. This enters at AppKitFocusManager, so it
+    // exercises AppKit's own key-view loop, the focus and blur events and the
+    // click dispatch, and skips only the delivery of the keystroke itself.
+    if (const char *focus = getenv("BASALT_TEST_FOCUS")) {
+      NSString *spec = [NSString stringWithUTF8String:focus];
+      int64_t delayMs = 1500;
+      for (NSString *raw in [spec componentsSeparatedByString:@";"]) {
+        NSString *action = [raw stringByTrimmingCharactersInSet:
+                                    [NSCharacterSet whitespaceCharacterSet]];
+        if (action.length == 0) {
+          continue;
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_FOCUS: %@", action);
+                         if (gHost.focusManager == nullptr) {
+                           return;
+                         }
+                         if ([action isEqualToString:@"tab"]) {
+                           gHost.focusManager->moveFocus(true);
+                         } else if ([action isEqualToString:@"shift-tab"]) {
+                           gHost.focusManager->moveFocus(false);
+                         } else if ([action isEqualToString:@"activate"]) {
+                           gHost.focusManager->activateFocused();
+                         } else {
+                           NSLog(@"BASALT_TEST_FOCUS: unknown action \"%@\"", action);
                          }
                        });
         delayMs += 1000;
