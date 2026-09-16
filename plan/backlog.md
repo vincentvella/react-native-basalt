@@ -720,18 +720,15 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   permission that goes with it, and on Linux means xdotool -- which CI already
   has, and which is where this is worth adding.
 
-- **A `<TextInput>` is an `AXGroup` to macOS, not an `AXTextField`.** Found
-  while aiming the real click for the scenario above: the demo's field is
-  exposed to accessibility as a group of the right size and position, so
-  VoiceOver would not announce it as a text field, and nothing looking for one
-  can find it. The peer *is* a real `NSTextField` and would carry the role
-  itself, so the wrapper is either hiding it or overriding it.
-
-  `test_appkit_accessibility.mm` asserts the AppKit role rather than React
-  Native's name, which is the right thing to assert, and it has no case for
-  `<TextInput>` -- so this is uncovered rather than wrong-and-passing. Worth
-  checking what GTK and UI Automation report for the same field before deciding
-  the fix, since all three should agree.
+- **A `<TextInput>`'s wrapper is still an element of its own on GTK and
+  Windows.** Fixed for the label in phase 53: the name now lands on the peer,
+  which is what a screen reader reaches, rather than on the `RnView` around it.
+  What is left is the redundant element. On AppKit the wrapper takes the role
+  `none` and disappears; on GTK it cannot, because a `GtkAccessible` role is
+  construct-only and the wrapper is built before anything knows it will hold a
+  field. Fixing it there means deciding the role at construction, which is
+  where the `<Text>` and `<Image>` roles are already decided. Windows has not
+  been looked at.
 
 - **No unit test can observe an event.** Neither suite attaches an
   `EventEmitter` to the shadow views it builds, and `test_appkit_textinput.mm`

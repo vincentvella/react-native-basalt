@@ -379,8 +379,12 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyImage(view, shadowView);
-  applyAccessibility(view, shadowView);
+  // The peer first, then accessibility. A <TextInput>'s label belongs on its
+  // peer and applyAccessibility can only put it there if the peer exists --
+  // and on the mount that creates it, in this order it does. The GTK side
+  // needed the same swap for the same reason.
   applyTextInput(view, shadowView);
+  applyAccessibility(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before
@@ -579,10 +583,40 @@ void AppKitMountingManager::applyAccessibility(RnAppKitView *view, const ShadowV
     }
   }
 
-  [view setRnAccessibleLabel:label.empty() ? nil : [NSString stringWithUTF8String:label.c_str()]
-                        hint:props->accessibilityHint.empty()
-                                 ? nil
-                                 : [NSString stringWithUTF8String:props->accessibilityHint.c_str()]];
+  NSString *labelText = label.empty() ? nil : [NSString stringWithUTF8String:label.c_str()];
+  NSString *hintText = props->accessibilityHint.empty()
+      ? nil
+      : [NSString stringWithUTF8String:props->accessibilityHint.c_str()];
+
+  // A <TextInput>'s label belongs on its peer, not on this view.
+  //
+  // The peer is a real NSTextField and so is already an AXTextField in its own
+  // right -- which is the element VoiceOver lands on. Left alone, the label
+  // goes on the wrapper and the field announces itself as an unnamed "text
+  // field", so a field the app carefully labelled is read out as if it had no
+  // label at all. Checked with System Events: the group carried "your name"
+  // and the AXTextField inside it carried nothing.
+  //
+  // The wrapper then stops being an element of its own, because two nested
+  // elements for one control is a worse tree than one: a screen reader stops
+  // twice and says the name once.
+  if (NSTextField *peer = view.rnEditable) {
+    peer.accessibilityLabel = labelText;
+    if (hintText != nil) {
+      peer.accessibilityHelp = hintText;
+    }
+    [view setRnAccessibleLabel:nil hint:nil];
+    // Not `setRnAccessibleRole:@"none"`, which would be React Native's role
+    // vocabulary and so would print in `describeTree` -- and GTK cannot answer
+    // it, because a GtkAccessible role is construct-only. That made the two
+    // hosts' trees disagree on this view and nothing else. Taking the wrapper
+    // out of the accessibility tree directly says the same thing to VoiceOver
+    // and nothing at all to the dump.
+    view.accessibilityElement = NO;
+    return;
+  }
+
+  [view setRnAccessibleLabel:labelText hint:hintText];
 
   if (props->accessibilityState.has_value()) {
     const auto &state = *props->accessibilityState;

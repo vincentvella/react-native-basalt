@@ -467,7 +467,31 @@ void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shad
     }
   }
 
-  rn_view_set_accessible_text(view, label.c_str(), props->accessibilityHint.c_str());
+  // A <TextInput>'s label belongs on its peer, not on this view.
+  //
+  // The peer is a real GtkText and is already a text box to AT-SPI in its own
+  // right, so it is the thing a screen reader lands on. Left alone the label
+  // goes on the wrapper, and the field announces itself as an unnamed text box
+  // -- a field the app carefully labelled read out as if it had none. AppKit
+  // had the same split and it was visible there: the wrapper carried "your
+  // name" and the AXTextField inside it carried nothing.
+  //
+  // The wrapper's own label is cleared rather than left as a duplicate, so the
+  // name is announced once. Its *role* stays what it was built with: unlike
+  // AppKit's, a GtkAccessible role is construct-only, so a wrapper that should
+  // be presentational cannot become one here. That is the smaller half of the
+  // problem and is in plan/backlog.md.
+  if (GtkText *peer = rn_view_get_editable(view)) {
+    gtk_accessible_update_property(GTK_ACCESSIBLE(peer),
+                                   GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                   label.c_str(),
+                                   GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
+                                   props->accessibilityHint.c_str(),
+                                   -1);
+    rn_view_set_accessible_text(view, "", "");
+  } else {
+    rn_view_set_accessible_text(view, label.c_str(), props->accessibilityHint.c_str());
+  }
 
   if (props->accessibilityState.has_value()) {
     const auto &state = *props->accessibilityState;
@@ -533,8 +557,11 @@ void GtkMountingManager::updateView(RnView *view, const ShadowView &shadowView) 
   applyProps(view, shadowView);
   applyText(view, shadowView);
   applyImage(view, shadowView);
-  applyAccessibility(view, shadowView);
+  // The peer first, then accessibility. A <TextInput>'s label belongs on its
+  // peer and applyAccessibility can only put it there if the peer exists --
+  // and on the mount that creates it, in this order it does.
   applyTextInput(view, shadowView);
+  applyAccessibility(view, shadowView);
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before

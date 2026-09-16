@@ -9,7 +9,10 @@
 
 #include "GtkMountingManager.h"
 
+#include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/core/RawProps.h>
+#include <react/renderer/core/RawPropsParser.h>
 
 #include <sstream>
 
@@ -42,6 +45,38 @@ ShadowView makeAccessibleView(Tag tag, const std::function<void(ViewProps &)> &c
   view.surfaceId = kSurfaceId;
   view.tag = tag;
   view.props = props;
+  view.layoutMetrics = metrics;
+  return view;
+}
+
+// The same, for a <TextInput>. Its props have to be real TextInputProps or the
+// mounting manager builds no peer, and those are only reachable through React
+// Native's own parser -- the fields that matter are const.
+ShadowView makeTextInputView(Tag tag, const std::function<void(ViewProps &)> & /*configure*/,
+                             const std::string &label) {
+  static const facebook::react::RawPropsParser parser = []() {
+    facebook::react::RawPropsParser prepared;
+    prepared.prepare<facebook::react::TextInputProps>();
+    return prepared;
+  }();
+
+  static const auto contextContainer =
+      std::make_shared<const facebook::react::ContextContainer>();
+  const facebook::react::PropsParserContext context{kSurfaceId, *contextContainer};
+
+  folly::dynamic raw = folly::dynamic::object("text", "")("accessibilityLabel", label);
+  facebook::react::RawProps rawProps{std::move(raw)};
+  rawProps.parse(parser);
+
+  LayoutMetrics metrics;
+  metrics.frame = {.origin = {.x = 0, .y = 0}, .size = {.width = 200, .height = 40}};
+
+  ShadowView view;
+  view.componentName = "TextInput";
+  view.surfaceId = kSurfaceId;
+  view.tag = tag;
+  view.props = std::make_shared<const facebook::react::TextInputProps>(
+      context, facebook::react::TextInputProps{}, rawProps);
   view.layoutMetrics = metrics;
   return view;
 }
@@ -105,6 +140,33 @@ TEST(accessibility_label_and_hint_reach_the_accessible) {
   mismatch = gtk_test_accessible_check_property(
       GTK_ACCESSIBLE(view), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION, "Starts the track");
   EXPECT(mismatch == nullptr);
+  g_free(mismatch);
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// A field's label has to be on the field, not on the view wrapping it. The
+// peer is a real GtkText and is what AT-SPI presents as a text box, so a label
+// left on the wrapper is a labelled field that announces no name.
+TEST(a_text_input_label_lands_on_the_peer_not_the_wrapper) {
+  basalt::GtkMountingManager manager;
+  manager.createSurfaceRoot(kSurfaceId);
+
+  RnView *view = mountOne(manager, makeTextInputView(13, nullptr, "Your name"));
+  GtkText *peer = rn_view_get_editable(view);
+  EXPECT(peer != nullptr);
+
+  char *mismatch = gtk_test_accessible_check_property(
+      GTK_ACCESSIBLE(peer), GTK_ACCESSIBLE_PROPERTY_LABEL, "Your name");
+  EXPECT(mismatch == nullptr);
+  g_free(mismatch);
+
+  // And not announced twice: the wrapper does not also carry the name. Checked
+  // by asking for a mismatch rather than for an empty string, because an unset
+  // GTK property is not the empty one and does not compare equal to it.
+  mismatch = gtk_test_accessible_check_property(
+      GTK_ACCESSIBLE(view), GTK_ACCESSIBLE_PROPERTY_LABEL, "Your name");
+  EXPECT(mismatch != nullptr);
   g_free(mismatch);
 
   manager.destroySurfaceRoot(kSurfaceId);
