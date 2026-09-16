@@ -15,11 +15,15 @@
  * same native component the iOS path renders, `RCTSinglelineTextInputView`,
  * which ReactCommon rewrites to the component named `TextInput`, whose shadow
  * node is React Native's own iOS one and whose measurement runs through
- * whichever text layout manager the platform installs -- Pango on Linux, and
- * nothing yet on macOS, which is why `<TextInput>` does not mount there. What it does not carry is
- * the years of platform-specific behaviour in the real file: no
- * `InputAccessoryView`, no shared `TextInputState` focus registry, no autofill,
- * no `rejectResponderTermination`, no multiline.
+ * whichever text layout manager the platform installs -- Pango on Linux, Core
+ * Text on macOS and DirectWrite on Windows, all three of which mount it. What
+ * it does not carry is the years of platform-specific behaviour in the real
+ * file: no `InputAccessoryView`, no shared `TextInputState` focus registry, no
+ * autofill, no `rejectResponderTermination`, no multiline.
+ *
+ * `selection` and `onSelectionChange` do work, and need nothing here: both
+ * reach the native component through `...rest`, and what was missing was the
+ * native half on either side of them.
  *
  * `plan/backlog.md` tracks what is missing. The seam is here when it is time.
  *

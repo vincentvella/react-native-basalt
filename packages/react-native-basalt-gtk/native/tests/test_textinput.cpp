@@ -201,6 +201,82 @@ TEST(textinput_keeps_what_was_typed_into_an_uncontrolled_field) {
 // value React rendered before the user's latest keystroke must not be applied,
 // or a fast typist watches characters reorder themselves -- and it must not be
 // *forgotten* either, or the value is lost once JavaScript catches up.
+// The whole selection reaches JavaScript, not only the caret. Before this the
+// metrics reported {cursor, 0} whatever was selected, so `onSelectionChange`
+// could not tell a caret from a selected word.
+TEST(textinput_reports_the_whole_selection_not_only_the_caret) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "abcdef")));
+  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
+  gtk_editable_select_region(editable, 1, 4);
+
+  int start = 0;
+  int end = 0;
+  EXPECT(gtk_editable_get_selection_bounds(editable, &start, &end));
+  EXPECT_EQ(start, 1);
+  EXPECT_EQ(end, 4);
+
+  g_object_unref(view);
+}
+
+// The `selection` prop is controlled the way `text` is, and under the same
+// staleness rule.
+TEST(textinput_applies_a_selection_prop) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "abcdef")));
+  manager.update(view,
+                 makeTextInput(10,
+                               folly::dynamic::object("text", "abcdef")(
+                                   "selection", folly::dynamic::object("start", 2)("end", 5))));
+
+  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
+  int start = 0;
+  int end = 0;
+  EXPECT(gtk_editable_get_selection_bounds(editable, &start, &end));
+  EXPECT_EQ(start, 2);
+  EXPECT_EQ(end, 5);
+
+  g_object_unref(view);
+}
+
+// A selection from JavaScript that predates the last keystroke is dropped, for
+// the same reason a stale `text` is: it would drag the caret back to where
+// JavaScript thought it was, mid-word.
+TEST(textinput_drops_a_selection_prop_older_than_what_was_typed) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "abcdef")));
+  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
+
+  // Type, which raises the event count past what the next props carry. The
+  // position is in/out and must be a real variable: GtkEditable writes the
+  // caret's new home back through it.
+  int position = 6;
+  gtk_editable_insert_text(editable, "g", 1, &position);
+
+  gtk_editable_select_region(editable, 0, 0);
+  manager.update(view,
+                 makeTextInput(10,
+                               folly::dynamic::object("text", "abcdef")(
+                                   "selection", folly::dynamic::object("start", 2)("end", 5))));
+
+  int start = 0;
+  int end = 0;
+  gtk_editable_get_selection_bounds(editable, &start, &end);
+  EXPECT_EQ(start, 0);
+  EXPECT_EQ(end, 0);
+
+  g_object_unref(view);
+}
+
 TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
   RnView *view = rn_view_new(10);
   g_object_ref_sink(view);

@@ -64,6 +64,30 @@ static NSInteger RnTagOf(id object) {
   return 0;
 }
 
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    // Object nil, because the field editor is on loan from the window and a
+    // different one can arrive with the next focus -- there is nothing stable
+    // to observe. The handler filters by which field is using it.
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(rnSelectionDidChange:)
+                                                 name:NSTextViewDidChangeSelectionNotification
+                                               object:nil];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)rnSelectionDidChange:(NSNotification *)notification {
+  if (_manager != nullptr) {
+    _manager->handleSelectionChanged((__bridge void *)notification.object);
+  }
+}
+
 - (void)controlTextDidChange:(NSNotification *)notification {
   if (_manager != nullptr) {
     _manager->handleChanged(static_cast<facebook::react::Tag>(RnTagOf(notification.object)));
@@ -246,6 +270,34 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
     entry.field.alignment = style.alignment;
   }
 
+  // A controlled *selection*, under the same staleness rule the text is under:
+  // JavaScript that has not yet seen the last keystroke must not drag the caret
+  // back to where it thought it was. Applied on change rather than on
+  // difference, for the reason `text` is -- an uncontrolled field sends no
+  // selection at all, and re-asserting one every render would fight the user's
+  // own arrow keys.
+  //
+  // Only while the field has a field editor: with no focus there is nothing
+  // holding a selection, and AppKit will make one the moment focus arrives.
+  if (props->selection.has_value() && !stale) {
+    const auto &selection = *props->selection;
+    const bool selectionChanged = !entry.lastPropSelection.has_value() ||
+        entry.lastPropSelection->start != selection.start ||
+        entry.lastPropSelection->end != selection.end;
+    if (selectionChanged) {
+      entry.lastPropSelection = selection;
+      if (NSText *editor = entry.field.currentEditor) {
+        entry.applying = true;
+        editor.selectedRange =
+            NSMakeRange((NSUInteger)selection.start,
+                        (NSUInteger)MAX(0, selection.end - selection.start));
+        entry.applying = false;
+        entry.lastReportedSelection = facebook::react::AttributedString::Range{
+            selection.start, selection.end - selection.start};
+      }
+    }
+  }
+
   if (props->placeholder.empty()) {
     entry.field.placeholderString = nil;
   } else {
@@ -336,16 +388,20 @@ TextInputEventEmitter::Metrics AppKitTextInputManager::metricsFor(const Entry &e
   metrics.eventCount = entry.eventCount;
   metrics.target = entry.tag;
 
-  // The caret, from the field editor -- an NSTextField has no selection of its
-  // own, because the editing is done by a shared NSTextView on loan from the
-  // window while the field has focus.
-  int cursor = static_cast<int>(metrics.text.size());
+  // The whole selection, from the field editor -- an NSTextField has none of
+  // its own, because the editing is done by a shared NSTextView on loan from
+  // the window while the field has focus. With no editor there is no selection
+  // to report, and the end of the text is where a caret would appear.
+  int location = static_cast<int>(metrics.text.size());
+  int length = 0;
   if (entry.field != nil) {
     if (NSText *editor = entry.field.currentEditor) {
-      cursor = static_cast<int>(editor.selectedRange.location);
+      const NSRange selected = editor.selectedRange;
+      location = static_cast<int>(selected.location);
+      length = static_cast<int>(selected.length);
     }
   }
-  metrics.selectionRange = AttributedString::Range{cursor, 0};
+  metrics.selectionRange = AttributedString::Range{location, length};
 
   // The scroll-shaped fields exist because iOS's text view is a scroll view.
   // Nothing here scrolls yet, so they describe a viewport the size of the
@@ -399,6 +455,37 @@ void AppKitTextInputManager::handleFocus(Tag tag) {
   }
   if (const auto emitter = emitterFor(tag)) {
     emitter->onFocus(metricsFor(*entry));
+  }
+}
+
+void AppKitTextInputManager::handleSelectionChanged(void *editor) {
+  if (editor == nullptr) {
+    return;
+  }
+  NSText *text = (__bridge NSText *)editor;
+
+  for (auto &[tag, entry] : entries_) {
+    if (entry.field == nil || entry.field.currentEditor != text) {
+      continue;
+    }
+    // Not while a prop is being pushed in: applying `text` moves the caret, and
+    // reporting that as the user selecting something would make a controlled
+    // field fight its own render.
+    if (entry.applying) {
+      return;
+    }
+
+    const auto metrics = metricsFor(entry);
+    if (metrics.selectionRange.location == entry.lastReportedSelection.location &&
+        metrics.selectionRange.length == entry.lastReportedSelection.length) {
+      return;
+    }
+    entry.lastReportedSelection = metrics.selectionRange;
+
+    if (auto emitter = emitterFor(tag)) {
+      emitter->onSelectionChange(metrics);
+    }
+    return;
   }
 }
 

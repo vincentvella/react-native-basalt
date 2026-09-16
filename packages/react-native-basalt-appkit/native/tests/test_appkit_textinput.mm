@@ -224,6 +224,37 @@ TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
   }
 }
 
+// A `selection` prop on a field that has no focus.
+//
+// On AppKit a selection lives on the *field editor* -- a shared NSTextView the
+// window lends to whichever field is first responder -- so an unfocused field
+// has nowhere to put one. Props routinely arrive before focus does, so the
+// only correct behaviour is to leave the text alone and not reach through a
+// nil editor, which is what this pins.
+//
+// The other half, that a selection actually lands, needs a field editor and so
+// needs a window, which this suite deliberately does not have. GTK's
+// test_textinput.cpp covers that half on a host where the selection belongs to
+// the widget itself.
+TEST(textinput_a_selection_prop_without_focus_is_harmless) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager, 20, folly::dynamic::object("text", "abcdef"));
+
+    ShadowViewMutationList update;
+    update.push_back(ShadowViewMutation::UpdateMutation(
+        makeTextInput(20, folly::dynamic::object("text", "abcdef")),
+        makeTextInput(20,
+                      folly::dynamic::object("text", "abcdef")(
+                          "selection", folly::dynamic::object("start", 2)("end", 5))),
+        kSurfaceId));
+    apply(manager, std::move(update));
+
+    EXPECT(fieldOf(view).currentEditor == nil);
+    EXPECT([fieldOf(view).stringValue isEqualToString:@"abcdef"]);
+  }
+}
+
 TEST(textinput_sits_inside_the_content_inset) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;

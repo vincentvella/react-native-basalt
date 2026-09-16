@@ -38,6 +38,14 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
     g_signal_connect(entry.editable, "changed", G_CALLBACK(onChanged), &entry);
     g_signal_connect(entry.editable, "activate", G_CALLBACK(onActivate), &entry);
 
+    // Both ends, because either can move on its own: an arrow key moves the
+    // caret with the other end following, and shift-arrow moves one and not
+    // the other. GtkText has no single "the selection changed" signal.
+    g_signal_connect(entry.editable, "notify::cursor-position",
+                     G_CALLBACK(onSelectionChanged), &entry);
+    g_signal_connect(entry.editable, "notify::selection-bound",
+                     G_CALLBACK(onSelectionChanged), &entry);
+
     GtkEventController *focus = gtk_event_controller_focus_new();
     g_signal_connect(focus, "enter", G_CALLBACK(onFocusEnter), &entry);
     g_signal_connect(focus, "leave", G_CALLBACK(onFocusLeave), &entry);
@@ -93,6 +101,27 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
                                 MIN(cursor, static_cast<int>(props->text.size())));
       entry.applying = false;
       entry.lastReportedText = props->text;
+    }
+  }
+
+  // A controlled *selection*, under the same staleness rule the text is under:
+  // JavaScript that has not yet seen the last keystroke must not be allowed to
+  // drag the caret back to where it thought it was.
+  //
+  // Applied when it changes rather than whenever it differs, for the reason
+  // `text` is: a field that is merely uncontrolled sends no selection at all,
+  // and re-asserting one every render would fight the user's own arrow keys.
+  if (props->selection.has_value() && !stale) {
+    const auto &selection = *props->selection;
+    if (!entry.lastPropSelection.has_value() ||
+        entry.lastPropSelection->start != selection.start ||
+        entry.lastPropSelection->end != selection.end) {
+      entry.lastPropSelection = selection;
+      entry.applying = true;
+      gtk_editable_select_region(GTK_EDITABLE(entry.editable), selection.start, selection.end);
+      entry.applying = false;
+      entry.lastReportedSelection =
+          facebook::react::AttributedString::Range{selection.start, selection.end - selection.start};
     }
   }
 
@@ -156,10 +185,16 @@ TextInputEventEmitter::Metrics GtkTextInputManager::metricsFor(const Entry &entr
   metrics.eventCount = entry.eventCount;
   metrics.target = entry.tag;
 
-  const int cursor = entry.editable != nullptr
-      ? gtk_editable_get_position(GTK_EDITABLE(entry.editable))
-      : 0;
-  metrics.selectionRange = AttributedString::Range{cursor, 0};
+  // The whole selection, not only the caret. `get_selection_bounds` answers
+  // FALSE when nothing is selected, and leaves the out parameters alone -- so
+  // the caret position is the fallback and a zero length is the truth about it.
+  int start = 0;
+  int end = 0;
+  if (entry.editable != nullptr &&
+      !gtk_editable_get_selection_bounds(GTK_EDITABLE(entry.editable), &start, &end)) {
+    start = end = gtk_editable_get_position(GTK_EDITABLE(entry.editable));
+  }
+  metrics.selectionRange = AttributedString::Range{start, end - start};
 
   // The scroll-shaped fields exist because iOS's text view is a scroll view.
   // Nothing here scrolls yet, so they describe a viewport the size of the
@@ -205,6 +240,34 @@ void GtkTextInputManager::onActivate(GtkText * /*editable*/, gpointer userData) 
     // endEditing on platforms where the field also gives up focus; GtkText
     // keeps focus on activate, so only the submit is reported.
     emitter->onSubmitEditing(entry->owner->metricsFor(*entry));
+  }
+}
+
+void GtkTextInputManager::onSelectionChanged(GObject * /*object*/,
+                                            GParamSpec * /*pspec*/,
+                                            gpointer userData) {
+  auto *entry = static_cast<Entry *>(userData);
+  if (entry == nullptr || entry->owner == nullptr) {
+    return;
+  }
+  // Not while a prop is being pushed in. Applying `text` moves the caret, and
+  // reporting that as the user selecting something would make a controlled
+  // field fight its own render.
+  if (entry->applying) {
+    return;
+  }
+
+  const auto metrics = entry->owner->metricsFor(*entry);
+  // Both signals fire for one movement, so this collapses the pair into the
+  // one event JavaScript should see.
+  if (metrics.selectionRange.location == entry->lastReportedSelection.location &&
+      metrics.selectionRange.length == entry->lastReportedSelection.length) {
+    return;
+  }
+  entry->lastReportedSelection = metrics.selectionRange;
+
+  if (auto emitter = entry->owner->emitterFor(entry->tag)) {
+    emitter->onSelectionChange(metrics);
   }
 }
 

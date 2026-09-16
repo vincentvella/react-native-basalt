@@ -29,6 +29,7 @@
 #include <react/renderer/mounting/ShadowView.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -62,8 +63,19 @@ class AppKitTextInputManager {
   void handleFocus(facebook::react::Tag tag);
   void handleBlur(facebook::react::Tag tag);
 
+  // The field editor whose selection moved. An NSTextField has no selection of
+  // its own -- editing is done by a shared NSTextView on loan from the window
+  // -- so this arrives as a notification about that view, and the tag it
+  // belongs to has to be found by asking which field is currently using it.
+  void handleSelectionChanged(void *editor);
+
  private:
   struct Entry {
+    // The selection as JavaScript last saw it, so one movement is one event.
+    facebook::react::AttributedString::Range lastReportedSelection{0, 0};
+
+    // The last `selection` prop seen, for the same reason lastPropText exists.
+    std::optional<facebook::react::Selection> lastPropSelection{};
     RnAppKitView *view{nil};
     NSTextField *field{nil};
     facebook::react::Tag tag{0};

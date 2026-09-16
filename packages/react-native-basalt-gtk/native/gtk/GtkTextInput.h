@@ -28,6 +28,7 @@
 #include <react/renderer/mounting/ShadowView.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -67,6 +68,15 @@ class GtkTextInputManager {
 
     std::string lastReportedText;
 
+    // The selection as JavaScript last saw it. GtkText fires two notifies for
+    // one movement, so this is what keeps that from being two events.
+    facebook::react::AttributedString::Range lastReportedSelection{0, 0};
+
+    // The last `selection` prop seen, for the same reason lastPropText exists:
+    // applying on change rather than on difference is what leaves an
+    // uncontrolled field's own caret alone.
+    std::optional<facebook::react::Selection> lastPropSelection{};
+
     // The last `text` prop actually seen, and whether one has been seen at all.
     //
     // This is what tells a *controlled* field from an uncontrolled one, which
@@ -89,6 +99,7 @@ class GtkTextInputManager {
 
   static void onChanged(GtkEditable *editable, gpointer userData);
   static void onActivate(GtkText *editable, gpointer userData);
+  static void onSelectionChanged(GObject *object, GParamSpec *pspec, gpointer userData);
   static void onFocusEnter(GtkEventControllerFocus *controller, gpointer userData);
   static void onFocusLeave(GtkEventControllerFocus *controller, gpointer userData);
 
