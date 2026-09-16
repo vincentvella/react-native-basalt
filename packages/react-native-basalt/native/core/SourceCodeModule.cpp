@@ -32,7 +32,24 @@ std::string scriptURLFor(const std::string &bundlePath,
   // path silently produces an asset URL that resolves nowhere.
   std::error_code ignored;
   const std::filesystem::path absolute = std::filesystem::absolute(bundlePath, ignored);
-  return "file://" + absolute.lexically_normal().string();
+
+  // `generic_string`, not `string`: on Windows the native form is
+  // `D:\build\x.js`, and `resolveAssetSource` finds the bundle's directory
+  // with `scriptURL.lastIndexOf('/')`. With no forward slash in it that is -1,
+  // the directory comes out empty, and every `require()`d image resolves to
+  // `file://assets/...` -- a URI with an authority and no path, which opens
+  // nothing. It cost a green Linux run and a red Windows one to find, and it
+  // was never about LogBox: it is every asset on that platform.
+  std::string path = absolute.lexically_normal().generic_string();
+
+  // And the third slash. A POSIX path already starts with one, so `file://` and
+  // `/Users/x` make `file:///Users/x`; a Windows path starts at the drive
+  // letter and has to be given one, which is what every browser and URI library
+  // does with `file:///C:/x`.
+  if (path.empty() || path.front() != '/') {
+    path.insert(path.begin(), '/');
+  }
+  return "file://" + path;
 }
 
 } // namespace basalt

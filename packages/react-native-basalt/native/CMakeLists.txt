@@ -54,6 +54,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hover.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_momentum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sourcecode.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
