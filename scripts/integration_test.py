@@ -581,7 +581,11 @@ def bundle_app(build: Path, entry: str, dev: bool = False) -> Path:
     more steps to every CI job that will not use them.
     """
     bundled = build / f"{entry}.{PLATFORM}.jsbundle.js"
-    if bundled.exists():
+    source = REPO / "js" / f"{entry}.js"
+    # Older than the file it was built from means a scenario would silently test
+    # the last version of the app rather than this one -- which is exactly what
+    # happened the first time this helper was used twice.
+    if bundled.exists() and bundled.stat().st_mtime >= source.stat().st_mtime:
         return bundled
     arguments = [
         "--dev" if dev else "--prod",
@@ -1164,6 +1168,56 @@ def test_logbox(bundle: Path) -> None:
         )
 
 
+def test_initial_url(bundle: Path) -> None:
+    """`Linking.getInitialURL()` answers with what the desktop launched the app
+    with.
+
+    A desktop hands a URL over on the command line -- a `.desktop` entry's `%u`,
+    a registered scheme on macOS, a shell association on Windows -- so the host
+    records whichever argument carried a scheme and the module answers with it.
+    Run twice, because both answers matter: an app that was not opened with a
+    URL must get null rather than an empty string, which is what React Native's
+    own JavaScript checks for.
+
+    What this does not cover is a URL delivered to an application that is
+    *already* running. That needs single-instance activation on each desktop and
+    is a separate piece of work; see plan/backlog.md.
+    """
+    app = bundle_app(bundle.parent, "modules")
+
+    def initial_url_for(arguments: list[str]) -> str:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "6000"
+        env.pop("BASALT_TEST_TAP", None)
+        env.pop("BASALT_TEST_TYPE", None)
+        env.pop("BASALT_TEST_HOVER", None)
+        env.pop("BASALT_TEST_FOCUS", None)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltModules", *arguments],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        # Both streams: GLib sends g_message to stdout and only warnings to
+        # stderr.
+        for line in (result.stdout + result.stderr).splitlines():
+            if "initialURL: " in line:
+                return line.split("initialURL: ", 1)[1].strip()
+        raise Failure("the app never reported an initial URL")
+
+    launched = "basalt://opened-by-the-desktop"
+    if initial_url_for([launched]) != launched:
+        raise Failure(
+            f"launched with {launched}, and getInitialURL did not say so: "
+            f"{initial_url_for([launched])!r}"
+        )
+    if initial_url_for([]) != "null":
+        raise Failure(
+            "an app launched with no URL must get null rather than a string: "
+            f"{initial_url_for([])!r}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1174,6 +1228,8 @@ SCENARIOS = [
     ("pointerEvents decides what four taps land on", test_pointer_events),
     ("Tab reaches a Pressable, and Enter presses it", test_keyboard_focus),
     ("a console error opens LogBox's inspector", test_logbox),
+    ("Linking.getInitialURL answers with the URL the app was opened with",
+     test_initial_url),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

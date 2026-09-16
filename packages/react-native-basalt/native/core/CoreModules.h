@@ -83,6 +83,20 @@ class DesktopAlertModule
 };
 
 // `Linking.openURL()`, which until now opened nothing.
+// The URL an application was launched with, for `Linking.getInitialURL()`.
+//
+// A desktop hands one over on the command line -- a `.desktop` entry's `%u`, a
+// registered scheme on macOS, a shell association on Windows -- so a host
+// records whatever argument looked like one and this answers with it. Set
+// before the surface starts, which is before any JavaScript can ask.
+//
+// What this is not is a URL delivered to an application that is *already*
+// running. That needs single-instance activation on each desktop -- a
+// GApplication with G_APPLICATION_HANDLES_OPEN, an Apple Event handler, a named
+// pipe -- and is a separate piece of work; see plan/backlog.md.
+void setInitialUrl(const std::string &url);
+const std::string &initialUrl();
+
 class DesktopLinkingModule
     : public facebook::react::NativeLinkingManagerCxxSpec<DesktopLinkingModule> {
  public:

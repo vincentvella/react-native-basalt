@@ -962,6 +962,19 @@ int main(int argc, char **argv) {
   Host host;
   host.bundlePath = argc > 1 ? argv[1] : "build/main.jsbundle.js";
   host.moduleName = argc > 2 ? argv[2] : "BasaltDemo";
+
+  // A URL the desktop launched this with, for `Linking.getInitialURL()`. Any
+  // argument after the bundle and the module that carries a scheme: a
+  // `.desktop` entry's `%%u`, a registered scheme, a shell association. Matched
+  // rather than positional, because a launcher appends it and does not know
+  // what came before.
+  for (int i = 1; i < argc; i++) {
+    const std::string argument(argv[i]);
+    if (argument.find("://") != std::string::npos) {
+      basalt::setInitialUrl(argument);
+      break;
+    }
+  }
   const char *sourcePath = g_getenv("BASALT_DEV_ENTRY");
   host.sourcePath = sourcePath != nullptr ? sourcePath : "index";
 

@@ -146,7 +146,7 @@ struct Host {
   // The error inspector's own surface root, or null when it is not showing.
   // Painted after the app's and hit-tested before it, which is the whole of
   // what "on top" means on a platform where a view is not a window.
-  win32::RnWin32View *logBoxRoot{nullptr};
+  RnWin32View *logBoxRoot{nullptr};
 
   std::string bundlePath;
   // Empty means the bundle is a raw Fabric script rather than a React app.
@@ -1182,6 +1182,19 @@ int main(int argc, char **argv) {
     gHost.sourcePath = entry;
   } else {
     gHost.sourcePath = "index";
+  }
+
+  // A URL the desktop launched this with, for `Linking.getInitialURL()`. Any
+  // argument after the bundle and the module that carries a scheme: a shell
+  // association passes one, and it does not know what came before. `://` rather
+  // than a bare colon, so a Windows path like `C:\bundle.js` is not mistaken
+  // for one.
+  for (int i = 1; i < argc; i++) {
+    const std::string argument(argv[i]);
+    if (argument.find("://") != std::string::npos) {
+      basalt::setInitialUrl(argument);
+      break;
+    }
   }
 
   // Per-monitor DPI, declared in code rather than in a manifest so that running

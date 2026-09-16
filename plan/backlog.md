@@ -435,12 +435,29 @@ so anything importing them dies at startup.
   (phase 26) and `AccessibilityInfo.js` (phase 32) all did this, each found by an
   app failing rather than by review. Worth checking for deliberately the next
   time a module misbehaves.
-- **`ShareModule`** (soft) is the core-module gap left. `ToastAndroid` and
-  `DevSettings` were also throwing and are done; a toast logs rather than
-  showing, because a desktop's nearest equivalent is a system notification and
-  neither platform has a notification API wired up.
+- **`ShareModule`** (soft) is the core-module gap left, and it needs a decision
+  before an implementation. `Share.share()` does not reach a native module at
+  all today: `Share.js` branches on `Platform.OS` being exactly `android` or
+  `ios` and rejects with "Unsupported platform" otherwise, so it needs a
+  JavaScript override like `TextInput.js` and `setUpXHR.js` have. Underneath,
+  the three desktops do not agree that the feature exists. macOS has
+  `NSSharingServicePicker`. Windows has the `DataTransferManager` share UI,
+  through WinRT interop. Linux has nothing: there is no share portal, and the
+  nearest thing is composing an email with `xdg-email`, which is not what an app
+  calling `Share` is asking for. So the question is whether to ship an API that
+  is real on one desktop, awkward on a second and absent on the third, which
+  runs against what this project is for -- and it is not a question to settle
+  quietly inside an implementation.
+  `ToastAndroid` and `DevSettings` were also throwing and are done; a toast logs
+  rather than showing, for the same reason as the entry below.
 - **A desktop notification API**, which is what `ToastAndroid` should really be
-  and what any app wanting to tell a user something out-of-band needs.
+  and what any app wanting to tell a user something out-of-band needs. Note that
+  React Native has *no* notification API to be compatible with --
+  `PushNotificationIOS` is a separate package and Android's is a library -- so
+  this would be a `react-native-basalt` API rather than a port of one, which
+  makes it a design decision first. Linux has `g_application_send_notification`,
+  which is easy; macOS needs `UNUserNotificationCenter`, which needs a bundled
+  application with an identifier, and this host is a bare binary.
 - ~~**LogBox has no red box.**~~ It has one, on all three hosts. What was
   missing was not an overlay: `LogBoxInspectorContainer` is registered by
   AppRegistry under the name "LogBox" exactly as an app registers its own
@@ -474,10 +491,14 @@ Measured in phase 34 against a real dependency set, on both desktops.
 - **More Expo views.** The seam exists now (phase 36), so expo-linear-gradient,
   expo-blur and the rest are each a props class, a descriptor and a mounting
   peer rather than a new mechanism.
-- **A URL delivered to a running app.** `ExpoLinking.getLinkingURL` is honestly
-  null because neither desktop can receive one: macOS needs an Apple Event
-  handler and a registered scheme, Linux a desktop entry and single-instance
-  activation. The Expo and React Native modules for it both exist now.
+- **A URL delivered to a *running* app.** `Linking.getInitialURL()` works on all
+  three now: a desktop hands a URL over on the command line, so each host
+  records whichever argument carried a scheme. What is still missing is the
+  second delivery, to an application that is already open, and that is where the
+  three desktops diverge -- a GApplication with `G_APPLICATION_HANDLES_OPEN` on
+  Linux, an Apple Event handler and a registered scheme on macOS, a named pipe
+  and a shell association on Windows. `ExpoLinking.getLinkingURL` is the same
+  question and would come with it.
 - **The clipboard's image and URL types**, which are separate pasteboard types
   on each platform. Absent rather than stubbed, so expo-clipboard reports them
   as unavailable by name.

@@ -146,11 +146,35 @@ void DesktopAlertModule::alertWithArgs(Runtime &rt, Object args, Function callba
 // Linking
 // ---------------------------------------------------------------------------
 
+namespace {
+
+// Written once by the host before the surface starts, read from the JavaScript
+// thread afterwards. A process-wide string rather than something threaded
+// through the module's constructor, because a TurboModule is built by a factory
+// that takes only a CallInvoker.
+std::string &initialUrlStorage() {
+  static std::string url;
+  return url;
+}
+
+} // namespace
+
+void setInitialUrl(const std::string &url) {
+  initialUrlStorage() = url;
+}
+
+const std::string &initialUrl() {
+  return initialUrlStorage();
+}
+
 Value DesktopLinkingModule::getInitialURL(Runtime &rt) {
-  // Nothing launches a desktop host with a URL yet: there is no registered
-  // scheme handler and no command-line parsing for one. Null rather than empty
-  // string, which is what React Native's JavaScript checks for.
-  return resolved(rt, Value::null());
+  const std::string &url = initialUrl();
+  // Null rather than an empty string when there was none, which is what React
+  // Native's JavaScript checks for.
+  if (url.empty()) {
+    return resolved(rt, Value::null());
+  }
+  return resolved(rt, String::createFromUtf8(rt, url));
 }
 
 Value DesktopLinkingModule::canOpenURL(Runtime &rt, String url) {

@@ -528,6 +528,19 @@ static void installMainMenu(void) {
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
     gHost.bundlePath = argc > 1 ? argv[1] : "build/main.jsbundle.js";
+
+  // A URL the desktop launched this with, for `Linking.getInitialURL()`. Any
+  // argument after the bundle and the module that carries a scheme: a
+  // `.desktop` entry's `%%u`, a registered scheme, a shell association. Matched
+  // rather than positional, because a launcher appends it and does not know
+  // what came before.
+    for (int i = 1; i < argc; i++) {
+      const std::string argument(argv[i]);
+      if (argument.find("://") != std::string::npos) {
+        basalt::setInitialUrl(argument);
+        break;
+      }
+    }
     // Defaults to the raw-Fabric script, because that is what this host can
     // currently render: a React app needs components macOS cannot mount yet.
     gHost.moduleName = argc > 2 ? argv[2] : "";

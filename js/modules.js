@@ -88,8 +88,17 @@ const CHECKS = [
   ],
 
   [
-    'getInitialURL resolves to null rather than hanging',
-    async () => (await Linking.getInitialURL()) === null,
+    'getInitialURL answers with the URL the app was launched with',
+    async () => {
+      // Null when there was none, which is what React Native's JavaScript
+      // checks for, and the URL itself when a desktop passed one -- a .desktop
+      // entry's %u, a registered scheme, a shell association. Logged either
+      // way, because the value is the only thing that says which happened and
+      // the end-to-end suite launches this app both ways.
+      const url = await Linking.getInitialURL();
+      console.log(`initialURL: ${url === null ? 'null' : url}`);
+      return url === null || (typeof url === 'string' && url.includes('://'));
+    },
   ],
 
   [
