@@ -18,6 +18,8 @@
 #include "GtkMountingManager.h"
 #include "GtkTextInput.h"
 
+#include "GtkTextPeer.h"
+
 #include <react/renderer/components/iostextinput/TextInputProps.h>
 #include <react/renderer/core/RawPropsParser.h>
 
@@ -78,9 +80,17 @@ basalt::GtkTextInputManager makeManager() {
   return basalt::GtkTextInputManager([](Tag) { return EventEmitter::Shared{}; });
 }
 
-const char *textOf(RnView *view) {
-  GtkText *editable = rn_view_get_editable(view);
-  return editable != nullptr ? gtk_editable_get_text(GTK_EDITABLE(editable)) : nullptr;
+// Through the seam, because a multiline peer is not a GtkEditable and asking
+// it for one is a runtime critical rather than a compile error.
+std::string textOf(RnView *view) {
+  GtkWidget *editable = rn_view_get_editable(view);
+  if (editable == nullptr) {
+    return {};
+  }
+  char *owned = rn_peer_get_text(editable);
+  std::string text = owned != nullptr ? owned : "";
+  g_free(owned);
+  return text;
 }
 
 // What a person typing does, as far as GtkText is concerned: an insertion the
@@ -105,7 +115,7 @@ TEST(textinput_mounts_a_real_editable) {
   // selection, the clipboard and every Linux keybinding come with it.
   EXPECT(rn_view_get_editable(view) != nullptr);
   EXPECT(GTK_IS_TEXT(rn_view_get_editable(view)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("hello"));
+  EXPECT_EQ(textOf(view), std::string("hello"));
 
   g_object_unref(view);
 }
@@ -117,7 +127,7 @@ TEST(textinput_applies_props_without_reporting_them_as_typing) {
 
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "a")));
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "ab")));
-  EXPECT_EQ(std::string(textOf(view)), std::string("ab"));
+  EXPECT_EQ(textOf(view), std::string("ab"));
 
   // The event count is the observable half of the loop: applying a prop must
   // not raise it, or the next command from JavaScript looks stale and is
@@ -125,7 +135,7 @@ TEST(textinput_applies_props_without_reporting_them_as_typing) {
   // setTextAndSelection at count 0 proves by being accepted.
   EXPECT(manager.dispatchCommand(
       10, "setTextAndSelection", folly::dynamic::array(0, "from js", 0, 0)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("from js"));
+  EXPECT_EQ(textOf(view), std::string("from js"));
 
   g_object_unref(view);
 }
@@ -160,12 +170,12 @@ TEST(textinput_drops_a_command_older_than_what_was_typed) {
   // typed, so this must be ignored rather than undoing their work.
   EXPECT(manager.dispatchCommand(
       10, "setTextAndSelection", folly::dynamic::array(0, "stale", 0, 0)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("fast"));
+  EXPECT_EQ(textOf(view), std::string("fast"));
 
   // A command that knows about the typing is applied.
   EXPECT(manager.dispatchCommand(
       10, "setTextAndSelection", folly::dynamic::array(99, "current", 0, 0)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("current"));
+  EXPECT_EQ(textOf(view), std::string("current"));
 
   g_object_unref(view);
 }
@@ -186,13 +196,13 @@ TEST(textinput_keeps_what_was_typed_into_an_uncontrolled_field) {
 
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "")));
   typeInto(view, "abc", 0);
-  EXPECT_EQ(std::string(textOf(view)), std::string("abc"));
+  EXPECT_EQ(textOf(view), std::string("abc"));
 
   // The re-render an uncontrolled field produces: no text, a bumped count.
   manager.update(
       view,
       makeTextInput(10, folly::dynamic::object("text", "")("mostRecentEventCount", 1)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("abc"));
+  EXPECT_EQ(textOf(view), std::string("abc"));
 
   g_object_unref(view);
 }
@@ -210,12 +220,12 @@ TEST(textinput_reports_the_whole_selection_not_only_the_caret) {
   auto manager = makeManager();
 
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "abcdef")));
-  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
-  gtk_editable_select_region(editable, 1, 4);
+  GtkWidget *editable = rn_view_get_editable(view);
+  rn_peer_select_region(editable, 1, 4);
 
   int start = 0;
   int end = 0;
-  EXPECT(gtk_editable_get_selection_bounds(editable, &start, &end));
+  EXPECT(rn_peer_get_selection_bounds(editable, &start, &end));
   EXPECT_EQ(start, 1);
   EXPECT_EQ(end, 4);
 
@@ -235,10 +245,10 @@ TEST(textinput_applies_a_selection_prop) {
                                folly::dynamic::object("text", "abcdef")(
                                    "selection", folly::dynamic::object("start", 2)("end", 5))));
 
-  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
+  GtkWidget *editable = rn_view_get_editable(view);
   int start = 0;
   int end = 0;
-  EXPECT(gtk_editable_get_selection_bounds(editable, &start, &end));
+  EXPECT(rn_peer_get_selection_bounds(editable, &start, &end));
   EXPECT_EQ(start, 2);
   EXPECT_EQ(end, 5);
 
@@ -254,15 +264,15 @@ TEST(textinput_drops_a_selection_prop_older_than_what_was_typed) {
   auto manager = makeManager();
 
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "abcdef")));
-  GtkEditable *editable = GTK_EDITABLE(rn_view_get_editable(view));
+  GtkWidget *editable = rn_view_get_editable(view);
 
   // Type, which raises the event count past what the next props carry. The
   // position is in/out and must be a real variable: GtkEditable writes the
   // caret's new home back through it.
   int position = 6;
-  gtk_editable_insert_text(editable, "g", 1, &position);
+  rn_peer_insert_text(editable, "g", 1, &position);
 
-  gtk_editable_select_region(editable, 0, 0);
+  rn_peer_select_region(editable, 0, 0);
   manager.update(view,
                  makeTextInput(10,
                                folly::dynamic::object("text", "abcdef")(
@@ -270,7 +280,7 @@ TEST(textinput_drops_a_selection_prop_older_than_what_was_typed) {
 
   int start = 0;
   int end = 0;
-  gtk_editable_get_selection_bounds(editable, &start, &end);
+  rn_peer_get_selection_bounds(editable, &start, &end);
   EXPECT_EQ(start, 0);
   EXPECT_EQ(end, 0);
 
@@ -288,12 +298,12 @@ TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
   manager.update(
       view,
       makeTextInput(10, folly::dynamic::object("text", "F")("mostRecentEventCount", 0)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("fast"));
+  EXPECT_EQ(textOf(view), std::string("fast"));
 
   manager.update(
       view,
       makeTextInput(10, folly::dynamic::object("text", "F")("mostRecentEventCount", 1)));
-  EXPECT_EQ(std::string(textOf(view)), std::string("F"));
+  EXPECT_EQ(textOf(view), std::string("F"));
 
   g_object_unref(view);
 }
@@ -308,15 +318,15 @@ TEST(textinput_honours_editable_and_secure_entry) {
                                folly::dynamic::object("text", "secret")("editable", false)(
                                    "secureTextEntry", true)("placeholder", "type here")));
 
-  GtkText *editable = rn_view_get_editable(view);
+  GtkWidget *editable = rn_view_get_editable(view);
   EXPECT(gtk_editable_get_editable(GTK_EDITABLE(editable)) == FALSE);
-  EXPECT(gtk_text_get_visibility(editable) == FALSE);
-  EXPECT_EQ(std::string(gtk_text_get_placeholder_text(editable)), std::string("type here"));
+  EXPECT(gtk_text_get_visibility(GTK_TEXT(editable)) == FALSE);
+  EXPECT_EQ(std::string(gtk_text_get_placeholder_text(GTK_TEXT(editable))), std::string("type here"));
 
   // editable is a prop, not a permanent trait; turning it back on must work.
   manager.update(view, makeTextInput(10, folly::dynamic::object("text", "secret")));
   EXPECT(gtk_editable_get_editable(GTK_EDITABLE(editable)) == TRUE);
-  EXPECT(gtk_text_get_visibility(editable) == TRUE);
+  EXPECT(gtk_text_get_visibility(GTK_TEXT(editable)) == TRUE);
 
   g_object_unref(view);
 }
@@ -357,6 +367,99 @@ TEST(textinput_reports_its_value_in_the_widget_tree) {
   char *tree = rn_view_describe_tree(view);
   EXPECT(std::string(tree).find("editable=\"in the tree\"") != std::string::npos);
   g_free(tree);
+
+  g_object_unref(view);
+}
+
+// --- multiline ---------------------------------------------------------------
+//
+// A multiline field is a different widget, not a property: GtkText is a
+// GtkEditable and GtkTextView is not. These pin that the seam in GtkTextPeer.h
+// really does hide that, because every one of the behaviours above goes
+// through it.
+
+TEST(textinput_multiline_builds_a_text_view) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "hello")("multiline", true)));
+
+  GtkWidget *peer = rn_view_get_editable(view);
+  EXPECT(peer != nullptr);
+  EXPECT(rn_peer_is_multiline(peer));
+  EXPECT(GTK_IS_TEXT_VIEW(peer));
+
+  // And a plain field is still a GtkText, which is the half that must not have
+  // moved.
+  RnView *single = rn_view_new(11);
+  g_object_ref_sink(single);
+  manager.update(single, makeTextInput(11, folly::dynamic::object("text", "hello")));
+  EXPECT(!rn_peer_is_multiline(rn_view_get_editable(single)));
+
+  g_object_unref(single);
+  g_object_unref(view);
+}
+
+TEST(textinput_multiline_text_round_trips) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "one")("multiline", true)));
+  EXPECT_EQ(textOf(view), std::string("one"));
+
+  // Newlines are the point of a multiline field, and are what a GtkText would
+  // have refused to hold.
+  manager.update(view,
+                 makeTextInput(10, folly::dynamic::object("text", "one\ntwo")("multiline", true)));
+  EXPECT_EQ(textOf(view), std::string("one\ntwo"));
+
+  g_object_unref(view);
+}
+
+TEST(textinput_multiline_selection_and_caret_work) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view,
+                 makeTextInput(10, folly::dynamic::object("text", "abcdef")("multiline", true)));
+  GtkWidget *peer = rn_view_get_editable(view);
+
+  rn_peer_select_region(peer, 1, 4);
+  int start = 0;
+  int end = 0;
+  EXPECT(rn_peer_get_selection_bounds(peer, &start, &end));
+  EXPECT_EQ(start, 1);
+  EXPECT_EQ(end, 4);
+
+  rn_peer_set_position(peer, 2);
+  EXPECT_EQ(rn_peer_get_position(peer), 2);
+
+  // Offsets are characters, not bytes: the seam says so and a buffer counts
+  // both, so a non-ASCII string is where that promise is kept or broken.
+  manager.update(view,
+                 makeTextInput(10, folly::dynamic::object("text", "a\u00e9c")("multiline", true)));
+  rn_peer_set_position(peer, 2);
+  EXPECT_EQ(rn_peer_get_position(peer), 2);
+
+  g_object_unref(view);
+}
+
+TEST(textinput_switching_multiline_rebuilds_the_peer) {
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeManager();
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "hello")));
+  EXPECT(!rn_peer_is_multiline(rn_view_get_editable(view)));
+
+  // Not a property that can be flipped, so the widget is replaced -- and the
+  // text has to survive that, because React did not ask for it to be cleared.
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "hello")("multiline", true)));
+  EXPECT(rn_peer_is_multiline(rn_view_get_editable(view)));
+  EXPECT_EQ(textOf(view), std::string("hello"));
 
   g_object_unref(view);
 }

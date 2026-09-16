@@ -1,5 +1,7 @@
 #include "RnView.h"
 
+#include "GtkTextPeer.h"
+
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -165,9 +167,11 @@ struct _RnView {
   // about either and would otherwise sit flush against the border.
   GtkBorder peer_insets;
 
-  // A GtkText when this view is a <TextInput>, otherwise NULL. Borrowed: the
-  // widget owns it once parented.
-  GtkText *editable;
+  // The <TextInput> peer when this view is one, otherwise NULL: a GtkText for
+  // a single-line field and a GtkTextView for a multiline one. Borrowed -- the
+  // widget owns it once parented. See GtkTextPeer.h for why it is a GtkWidget
+  // rather than either concrete type.
+  GtkWidget *editable;
 
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
@@ -431,28 +435,48 @@ RnView *rn_view_new_with_role(int tag, GtkAccessibleRole role) {
   return self;
 }
 
-GtkText *rn_view_set_editable(RnView *self, gboolean editable) {
+GtkWidget *rn_view_set_editable(RnView *self, gboolean editable, gboolean multiline) {
   g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
 
   if (!editable) {
     if (self->editable != nullptr) {
-      gtk_widget_unparent(GTK_WIDGET(self->editable));
+      gtk_widget_unparent(self->editable);
       self->editable = nullptr;
     }
     return nullptr;
   }
 
+  // `multiline` is not a property either peer has: a field that changes between
+  // the two is a different widget, so the old one goes. React Native does this
+  // to `secureTextEntry` on AppKit for the same reason.
+  char *carried = nullptr;
+  if (self->editable != nullptr &&
+      rn_peer_is_multiline(self->editable) != (multiline ? TRUE : FALSE)) {
+    // The contents come across. Nothing asked for the field to be cleared --
+    // React changed one prop -- and the controlled loop will not put the text
+    // back by itself, because from its side the `text` prop did not change.
+    // AppKit carries the text the same way when secureTextEntry rebuilds its
+    // field, and for the same reason.
+    carried = rn_peer_get_text(self->editable);
+    gtk_widget_unparent(self->editable);
+    self->editable = nullptr;
+  }
+
   if (self->editable == nullptr) {
-    self->editable = GTK_TEXT(gtk_text_new());
+    self->editable = rn_peer_new(multiline);
+    if (carried != nullptr) {
+      rn_peer_set_text(self->editable, carried);
+    }
     // No frame of its own: the RnView draws the background and border from
     // React Native's props, and a second one underneath would double them.
-    gtk_widget_add_css_class(GTK_WIDGET(self->editable), "rn-text-input");
-    gtk_widget_set_parent(GTK_WIDGET(self->editable), GTK_WIDGET(self));
+    gtk_widget_add_css_class(self->editable, "rn-text-input");
+    gtk_widget_set_parent(self->editable, GTK_WIDGET(self));
   }
+  g_free(carried);
   return self->editable;
 }
 
-GtkText *rn_view_get_editable(RnView *self) {
+GtkWidget *rn_view_get_editable(RnView *self) {
   g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
   return self->editable;
 }
@@ -842,11 +866,13 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   // A text field's content lives in its GtkText peer, not in a PangoLayout, so
   // it would otherwise be invisible to every test that reads this tree.
   if (self->editable != nullptr) {
-    const char *value = gtk_editable_get_text(GTK_EDITABLE(self->editable));
+    char *owned = rn_peer_get_text(self->editable);
+    const char *value = owned;
     char *escaped = rn_escape_for_dump(value != nullptr ? value : "");
     g_string_append_printf(out, " editable=\"%s\"", escaped);
+    g_free(owned);
     g_free(escaped);
-    if (gtk_widget_has_focus(GTK_WIDGET(self->editable))) {
+    if (gtk_widget_has_focus(self->editable)) {
       g_string_append(out, " focused");
     }
   }

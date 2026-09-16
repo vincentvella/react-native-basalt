@@ -148,14 +148,14 @@ char *rn_view_describe_tree(RnView *self);
 // which is worth reimplementing.
 //
 // Returns the editable, or NULL after clearing.
-GtkText *rn_view_set_editable(RnView *self, gboolean editable);
+GtkWidget *rn_view_set_editable(RnView *self, gboolean editable, gboolean multiline);
 
 // The border and padding to hold the native peer inside. Yoga has already
 // resolved these into React Native's content inset; without them a <TextInput>
 // renders its text flush against its own border, ignoring paddingHorizontal.
 void rn_view_set_peer_insets(RnView *self, const GtkBorder *insets);
 void rn_view_get_peer_insets(RnView *self, GtkBorder *out);
-GtkText *rn_view_get_editable(RnView *self);
+GtkWidget *rn_view_get_editable(RnView *self);
 
 // Accessibility, as a screen reader sees it.
 //

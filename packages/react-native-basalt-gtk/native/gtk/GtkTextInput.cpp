@@ -1,5 +1,7 @@
 #include "GtkTextInput.h"
 
+#include "GtkTextPeer.h"
+
 #include "PangoTextLayout.h"
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
@@ -32,18 +34,35 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
   entry.tag = tag;
   entry.owner = this;
 
-  if (inserted) {
-    entry.editable = rn_view_set_editable(view, TRUE);
+  const auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props);
+  const bool multiline = props != nullptr && props->multiline;
 
-    g_signal_connect(entry.editable, "changed", G_CALLBACK(onChanged), &entry);
-    g_signal_connect(entry.editable, "activate", G_CALLBACK(onActivate), &entry);
+  // Before the signals, because a field that switches between single and
+  // multiline is a different widget and the old one's handlers go with it.
+  GtkWidget *peer = rn_view_set_editable(view, TRUE, multiline ? TRUE : FALSE);
+  const bool rebuilt = peer != entry.editable;
+  entry.editable = peer;
+
+  if (rebuilt) {
+
+    GObject *signals = rn_peer_signal_source(entry.editable);
+    g_signal_connect(signals, "changed", G_CALLBACK(onChanged), &entry);
+    // "activate" is a GtkText signal and a single-line idea: Enter in a
+    // multiline field inserts a newline, which is what SubmitBehavior::Newline
+    // means and what BaseTextInputProps already reports for one.
+    if (!multiline) {
+      g_signal_connect(entry.editable, "activate", G_CALLBACK(onActivate), &entry);
+    }
 
     // Both ends, because either can move on its own: an arrow key moves the
     // caret with the other end following, and shift-arrow moves one and not
     // the other. GtkText has no single "the selection changed" signal.
-    g_signal_connect(entry.editable, "notify::cursor-position",
+    g_signal_connect(signals, "notify::cursor-position",
                      G_CALLBACK(onSelectionChanged), &entry);
-    g_signal_connect(entry.editable, "notify::selection-bound",
+    // A GtkTextBuffer has no "selection-bound" property; it reports both ends
+    // moving through "notify::has-selection" instead.
+    g_signal_connect(signals,
+                     multiline ? "notify::has-selection" : "notify::selection-bound",
                      G_CALLBACK(onSelectionChanged), &entry);
 
     // Capture phase, because onKeyPress has to fire *before* onChange -- which
@@ -53,12 +72,12 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
     GtkEventController *keys = gtk_event_controller_key_new();
     gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
     g_signal_connect(keys, "key-pressed", G_CALLBACK(onKeyPressed), &entry);
-    gtk_widget_add_controller(GTK_WIDGET(entry.editable), keys);
+    gtk_widget_add_controller(entry.editable, keys);
 
     GtkEventController *focus = gtk_event_controller_focus_new();
     g_signal_connect(focus, "enter", G_CALLBACK(onFocusEnter), &entry);
     g_signal_connect(focus, "leave", G_CALLBACK(onFocusLeave), &entry);
-    gtk_widget_add_controller(GTK_WIDGET(entry.editable), focus);
+    gtk_widget_add_controller(entry.editable, focus);
   }
 
   // Yoga has resolved border and padding into the content inset; the GtkText is
@@ -73,7 +92,6 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
   };
   rn_view_set_peer_insets(view, &border);
 
-  const auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props);
   if (props == nullptr || entry.editable == nullptr) {
     return;
   }
@@ -99,15 +117,17 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
     entry.lastPropText = props->text;
     entry.sawProps = true;
 
-    const char *current = gtk_editable_get_text(GTK_EDITABLE(entry.editable));
-    if (props->text != (current != nullptr ? current : "")) {
+    char *current = rn_peer_get_text(entry.editable);
+    const bool differs = props->text != (current != nullptr ? current : "");
+    g_free(current);
+    if (differs) {
       entry.applying = true;
       // Preserve the cursor: assigning the text resets it to the start, which
       // sends the caret home on every keystroke of a controlled input.
-      const int cursor = gtk_editable_get_position(GTK_EDITABLE(entry.editable));
-      gtk_editable_set_text(GTK_EDITABLE(entry.editable), props->text.c_str());
-      gtk_editable_set_position(GTK_EDITABLE(entry.editable),
-                                MIN(cursor, static_cast<int>(props->text.size())));
+      const int cursor = rn_peer_get_position(entry.editable);
+      rn_peer_set_text(entry.editable, props->text.c_str());
+      rn_peer_set_position(entry.editable,
+                           MIN(cursor, static_cast<int>(props->text.size())));
       entry.applying = false;
       entry.lastReportedText = props->text;
     }
@@ -127,15 +147,14 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
         entry.lastPropSelection->end != selection.end) {
       entry.lastPropSelection = selection;
       entry.applying = true;
-      gtk_editable_select_region(GTK_EDITABLE(entry.editable), selection.start, selection.end);
+      rn_peer_select_region(entry.editable, selection.start, selection.end);
       entry.applying = false;
       entry.lastReportedSelection =
           facebook::react::AttributedString::Range{selection.start, selection.end - selection.start};
     }
   }
 
-  gtk_text_set_placeholder_text(entry.editable,
-                                props->placeholder.empty() ? nullptr : props->placeholder.c_str());
+  rn_peer_set_placeholder(entry.editable, props->placeholder.c_str());
 
   // GtkText renders in the GTK theme's colour and font, which has nothing to do
   // with the `style` this component was given -- on a dark field that is dark
@@ -144,22 +163,22 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
   // fontSizeMultiplier is 1: nothing on this platform scales text for
   // accessibility settings yet, and passing 0 would multiply the size away.
   PangoAttrList *attributes = buildTextAttributes(props->getEffectiveTextAttributes(1.0F));
-  gtk_text_set_attributes(entry.editable, attributes);
+  rn_peer_set_attributes(entry.editable, attributes);
   pango_attr_list_unref(attributes);
 
   // `editable` is the prop; `readOnly` is the newer spelling of its inverse,
   // and React Native honours both.
   const bool writable = props->traits.editable && !props->readOnly;
-  gtk_editable_set_editable(GTK_EDITABLE(entry.editable), writable ? TRUE : FALSE);
+  rn_peer_set_editable(entry.editable, writable ? TRUE : FALSE);
 
-  gtk_text_set_visibility(entry.editable, props->traits.secureTextEntry ? FALSE : TRUE);
+  rn_peer_set_visibility(entry.editable, props->traits.secureTextEntry ? FALSE : TRUE);
 
   if (props->maxLength > 0 && props->maxLength < 1000000) {
-    gtk_text_set_max_length(entry.editable, props->maxLength);
+    rn_peer_set_max_length(entry.editable, props->maxLength);
   }
 
   if (inserted && props->autoFocus) {
-    gtk_widget_grab_focus(GTK_WIDGET(entry.editable));
+    gtk_widget_grab_focus(entry.editable);
   }
 }
 
@@ -171,7 +190,7 @@ void GtkTextInputManager::remove(Tag tag) {
   // The signal handlers hold a pointer to the Entry. Dropping the editable
   // first takes them with it.
   if (it->second.view != nullptr && RN_IS_VIEW(it->second.view)) {
-    rn_view_set_editable(it->second.view, FALSE);
+    rn_view_set_editable(it->second.view, FALSE, FALSE);
   }
   entries_.erase(it);
 }
@@ -186,7 +205,7 @@ std::shared_ptr<const TextInputEventEmitter> GtkTextInputManager::emitterFor(Tag
 
 TextInputEventEmitter::Metrics GtkTextInputManager::metricsFor(const Entry &entry) const {
   const char *text = entry.editable != nullptr
-      ? gtk_editable_get_text(GTK_EDITABLE(entry.editable))
+      ? rn_peer_get_text(entry.editable)
       : "";
 
   TextInputEventEmitter::Metrics metrics{};
@@ -200,8 +219,8 @@ TextInputEventEmitter::Metrics GtkTextInputManager::metricsFor(const Entry &entr
   int start = 0;
   int end = 0;
   if (entry.editable != nullptr &&
-      !gtk_editable_get_selection_bounds(GTK_EDITABLE(entry.editable), &start, &end)) {
-    start = end = gtk_editable_get_position(GTK_EDITABLE(entry.editable));
+      !rn_peer_get_selection_bounds(entry.editable, &start, &end)) {
+    start = end = rn_peer_get_position(entry.editable);
   }
   metrics.selectionRange = AttributedString::Range{start, end - start};
 
@@ -220,14 +239,14 @@ TextInputEventEmitter::Metrics GtkTextInputManager::metricsFor(const Entry &entr
   return metrics;
 }
 
-void GtkTextInputManager::onChanged(GtkEditable * /*editable*/, gpointer userData) {
+void GtkTextInputManager::onChanged(GObject * /*source*/, gpointer userData) {
   auto *entry = static_cast<Entry *>(userData);
   if (entry->applying) {
     // This is a prop being applied, not the user typing.
     return;
   }
 
-  const char *text = gtk_editable_get_text(GTK_EDITABLE(entry->editable));
+  char *text = rn_peer_get_text(entry->editable);
   const std::string value = text != nullptr ? text : "";
   if (value == entry->lastReportedText) {
     return;
@@ -388,11 +407,11 @@ bool GtkTextInputManager::dispatchCommand(Tag tag,
       }
       entry.applying = true;
       const auto text = args[1].isString() ? args[1].asString() : std::string{};
-      gtk_editable_set_text(GTK_EDITABLE(entry.editable), text.c_str());
+      rn_peer_set_text(entry.editable, text.c_str());
       if (args.size() >= 4 && args[2].isInt()) {
         const int start = static_cast<int>(args[2].asInt());
         const int end = static_cast<int>(args[3].asInt());
-        gtk_editable_select_region(GTK_EDITABLE(entry.editable), start, end);
+        rn_peer_select_region(entry.editable, start, end);
       }
       entry.applying = false;
       entry.lastReportedText = text;

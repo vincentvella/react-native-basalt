@@ -78,7 +78,7 @@ pkg_check_modules(PANGOFT2 REQUIRED IMPORTED_TARGET pangoft2)
 # No React Native dependency, so it builds and runs on its own.
 # ---------------------------------------------------------------------------
 
-add_library(basalt_gtk_view STATIC gtk/RnView.cpp)
+add_library(basalt_gtk_view STATIC gtk/RnView.cpp gtk/GtkTextPeer.cpp)
 # This project's own sources are held to -Wall -Wextra. React Native's are not:
 # its targets set their own flags, and these are PRIVATE so they never reach it.
 target_compile_options(basalt_gtk_view PRIVATE -Wall -Wextra)

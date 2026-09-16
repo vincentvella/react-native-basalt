@@ -54,7 +54,8 @@ class GtkTextInputManager {
  private:
   struct Entry {
     RnView *view{nullptr};
-    GtkText *editable{nullptr};
+    // A GtkText or a GtkTextView; see GtkTextPeer.h.
+    GtkWidget *editable{nullptr};
     facebook::react::Tag tag{0};
     GtkTextInputManager *owner{nullptr};
 
@@ -97,7 +98,9 @@ class GtkTextInputManager {
     bool sawProps{false};
   };
 
-  static void onChanged(GtkEditable *editable, gpointer userData);
+  // The sender differs by peer -- the widget for a GtkText, the buffer for a
+  // GtkTextView -- so it arrives untyped and goes unused.
+  static void onChanged(GObject *source, gpointer userData);
   static void onActivate(GtkText *editable, gpointer userData);
   static gboolean onKeyPressed(GtkEventControllerKey *controller,
                                guint keyval,

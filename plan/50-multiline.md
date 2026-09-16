@@ -92,3 +92,43 @@ dropped, the peer sitting inside the content inset.
   AppKit's is a decision rather than a default -- and iOS's multiline input is
   itself a scroll view, which is why the metrics carry `contentOffset` and
   `contentSize` that both hosts currently answer with the container size.
+
+
+## Done on GTK, phase 54
+
+The seam is `gtk/GtkTextPeer.h`: eleven functions, C rather than C++ because
+`RnView.cpp` uses it too and that file knows nothing about React Native. Every
+`GtkEditable` call in `GtkTextInput.cpp` now goes through it, and `RnView`
+holds a `GtkWidget *` rather than a `GtkText *`.
+
+Four things were not in the plan and are worth having written down.
+
+- **A `GtkTextView` paints its own background**, from the GTK theme, straight
+  over the one `RnView` drew from props. A bare `GtkText` does not, which is
+  why the single-line path never needed a stylesheet and this is the first CSS
+  provider in the project. Without it a styled field is a white box with
+  invisible white text in it.
+- **A `GtkTextTag` has no `attributes` property.** The single-line path hands
+  `GtkText` a `PangoAttrList` directly; the buffer equivalent is a tag, and a
+  tag takes `font-desc` and `foreground-rgba` instead -- so the two are pulled
+  back out of the list.
+- **Switching `multiline` replaces the widget**, and the text has to be carried
+  across by hand. The controlled loop will not put it back: from its side the
+  `text` prop did not change, so there is nothing to apply. AppKit already does
+  exactly this when `secureTextEntry` rebuilds its field.
+- **`activate` is a single-line signal**, and Enter in a multiline field
+  inserts a newline rather than submitting -- which is what
+  `SubmitBehavior::Newline` already says and what `BaseTextInputProps` already
+  reports.
+
+What a multiline field does not have: a placeholder, which `GtkTextView` has no
+notion of and which would mean drawing the text; and `maxLength`, which
+`GtkTextBuffer` has no equivalent for and which would fight the controlled loop
+if enforced by hand. Both are in `plan/backlog.md`.
+
+## Still to do on AppKit
+
+`NSTextView`, and the same seam. The notes at the top of this file still apply,
+and the one that matters most is that an `NSTextView` normally lives inside an
+`NSScrollView` -- which is a decision rather than a default here, because
+`<ScrollView>` on this platform is already the host's own.

@@ -153,7 +153,7 @@ TEST(a_text_input_label_lands_on_the_peer_not_the_wrapper) {
   manager.createSurfaceRoot(kSurfaceId);
 
   RnView *view = mountOne(manager, makeTextInputView(13, nullptr, "Your name"));
-  GtkText *peer = rn_view_get_editable(view);
+  GtkWidget *peer = rn_view_get_editable(view);
   EXPECT(peer != nullptr);
 
   char *mismatch = gtk_test_accessible_check_property(
