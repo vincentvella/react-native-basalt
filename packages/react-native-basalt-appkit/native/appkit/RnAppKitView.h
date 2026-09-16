@@ -211,7 +211,9 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // input methods, selection, the clipboard and every key binding a Mac user
 // expects, none of which is worth reimplementing and all of which is easy to
 // get subtly wrong. The GTK side embeds a real GtkText for the same reason.
-@property(nonatomic, weak, nullable) NSTextField *rnEditable;
+// The <TextInput> peer: an NSTextField for a single-line field and an
+// NSTextView for a multiline one. See AppKitTextPeer.h.
+@property(nonatomic, weak, nullable) NSView *rnEditable;
 
 // Set on ScrollViews only. See RnAppKitScrollHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitScrollHandler> rnScrollHandler;

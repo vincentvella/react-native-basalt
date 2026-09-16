@@ -62,6 +62,11 @@ enable_language(OBJCXX)
 # ---------------------------------------------------------------------------
 add_library(basalt_appkit_view STATIC
   appkit/RnAppKitView.mm
+  # The <TextInput> peer seam. In the *view* target rather than the mounting
+  # one because RnAppKitView reads the peer's text for its tree dump, and this
+  # target has to keep linking on its own -- the same reason GtkTextPeer.cpp
+  # sits in basalt_gtk_view.
+  appkit/AppKitTextPeer.mm
   # The paragraph object. Core Text only, no React Native, which is what keeps
   # this target buildable on a Mac with nothing else installed.
   appkit/RnTextLayout.mm

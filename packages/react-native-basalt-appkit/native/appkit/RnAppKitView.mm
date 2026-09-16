@@ -1,5 +1,7 @@
 #import "RnAppKitView.h"
 
+#import "AppKitTextPeer.h"
+
 #include <cmath>
 
 #import "RnTextLayout.h"
@@ -862,7 +864,7 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   // view draws, so it would otherwise be invisible to every test that reads
   // this tree. Same spelling as the GTK side's.
   if (self.rnEditable != nil) {
-    NSString *value = self.rnEditable.stringValue ?: @"";
+    NSString *value = RnPeerText(self.rnEditable);
     NSMutableString *escaped = [value mutableCopy];
     [escaped replaceOccurrencesOfString:@"\\" withString:@"\\\\"
                                 options:0 range:NSMakeRange(0, escaped.length)];
@@ -874,10 +876,11 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     // not the field itself, so asking the window whether it is editing this one
     // is the question that actually has the right answer.
     NSWindow *window = self.window;
-    const BOOL focused = window != nil &&
-        (window.firstResponder == self.rnEditable ||
-         ([window.firstResponder isKindOfClass:[NSTextView class]] &&
-          ((NSTextView *)window.firstResponder).delegate == (id)self.rnEditable));
+    // A multiline peer *is* the editor, so it is the first responder itself;
+    // a single-line one is being edited through a field editor whose delegate
+    // is the field. RnPeerEditor answers for both.
+    const BOOL focused = window != nil && window.firstResponder != nil &&
+        window.firstResponder == RnPeerEditor(self.rnEditable);
     if (focused) {
       [out appendString:@" focused"];
     }

@@ -600,7 +600,7 @@ void AppKitMountingManager::applyAccessibility(RnAppKitView *view, const ShadowV
   // The wrapper then stops being an element of its own, because two nested
   // elements for one control is a worse tree than one: a screen reader stops
   // twice and says the name once.
-  if (NSTextField *peer = view.rnEditable) {
+  if (NSView *peer = view.rnEditable) {
     peer.accessibilityLabel = labelText;
     if (hintText != nil) {
       peer.accessibilityHelp = hintText;

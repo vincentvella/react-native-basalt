@@ -126,9 +126,35 @@ notion of and which would mean drawing the text; and `maxLength`, which
 `GtkTextBuffer` has no equivalent for and which would fight the controlled loop
 if enforced by hand. Both are in `plan/backlog.md`.
 
-## Still to do on AppKit
+## Done on AppKit, phase 55
 
-`NSTextView`, and the same seam. The notes at the top of this file still apply,
-and the one that matters most is that an `NSTextView` normally lives inside an
-`NSScrollView` -- which is a decision rather than a default here, because
-`<ScrollView>` on this platform is already the host's own.
+`appkit/AppKitTextPeer.h`, the same shape as the GTK one and in the *view*
+target for the same reason: `RnAppKitView` reads the peer's text for its tree
+dump, and that target has to keep linking on its own.
+
+Offsets across this seam are UTF-16 units rather than characters, because that
+is what `NSRange` means and what JavaScript means by a string index. The GTK
+seam says characters for the same reason -- each platform's native unit is the
+one its string type uses -- and that asymmetry is deliberate rather than an
+oversight.
+
+No `NSScrollView`. An `NSTextView` normally lives in one, and the note above
+said that was a decision: the decision is no, because `<ScrollView>` here is
+already the host's own and nesting AppKit's would give a multiline field
+scrolling that no other component on this platform has. It matches the GTK
+side, which is a bare `GtkTextView` and not a `GtkScrolledWindow`.
+
+Two things fell out that were not about multiline at all.
+
+- **A single-line `NSTextField` wraps.** It has done all along; it was
+  invisible because no field in the demo or the tests held more text than it
+  could show. React Native's single-line input scrolls horizontally instead, so
+  the peer now sets `usesSingleLineMode` and clips. Found by putting a long
+  string in a field next to a multiline one and looking at both.
+- **An `NSTextView` is not an `NSControl`**, so it posts `NSText`'s
+  notifications through `NSTextViewDelegate` rather than `NSControl`'s. Same
+  two moments, different names: `textDidChange:` and `textDidEndEditing:`
+  beside the `controlText...` pair.
+
+What a multiline field still does not have, on either host: a placeholder, and
+`maxLength`. Both are in `plan/backlog.md`.

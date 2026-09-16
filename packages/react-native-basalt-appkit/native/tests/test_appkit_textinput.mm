@@ -17,6 +17,7 @@
 #include "TestHarness.h"
 
 #import "AppKitMountingManager.h"
+#import "AppKitTextPeer.h"
 #import "RnAppKitView.h"
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
@@ -97,7 +98,9 @@ RnAppKitView *mountField(basalt::AppKitMountingManager &manager, Tag tag, folly:
   return manager.viewForTag(tag);
 }
 
-NSTextField *fieldOf(RnAppKitView *view) {
+// Through the seam, because a multiline peer is an NSTextView and asking it
+// for NSTextField's properties does not compile.
+NSView *fieldOf(RnAppKitView *view) {
   return view.rnEditable;
 }
 
@@ -105,9 +108,12 @@ NSTextField *fieldOf(RnAppKitView *view) {
 // value changes and the delegate is told. AppKit posts that notification from
 // NSControl and there is no field editor here to post it, so the test does what
 // AppKit would -- which is also exactly the path a real keystroke takes.
-void typeInto(NSTextField *field, NSString *text) {
-  field.stringValue = [field.stringValue stringByAppendingString:text];
-  [field.delegate
+void typeInto(NSView *field, NSString *text) {
+  RnPeerSetText(field, [RnPeerText(field) stringByAppendingString:text]);
+  // The notification a real NSTextField posts. Single line only: this helper
+  // stands in for AppKit, and a multiline peer posts NSTextDidChangeNotification
+  // through NSTextViewDelegate instead.
+  [((NSTextField *)field).delegate
       controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
                                                          object:field]];
 }
@@ -130,14 +136,14 @@ TEST(textinput_mounts_a_real_field) {
     basalt::AppKitMountingManager manager;
     RnAppKitView *view = mountField(manager, 10, folly::dynamic::object("text", "hello"));
 
-    NSTextField *field = fieldOf(view);
+    NSView *field = fieldOf(view);
     EXPECT(field != nil);
-    EXPECT([field.stringValue isEqualToString:@"hello"]);
+    EXPECT([RnPeerText(field) isEqualToString:@"hello"]);
     // The view behind it draws the background and the border, so the field
     // itself must paint nothing -- an NSTextField's own bezel would sit on top
     // of whatever the style asked for.
-    EXPECT(!field.isBordered);
-    EXPECT(!field.drawsBackground);
+    EXPECT(!((NSTextField *)field).isBordered);
+    EXPECT(!((NSTextField *)field).drawsBackground);
 
     manager.destroySurfaceRoot(kSurfaceId);
   }
@@ -157,7 +163,7 @@ TEST(textinput_applying_a_prop_is_not_typing) {
         kSurfaceId));
     apply(manager, std::move(update));
 
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"two"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"two"]);
 
     // No emitter is attached to these hand-built shadow views, so what this
     // pins is that the round trip did not throw or recurse -- the loop it would
@@ -184,14 +190,14 @@ TEST(textinput_keeps_what_was_typed_into_an_uncontrolled_field) {
     RnAppKitView *view = mountField(manager, 30, folly::dynamic::object("text", ""));
 
     typeInto(fieldOf(view), @"abc");
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"abc"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"abc"]);
 
     // The re-render an uncontrolled field produces: no text, a bumped count.
     updateField(manager,
                 30,
                 folly::dynamic::object("text", ""),
                 folly::dynamic::object("text", "")("mostRecentEventCount", 1));
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"abc"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"abc"]);
 
     manager.destroySurfaceRoot(kSurfaceId);
   }
@@ -212,13 +218,13 @@ TEST(textinput_drops_a_text_prop_older_than_what_was_typed) {
                 31,
                 folly::dynamic::object("text", ""),
                 folly::dynamic::object("text", "F")("mostRecentEventCount", 0));
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"fast"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"fast"]);
 
     updateField(manager,
                 31,
                 folly::dynamic::object("text", ""),
                 folly::dynamic::object("text", "F")("mostRecentEventCount", 1));
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"F"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"F"]);
 
     manager.destroySurfaceRoot(kSurfaceId);
   }
@@ -250,8 +256,8 @@ TEST(textinput_a_selection_prop_without_focus_is_harmless) {
         kSurfaceId));
     apply(manager, std::move(update));
 
-    EXPECT(fieldOf(view).currentEditor == nil);
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"abcdef"]);
+    EXPECT(RnPeerEditor(fieldOf(view)) == nil);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"abcdef"]);
   }
 }
 
@@ -269,7 +275,7 @@ TEST(textinput_sits_inside_the_content_inset) {
     mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, shadowView, 0));
     apply(manager, std::move(mutations));
 
-    NSTextField *field = fieldOf(manager.viewForTag(30));
+    NSView *field = fieldOf(manager.viewForTag(30));
     EXPECT(field != nil);
     EXPECT_NEAR(field.frame.origin.x, 12.0, 0.001);
     EXPECT_NEAR(field.frame.origin.y, 4.0, 0.001);
@@ -298,7 +304,7 @@ TEST(textinput_secure_entry_rebuilds_the_field) {
     apply(manager, std::move(update));
 
     EXPECT([fieldOf(view) isKindOfClass:[NSSecureTextField class]]);
-    EXPECT([fieldOf(view).stringValue isEqualToString:@"shh"]);
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"shh"]);
 
     manager.destroySurfaceRoot(kSurfaceId);
   }
@@ -311,19 +317,19 @@ TEST(textinput_honours_both_spellings_of_read_only) {
     basalt::AppKitMountingManager manager;
 
     RnAppKitView *plain = mountField(manager, 50, folly::dynamic::object("text", ""));
-    EXPECT(fieldOf(plain).isEditable);
+    EXPECT(((NSTextField *)fieldOf(plain)).isEditable);
     manager.destroySurfaceRoot(kSurfaceId);
 
     basalt::AppKitMountingManager second;
     RnAppKitView *locked =
         mountField(second, 51, folly::dynamic::object("text", "")("editable", false));
-    EXPECT(!fieldOf(locked).isEditable);
+    EXPECT(!((NSTextField *)fieldOf(locked)).isEditable);
     second.destroySurfaceRoot(kSurfaceId);
 
     basalt::AppKitMountingManager third;
     RnAppKitView *readOnly =
         mountField(third, 52, folly::dynamic::object("text", "")("readOnly", true));
-    EXPECT(!fieldOf(readOnly).isEditable);
+    EXPECT(!((NSTextField *)fieldOf(readOnly)).isEditable);
     third.destroySurfaceRoot(kSurfaceId);
   }
 }
@@ -355,6 +361,102 @@ TEST(textinput_contents_are_reported_in_the_tree) {
 // A command for a field that was never mounted, and one that is not ours. Both
 // have to be survivable: a focus arriving between a Remove and its Delete is
 // exactly this shape.
+// --- multiline ---------------------------------------------------------------
+//
+// Deliberately the same four questions test_textinput.cpp asks of GTK, because
+// both hosts now reach their peer through a seam and what these really check
+// is whether the two seams agree.
+
+TEST(textinput_multiline_builds_a_text_view) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view =
+        mountField(manager, 60, folly::dynamic::object("text", "hello")("multiline", true));
+
+    NSView *peer = fieldOf(view);
+    EXPECT(peer != nil);
+    EXPECT(RnPeerIsMultiline(peer));
+    EXPECT([peer isKindOfClass:[NSTextView class]]);
+
+    // And a plain field is still an NSTextField, which is the half that must
+    // not have moved.
+    RnAppKitView *single = mountField(manager, 61, folly::dynamic::object("text", "hello"));
+    EXPECT(!RnPeerIsMultiline(fieldOf(single)));
+    EXPECT([fieldOf(single) isKindOfClass:[NSTextField class]]);
+  }
+}
+
+TEST(textinput_multiline_text_round_trips) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view =
+        mountField(manager, 62, folly::dynamic::object("text", "one")("multiline", true));
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"one"]);
+
+    // Newlines are the point, and are what a single-line field would refuse.
+    ShadowViewMutationList update;
+    update.push_back(ShadowViewMutation::UpdateMutation(
+        makeTextInput(62, folly::dynamic::object("text", "one")("multiline", true)),
+        makeTextInput(62, folly::dynamic::object("text", "one\ntwo")("multiline", true)),
+        kSurfaceId));
+    apply(manager, std::move(update));
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"one\ntwo"]);
+  }
+}
+
+TEST(textinput_multiline_owns_its_selection) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view =
+        mountField(manager, 63, folly::dynamic::object("text", "abcdef")("multiline", true));
+
+    // The one place multiline is simpler: an NSTextView *is* the editor, so it
+    // has a selection whether or not anything has focus -- where an unfocused
+    // NSTextField has no field editor and so none at all.
+    NSView *peer = fieldOf(view);
+    EXPECT(RnPeerEditor(peer) != nil);
+
+    RnPeerSetSelection(peer, NSMakeRange(1, 3));
+    const NSRange selected = RnPeerSelection(peer);
+    EXPECT_EQ((long)selected.location, 1L);
+    EXPECT_EQ((long)selected.length, 3L);
+  }
+}
+
+TEST(textinput_switching_multiline_rebuilds_the_peer) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager, 64, folly::dynamic::object("text", "hello"));
+    EXPECT(!RnPeerIsMultiline(fieldOf(view)));
+
+    // Not a property that can be flipped, so the widget is replaced -- and the
+    // text has to survive that, because React did not ask for it to be cleared.
+    ShadowViewMutationList update;
+    update.push_back(ShadowViewMutation::UpdateMutation(
+        makeTextInput(64, folly::dynamic::object("text", "hello")),
+        makeTextInput(64, folly::dynamic::object("text", "hello")("multiline", true)),
+        kSurfaceId));
+    apply(manager, std::move(update));
+
+    EXPECT(RnPeerIsMultiline(fieldOf(view)));
+    EXPECT([RnPeerText(fieldOf(view)) isEqualToString:@"hello"]);
+  }
+}
+
+// A single-line field clips rather than wrapping, which is what it does on
+// every other platform -- it scrolls horizontally instead. An NSTextField
+// wraps by default, and that was invisible here until a field held more than
+// it could show.
+TEST(textinput_single_line_does_not_wrap) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager, 65, folly::dynamic::object("text", "hello"));
+    NSTextField *field = (NSTextField *)fieldOf(view);
+    EXPECT(field.usesSingleLineMode);
+    EXPECT(!field.cell.wraps);
+  }
+}
+
 TEST(textinput_commands_survive_an_unknown_tag) {
   @autoreleasepool {
     basalt::AppKitMountingManager manager;

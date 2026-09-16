@@ -1,5 +1,7 @@
 #import "AppKitTextInput.h"
 
+#import "AppKitTextPeer.h"
+
 #import "CoreTextLayout.h"
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
@@ -8,50 +10,10 @@
 #include <cmath>
 #include <string_view>
 
-// A field that reports gaining focus.
-//
-// NSTextField does not: while it is being edited the first responder is its
-// *field editor*, a shared NSTextView, so `resignFirstResponder` on the field
-// is not the blur it looks like. Becoming first responder is the reliable half
-// and is overridden here; the other half comes from the delegate's
-// controlTextDidEndEditing:, which is what actually marks the end of an edit.
-@protocol RnAppKitTextFieldOwner <NSObject>
-- (void)rnFieldDidBecomeFirstResponder:(NSInteger)tag;
-@end
-
-@interface RnAppKitTextField : NSTextField
-@property(nonatomic, assign) NSInteger rnTag;
-@property(nonatomic, weak) id<RnAppKitTextFieldOwner> rnOwner;
-@end
-
-@implementation RnAppKitTextField
-- (BOOL)becomeFirstResponder {
-  const BOOL became = [super becomeFirstResponder];
-  if (became) {
-    [_rnOwner rnFieldDidBecomeFirstResponder:_rnTag];
-  }
-  return became;
-}
-@end
-
-@interface RnAppKitSecureTextField : NSSecureTextField
-@property(nonatomic, assign) NSInteger rnTag;
-@property(nonatomic, weak) id<RnAppKitTextFieldOwner> rnOwner;
-@end
-
-@implementation RnAppKitSecureTextField
-- (BOOL)becomeFirstResponder {
-  const BOOL became = [super becomeFirstResponder];
-  if (became) {
-    [_rnOwner rnFieldDidBecomeFirstResponder:_rnTag];
-  }
-  return became;
-}
-@end
-
 // The bridge between AppKit's delegate protocol and the C++ manager, for the
 // same reason the touch dispatcher and the scroll manager have one.
-@interface RnAppKitTextInputDelegate : NSObject <NSTextFieldDelegate, RnAppKitTextFieldOwner>
+@interface RnAppKitTextInputDelegate
+    : NSObject <NSTextFieldDelegate, NSTextViewDelegate, RnAppKitTextPeerOwner>
 @property(nonatomic, assign) basalt::AppKitTextInputManager *manager;
 @property(nonatomic, strong) id keyMonitor;
 @end
@@ -128,6 +90,21 @@ static NSInteger RnTagOf(id object) {
   }
 }
 
+// The multiline halves of the two above. An NSTextView is not an NSControl, so
+// it posts NSText's notifications through NSTextViewDelegate rather than
+// NSControl's -- different names, same two moments.
+- (void)textDidChange:(NSNotification *)notification {
+  if (_manager != nullptr) {
+    _manager->handleChanged(static_cast<facebook::react::Tag>(RnTagOf(notification.object)));
+  }
+}
+
+- (void)textDidEndEditing:(NSNotification *)notification {
+  if (_manager != nullptr) {
+    _manager->handleBlur(static_cast<facebook::react::Tag>(RnTagOf(notification.object)));
+  }
+}
+
 - (void)rnFieldDidBecomeFirstResponder:(NSInteger)tag {
   if (_manager != nullptr) {
     _manager->handleFocus(static_cast<facebook::react::Tag>(tag));
@@ -179,42 +156,23 @@ AppKitTextInputManager::Entry *AppKitTextInputManager::entryFor(Tag tag) {
 // Mutations
 // ---------------------------------------------------------------------------
 
-void AppKitTextInputManager::makeField(Entry &entry, bool secure) {
-  NSString *existing = entry.field != nil ? entry.field.stringValue : @"";
+void AppKitTextInputManager::makeField(Entry &entry, bool secure, bool multiline) {
+  // The contents come across. Nothing asked for the field to be cleared --
+  // React changed one prop -- and the controlled loop will not put the text
+  // back, because from its side `text` did not change. The GTK side carries it
+  // the same way for the same reason.
+  NSString *existing = RnPeerText(entry.field);
   [entry.field removeFromSuperview];
 
-  NSTextField *field;
-  if (secure) {
-    RnAppKitSecureTextField *secureField = [[RnAppKitSecureTextField alloc] initWithFrame:NSZeroRect];
-    secureField.rnTag = entry.tag;
-    secureField.rnOwner = (id<RnAppKitTextFieldOwner>)delegate_;
-    field = secureField;
-  } else {
-    RnAppKitTextField *plain = [[RnAppKitTextField alloc] initWithFrame:NSZeroRect];
-    plain.rnTag = entry.tag;
-    plain.rnOwner = (id<RnAppKitTextFieldOwner>)delegate_;
-    field = plain;
-  }
+  NSView *peer = RnPeerNew(multiline ? YES : NO, secure ? YES : NO, entry.tag,
+                           (id)delegate_, (id)delegate_);
+  RnPeerSetText(peer, existing);
 
-  // The RnAppKitView behind it draws the background, the border and the corner
-  // radius, because those are React Native style props and the field knows
-  // nothing about them. So the field itself paints nothing at all -- otherwise
-  // an NSTextField's own bezel sits on top of whatever the style asked for.
-  field.bordered = NO;
-  field.bezeled = NO;
-  field.drawsBackground = NO;
-  field.focusRingType = NSFocusRingTypeNone;
-  field.delegate = (id<NSTextFieldDelegate>)delegate_;
-  field.stringValue = existing;
-  // Return has to reach doCommandBySelector: rather than being swallowed as a
-  // "do nothing" action, which is what an NSTextField with no target does.
-  field.target = nil;
-  field.action = nullptr;
-
-  entry.field = field;
+  entry.field = peer;
   entry.secure = secure;
-  entry.view.rnEditable = field;
-  [entry.view addSubview:field];
+  entry.multiline = multiline;
+  entry.view.rnEditable = peer;
+  [entry.view addSubview:peer];
 }
 
 void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadowView) {
@@ -228,11 +186,12 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
   const auto props = std::dynamic_pointer_cast<const TextInputProps>(shadowView.props);
   const bool secure = props != nullptr && props->traits.secureTextEntry;
 
-  if (inserted || entry.field == nil || entry.secure != secure) {
+  const bool multiline = props != nullptr && props->multiline;
+  if (inserted || entry.field == nil || entry.secure != secure || entry.multiline != multiline) {
     // A secure field is a different class on AppKit, not a property, so
     // toggling secureTextEntry means building a new one. The text comes across;
     // focus does not, which is the honest limit of doing it this way.
-    makeField(entry, secure);
+    makeField(entry, secure, multiline);
   }
 
   // Yoga has resolved border and padding into the content inset; the field is
@@ -272,12 +231,12 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
     entry.lastPropText = props->text;
     entry.sawProps = true;
 
-    const char *currentUtf8 = entry.field.stringValue.UTF8String;
+    const char *currentUtf8 = RnPeerText(entry.field).UTF8String;
     const std::string current = currentUtf8 != nullptr ? currentUtf8 : "";
     if (props->text != current) {
       entry.applying = true;
       NSString *incoming = [NSString stringWithUTF8String:props->text.c_str()];
-      entry.field.stringValue = incoming != nil ? incoming : @"";
+      RnPeerSetText(entry.field, incoming != nil ? incoming : @"");
       entry.applying = false;
       entry.lastReportedText = props->text;
     }
@@ -292,11 +251,10 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
   // accessibility settings yet, and passing 0 would multiply the size away.
   NSDictionary<NSAttributedStringKey, id> *attributes =
       buildTextAttributes(props->getEffectiveTextAttributes(1.0F));
-  entry.field.font = attributes[NSFontAttributeName];
-  entry.field.textColor = attributes[NSForegroundColorAttributeName];
-  if (NSParagraphStyle *style = attributes[NSParagraphStyleAttributeName]) {
-    entry.field.alignment = style.alignment;
-  }
+  NSParagraphStyle *paragraph = attributes[NSParagraphStyleAttributeName];
+  RnPeerSetTextStyle(entry.field, attributes[NSFontAttributeName],
+                     attributes[NSForegroundColorAttributeName],
+                     paragraph != nil ? paragraph.alignment : NSTextAlignmentNatural);
 
   // A controlled *selection*, under the same staleness rule the text is under:
   // JavaScript that has not yet seen the last keystroke must not drag the caret
@@ -314,11 +272,14 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
         entry.lastPropSelection->end != selection.end;
     if (selectionChanged) {
       entry.lastPropSelection = selection;
-      if (NSText *editor = entry.field.currentEditor) {
+      // Only when something is holding a selection. A single-line field with no
+      // focus has no field editor and nowhere to put one; a multiline peer
+      // always can, because it is its own editor.
+      if (RnPeerEditor(entry.field) != nil) {
         entry.applying = true;
-        editor.selectedRange =
-            NSMakeRange((NSUInteger)selection.start,
-                        (NSUInteger)MAX(0, selection.end - selection.start));
+        RnPeerSetSelection(entry.field,
+                           NSMakeRange((NSUInteger)selection.start,
+                                       (NSUInteger)MAX(0, selection.end - selection.start)));
         entry.applying = false;
         entry.lastReportedSelection = facebook::react::AttributedString::Range{
             selection.start, selection.end - selection.start};
@@ -326,56 +287,26 @@ void AppKitTextInputManager::update(RnAppKitView *view, const ShadowView &shadow
     }
   }
 
+  // Single line only: an NSTextView has no placeholder, and drawing one is its
+  // own piece of work. See plan/backlog.md.
   if (props->placeholder.empty()) {
-    entry.field.placeholderString = nil;
+    RnPeerSetPlaceholder(entry.field, nil);
   } else {
     NSString *placeholder = [NSString stringWithUTF8String:props->placeholder.c_str()];
     if (placeholder == nil) {
       placeholder = @"";
     }
-    // Styled like the text, so a placeholder in a 20pt field is not 13pt --
-    // the plain `placeholderString` uses AppKit's own font and a fixed grey.
+    // Styled like the text, so a placeholder in a 20pt field is not 13pt.
     NSMutableDictionary *placeholderAttributes = [attributes mutableCopy];
-    // Without the paragraph style. buildTextAttributes sets word wrapping,
-    // which is right for a paragraph and wrong for a single-line field: an
-    // NSTextField given a wrapping placeholder draws no placeholder at all.
-    // The alignment it also carried is already on the field itself, above.
-    [placeholderAttributes removeObjectForKey:NSParagraphStyleAttributeName];
-    if (props->placeholderTextColor) {
-      const auto components =
-          facebook::react::colorComponentsFromColor(props->placeholderTextColor);
-      placeholderAttributes[NSForegroundColorAttributeName] =
-          [NSColor colorWithSRGBRed:components.red
-                              green:components.green
-                               blue:components.blue
-                              alpha:components.alpha];
-    } else {
-      // The text colour, faded -- not `NSColor.placeholderTextColor`.
-      //
-      // That one is a dynamic catalog colour: it resolves against whatever
-      // appearance is current, and outside a live one it can resolve to nothing
-      // at all, which is a placeholder that exists and draws no pixels. It also
-      // would not match what the GTK side shows, which comes from its own
-      // theme. A fixed fraction of the field's own colour renders anywhere and
-      // is the same on both desktops.
-      NSColor *text = placeholderAttributes[NSForegroundColorAttributeName];
-      NSColor *srgb = [text colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-      if (srgb != nil) {
-        placeholderAttributes[NSForegroundColorAttributeName] =
-            [NSColor colorWithSRGBRed:srgb.redComponent
-                                green:srgb.greenComponent
-                                 blue:srgb.blueComponent
-                                alpha:srgb.alphaComponent * 0.45];
-      }
-    }
-    entry.field.placeholderAttributedString =
-        [[NSAttributedString alloc] initWithString:placeholder attributes:placeholderAttributes];
+    placeholderAttributes[NSForegroundColorAttributeName] = NSColor.placeholderTextColor;
+    RnPeerSetPlaceholder(entry.field,
+                         [[NSAttributedString alloc] initWithString:placeholder
+                                                         attributes:placeholderAttributes]);
   }
 
   // `editable` is the prop; `readOnly` is the newer spelling of its inverse,
   // and React Native honours both.
-  entry.field.editable = props->traits.editable && !props->readOnly;
-  entry.field.selectable = YES;
+  RnPeerSetEditable(entry.field, props->traits.editable && !props->readOnly);
 
   if (props->maxLength > 0 && props->maxLength < 1000000) {
     // NSTextField has no maximum length; enforcing one needs a formatter or a
@@ -397,7 +328,13 @@ void AppKitTextInputManager::remove(Tag tag) {
   // reaching a dead view; taking the field out of the hierarchy is what stops
   // it being drawn.
   [it->second.field removeFromSuperview];
-  it->second.field.delegate = nil;
+  // Both peers carry a delegate, and neither is an NSView property -- so it is
+  // cleared through the class that has it.
+  if (RnPeerIsMultiline(it->second.field)) {
+    ((NSTextView *)it->second.field).delegate = nil;
+  } else {
+    ((NSTextField *)it->second.field).delegate = nil;
+  }
   entries_.erase(it);
 }
 
@@ -411,7 +348,7 @@ std::shared_ptr<const TextInputEventEmitter> AppKitTextInputManager::emitterFor(
 
 TextInputEventEmitter::Metrics AppKitTextInputManager::metricsFor(const Entry &entry) const {
   TextInputEventEmitter::Metrics metrics{};
-  const char *utf8 = entry.field != nil ? entry.field.stringValue.UTF8String : nullptr;
+  const char *utf8 = RnPeerText(entry.field).UTF8String;
   metrics.text = utf8 != nullptr ? utf8 : "";
   metrics.eventCount = entry.eventCount;
   metrics.target = entry.tag;
@@ -423,8 +360,8 @@ TextInputEventEmitter::Metrics AppKitTextInputManager::metricsFor(const Entry &e
   int location = static_cast<int>(metrics.text.size());
   int length = 0;
   if (entry.field != nil) {
-    if (NSText *editor = entry.field.currentEditor) {
-      const NSRange selected = editor.selectedRange;
+    if (RnPeerEditor(entry.field) != nil) {
+      const NSRange selected = RnPeerSelection(entry.field);
       location = static_cast<int>(selected.location);
       length = static_cast<int>(selected.length);
     }
@@ -453,7 +390,7 @@ void AppKitTextInputManager::handleChanged(Tag tag) {
     return;
   }
 
-  const char *utf8 = entry->field.stringValue.UTF8String;
+  const char *utf8 = RnPeerText(entry->field).UTF8String;
   const std::string value = utf8 != nullptr ? utf8 : "";
   if (value == entry->lastReportedText) {
     return;
@@ -495,11 +432,8 @@ bool AppKitTextInputManager::handleKeyDown(void *event) {
   // Only when the key is going to a field of ours. The monitor sees every key
   // down in the process, including those meant for anything else on screen.
   for (auto &[tag, entry] : entries_) {
-    if (entry.field == nil || entry.field.currentEditor == nil) {
-      continue;
-    }
-    NSResponder *responder = entry.field.window.firstResponder;
-    if (responder != entry.field.currentEditor) {
+    NSResponder *editor = RnPeerEditor(entry.field);
+    if (editor == nil || entry.field.window.firstResponder != editor) {
       continue;
     }
 
@@ -552,7 +486,7 @@ void AppKitTextInputManager::handleSelectionChanged(void *editor) {
   NSText *text = (__bridge NSText *)editor;
 
   for (auto &[tag, entry] : entries_) {
-    if (entry.field == nil || entry.field.currentEditor != text) {
+    if (entry.field == nil || RnPeerEditor(entry.field) != (NSResponder *)text) {
       continue;
     }
     // Not while a prop is being pushed in: applying `text` moves the caret, and
@@ -627,12 +561,13 @@ bool AppKitTextInputManager::dispatchCommand(Tag tag,
       entry->applying = true;
       const auto text = args[1].isString() ? args[1].asString() : std::string{};
       NSString *incoming = [NSString stringWithUTF8String:text.c_str()];
-      entry->field.stringValue = incoming != nil ? incoming : @"";
+      RnPeerSetText(entry->field, incoming != nil ? incoming : @"");
       if (args.size() >= 4 && args[2].isInt() && args[3].isInt()) {
         const NSInteger start = static_cast<NSInteger>(args[2].asInt());
         const NSInteger end = static_cast<NSInteger>(args[3].asInt());
-        if (NSText *editor = entry->field.currentEditor) {
-          editor.selectedRange = NSMakeRange((NSUInteger)start, (NSUInteger)MAX(0, end - start));
+        if (RnPeerEditor(entry->field) != nil) {
+          RnPeerSetSelection(entry->field,
+                             NSMakeRange((NSUInteger)start, (NSUInteger)MAX(0, end - start)));
         }
       }
       entry->applying = false;

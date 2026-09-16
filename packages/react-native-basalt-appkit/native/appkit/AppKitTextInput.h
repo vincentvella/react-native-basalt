@@ -81,7 +81,8 @@ class AppKitTextInputManager {
     // The last `selection` prop seen, for the same reason lastPropText exists.
     std::optional<facebook::react::Selection> lastPropSelection{};
     RnAppKitView *view{nil};
-    NSTextField *field{nil};
+    // An NSTextField or an NSTextView; see AppKitTextPeer.h.
+    NSView *field{nil};
     facebook::react::Tag tag{0};
 
     // React Native counts events so it can ignore a prop update that is older
@@ -93,6 +94,9 @@ class AppKitTextInputManager {
     bool applying{false};
 
     bool secure{false};
+    // A multiline field is an NSTextView rather than an NSTextField, so a
+    // change here rebuilds the peer exactly as `secure` does.
+    bool multiline{false};
     std::string lastReportedText;
 
     // The last `text` prop actually seen, and whether one has been seen at all.
@@ -125,7 +129,7 @@ class AppKitTextInputManager {
 
   // Builds the field, or rebuilds it when secureTextEntry changed: a secure
   // field is a different class on AppKit, not a property.
-  void makeField(Entry &entry, bool secure);
+  void makeField(Entry &entry, bool secure, bool multiline);
 
   EmitterLookup lookup_;
   std::unordered_map<facebook::react::Tag, Entry> entries_;
