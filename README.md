@@ -809,10 +809,17 @@ In the order it is likely to be done. The per-area detail is
    `metro.config.js`, and a script per desktop. One command should do all of
    it, tested against a fresh `create-expo-app` the way `release.yml`'s install
    job is.
-2. **Fast Refresh end to end on Windows.** `scripts/integration_test.py` still
-   skips the scenario there because `scripts/metro.sh` is a shell script. A
-   development run now goes through `run-windows`, which starts Metro itself,
-   and Fast Refresh works on Windows -- so the skip can go.
+2. **Fast Refresh end to end on Windows**, which has never been seen to work
+   there rather than being known to. Two separate skips hide it, and removing
+   either alone changes nothing. `scripts/integration_test.py` skips the
+   scenario on Windows because `scripts/metro.sh` is a shell script; and CI
+   sets `BASALT_SKIP_FAST_REFRESH` on *both* jobs, because Metro on a GitHub
+   runner never notices an edit -- so the scenario has never run in CI on any
+   platform. Phase 48 fixed a bug that took Fast Refresh out everywhere, and
+   the Windows half of that fix is compiled and nothing more. `run-windows`
+   starting Metro itself is what a development run needs; proving it needs a
+   Windows path for the scenario and a runner whose file watching works, and
+   `plan/backlog.md` has what is left to try on the second.
 3. **The title bar on Linux and macOS.** `useTitleBar`, `<TitleBar>` and
    `useTitleBarMetrics` do nothing off Windows. GTK can drop its decorations
    and take a header from the app; AppKit has a transparent, full-size-content
@@ -832,10 +839,19 @@ which current Expo installs, a full reload tears the host down (fixed in 0.87;
 see `supported-versions.json`), so an edit Fast Refresh cannot apply in place
 closes the app.
 
-Unverified since the Mac left: nothing touched since has been compiled for
-macOS. The one AppKit change is in `main_appkit.mm`, where the dev script URL
-now names `macos` rather than `linux` -- the fix that made Fast Refresh reach
-Windows, and very likely the reason it would not have reached macOS either.
+macOS is verified again as of 2026-09-14, on an Apple Silicon Mac: the whole
+tree builds with no diagnostics, both unit suites pass, `integration_test.py`
+passes all five scenarios including Fast Refresh, and `compare_all.sh` agrees
+with Linux on all twelve apps -- borders and radii included, which that dump
+could not previously express.
+
+The guess this paragraph used to make was wrong, and it is worth keeping the
+correction. Fast Refresh failing on macOS was blamed on the dev script URL in
+`main_appkit.mm` naming `linux`; that had already been fixed and was not the
+cause. The cause was this project's own `SourceCode` module reporting a
+synthesised bundle URL, which named a Metro *graph* nobody had built -- and
+Linux was not exempt, only lucky, because the end-to-end suite happened to
+build that graph before the client asked for it. See `plan/48-fast-refresh.md`.
 
 ## Caveat
 
