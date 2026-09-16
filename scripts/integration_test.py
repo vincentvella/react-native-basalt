@@ -572,6 +572,20 @@ def tail(log: Path, lines: int = 25) -> str:
     return "\n".join(log.read_text().splitlines()[-lines:])
 
 
+def git_bash() -> Path | None:
+    """Git for Windows' bash, or None. See bundle_app for why it is not `bash`."""
+    roots = [
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+        os.environ.get("ProgramW6432", r"C:\Program Files"),
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+    ]
+    for root in roots:
+        candidate = Path(root) / "Git" / "bin" / "bash.exe"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def bundle_app(build: Path, entry: str, dev: bool = False) -> Path:
     """Bundles js/<entry>.js for this platform, unless it is already there.
 
@@ -599,11 +613,20 @@ def bundle_app(build: Path, entry: str, dev: bool = False) -> Path:
     # Git for Windows brings bash, and CI's own bundle step already runs this
     # same script through it.
     #
-    # A relative path, and only here: bash on Windows reads a backslash as an
-    # escape, so an absolute `D:\a\...\bundle.sh` is not the path it looks
-    # like. Everything below runs with cwd=REPO anyway.
+    # Named by path, not as `bash`. On a Windows runner that name resolves to
+    # C:\Windows\System32\bash.exe, which is the WSL launcher: it exits 1
+    # saying "Windows Subsystem for Linux has no installed distributions", on
+    # *stdout*, which is how this failed for two runs with an empty error
+    # message.
+    #
+    # A relative script path, and only here: bash on Windows reads a backslash
+    # as an escape, so an absolute `D:\a\...\bundle.sh` is not the path it
+    # looks like. Everything here runs with cwd=REPO anyway.
     if os.name == "nt":
-        command = ["bash", "scripts/bundle.sh", *arguments]
+        shell = git_bash()
+        if shell is None:
+            raise Skipped("bundling this app needs Git for Windows' bash")
+        command = [str(shell), "scripts/bundle.sh", *arguments]
     else:
         command = [str(REPO / "scripts" / "bundle.sh"), *arguments]
 
