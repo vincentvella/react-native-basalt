@@ -46,6 +46,15 @@ void GtkTextInputManager::update(RnView *view, const ShadowView &shadowView) {
     g_signal_connect(entry.editable, "notify::selection-bound",
                      G_CALLBACK(onSelectionChanged), &entry);
 
+    // Capture phase, because onKeyPress has to fire *before* onChange -- which
+    // means before GtkText has handled the key and changed the text. In the
+    // bubble phase the edit has already happened and the two events arrive the
+    // wrong way round.
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(onKeyPressed), &entry);
+    gtk_widget_add_controller(GTK_WIDGET(entry.editable), keys);
+
     GtkEventController *focus = gtk_event_controller_focus_new();
     g_signal_connect(focus, "enter", G_CALLBACK(onFocusEnter), &entry);
     g_signal_connect(focus, "leave", G_CALLBACK(onFocusLeave), &entry);
@@ -241,6 +250,54 @@ void GtkTextInputManager::onActivate(GtkText * /*editable*/, gpointer userData) 
     // keeps focus on activate, so only the submit is reported.
     emitter->onSubmitEditing(entry->owner->metricsFor(*entry));
   }
+}
+
+gboolean GtkTextInputManager::onKeyPressed(GtkEventControllerKey * /*controller*/,
+                                          guint keyval,
+                                          guint /*keycode*/,
+                                          GdkModifierType /*state*/,
+                                          gpointer userData) {
+  auto *entry = static_cast<Entry *>(userData);
+  if (entry == nullptr || entry->owner == nullptr) {
+    return GDK_EVENT_PROPAGATE;
+  }
+
+  // React Native's contract: 'Enter' and 'Backspace' by name, and the typed
+  // character otherwise -- including ' ' for space. Keys that produce no
+  // character at all, the arrows and the modifiers, send nothing, which is what
+  // iOS does too.
+  std::string key;
+  switch (keyval) {
+    case GDK_KEY_Return:
+    case GDK_KEY_KP_Enter:
+    case GDK_KEY_ISO_Enter:
+      key = "Enter";
+      break;
+    case GDK_KEY_BackSpace:
+      key = "Backspace";
+      break;
+    default: {
+      const gunichar character = gdk_keyval_to_unicode(keyval);
+      if (character == 0 || !g_unichar_isprint(character)) {
+        return GDK_EVENT_PROPAGATE;
+      }
+      char utf8[7] = {0};
+      const gint length = g_unichar_to_utf8(character, utf8);
+      key.assign(utf8, static_cast<size_t>(length));
+      break;
+    }
+  }
+
+  if (auto emitter = entry->owner->emitterFor(entry->tag)) {
+    TextInputEventEmitter::KeyPressMetrics metrics{};
+    metrics.text = key;
+    metrics.eventCount = entry->eventCount;
+    emitter->onKeyPress(metrics);
+  }
+
+  // Never handled here: this observes the key on its way to GtkText, which
+  // still has to do the editing.
+  return GDK_EVENT_PROPAGATE;
 }
 
 void GtkTextInputManager::onSelectionChanged(GObject * /*object*/,

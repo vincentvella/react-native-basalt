@@ -69,6 +69,10 @@ class AppKitTextInputManager {
   // belongs to has to be found by asking which field is currently using it.
   void handleSelectionChanged(void *editor);
 
+  // A key on its way to whichever field has focus. Returns true when the key
+  // belonged to one of ours, which is only used to decide whether to bother.
+  bool handleKeyDown(void *event);
+
  private:
   struct Entry {
     // The selection as JavaScript last saw it, so one movement is one event.

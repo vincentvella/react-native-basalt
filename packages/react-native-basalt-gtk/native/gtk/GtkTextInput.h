@@ -99,6 +99,11 @@ class GtkTextInputManager {
 
   static void onChanged(GtkEditable *editable, gpointer userData);
   static void onActivate(GtkText *editable, gpointer userData);
+  static gboolean onKeyPressed(GtkEventControllerKey *controller,
+                               guint keyval,
+                               guint keycode,
+                               GdkModifierType state,
+                               gpointer userData);
   static void onSelectionChanged(GObject *object, GParamSpec *pspec, gpointer userData);
   static void onFocusEnter(GtkEventControllerFocus *controller, gpointer userData);
   static void onFocusLeave(GtkEventControllerFocus *controller, gpointer userData);

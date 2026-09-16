@@ -53,6 +53,7 @@
 // same reason the touch dispatcher and the scroll manager have one.
 @interface RnAppKitTextInputDelegate : NSObject <NSTextFieldDelegate, RnAppKitTextFieldOwner>
 @property(nonatomic, assign) basalt::AppKitTextInputManager *manager;
+@property(nonatomic, strong) id keyMonitor;
 @end
 
 @implementation RnAppKitTextInputDelegate
@@ -74,12 +75,39 @@ static NSInteger RnTagOf(id object) {
                                              selector:@selector(rnSelectionDidChange:)
                                                  name:NSTextViewDidChangeSelectionNotification
                                                object:nil];
+    [self rnInstallKeyMonitor];
   }
   return self;
 }
 
 - (void)dealloc {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
+  if (_keyMonitor != nil) {
+    [NSEvent removeMonitor:_keyMonitor];
+    _keyMonitor = nil;
+  }
+}
+
+- (void)rnInstallKeyMonitor {
+  // A local monitor rather than a delegate method, because AppKit has no hook
+  // for an ordinary character reaching a field. `control:textView:
+  // doCommandBySelector:` sees only the named commands -- newline, delete,
+  // the arrows -- and the other route is supplying a custom field editor
+  // through the *window's* delegate, which this manager does not own.
+  //
+  // A monitor sees the key on its way to the responder chain, so onKeyPress
+  // fires before the edit and therefore before onChange, which is the order
+  // React Native promises.
+  __weak RnAppKitTextInputDelegate *weakSelf = self;
+  _keyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                                      handler:^NSEvent *(NSEvent *event) {
+    RnAppKitTextInputDelegate *strongSelf = weakSelf;
+    if (strongSelf != nil && strongSelf.manager != nullptr) {
+      strongSelf.manager->handleKeyDown((__bridge void *)event);
+    }
+    // Always passed on: this observes, it does not consume.
+    return event;
+  }];
 }
 
 - (void)rnSelectionDidChange:(NSNotification *)notification {
@@ -456,6 +484,65 @@ void AppKitTextInputManager::handleFocus(Tag tag) {
   if (const auto emitter = emitterFor(tag)) {
     emitter->onFocus(metricsFor(*entry));
   }
+}
+
+bool AppKitTextInputManager::handleKeyDown(void *event) {
+  if (event == nullptr) {
+    return false;
+  }
+  NSEvent *keyEvent = (__bridge NSEvent *)event;
+
+  // Only when the key is going to a field of ours. The monitor sees every key
+  // down in the process, including those meant for anything else on screen.
+  for (auto &[tag, entry] : entries_) {
+    if (entry.field == nil || entry.field.currentEditor == nil) {
+      continue;
+    }
+    NSResponder *responder = entry.field.window.firstResponder;
+    if (responder != entry.field.currentEditor) {
+      continue;
+    }
+
+    // React Native's contract: 'Enter' and 'Backspace' by name, the typed
+    // character otherwise -- including ' ' for space. Keys that produce no
+    // character send nothing, which is what iOS does.
+    std::string key;
+    switch (keyEvent.keyCode) {
+      case 36:  // Return
+      case 76:  // Enter, on the keypad
+        key = "Enter";
+        break;
+      case 51:  // Delete, which is Backspace everywhere but on Apple keycaps
+        key = "Backspace";
+        break;
+      default: {
+        NSString *characters = keyEvent.characters;
+        if (characters.length == 0) {
+          return false;
+        }
+        const unichar first = [characters characterAtIndex:0];
+        // Function keys and the arrows live in the Unicode private use area,
+        // and control characters are not typing either.
+        if (first >= 0xF700 || (first < 0x20 && first != 0x09)) {
+          return false;
+        }
+        key = characters.UTF8String != nullptr ? characters.UTF8String : "";
+        break;
+      }
+    }
+    if (key.empty()) {
+      return false;
+    }
+
+    if (auto emitter = emitterFor(tag)) {
+      TextInputEventEmitter::KeyPressMetrics metrics{};
+      metrics.text = key;
+      metrics.eventCount = entry.eventCount;
+      emitter->onKeyPress(metrics);
+    }
+    return true;
+  }
+  return false;
 }
 
 void AppKitTextInputManager::handleSelectionChanged(void *editor) {
