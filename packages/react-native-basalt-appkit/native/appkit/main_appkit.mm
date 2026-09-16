@@ -38,6 +38,8 @@
 #include "BlobModule.h"
 #include "CoreModules.h"
 #include "ColorScheme.h"
+#import "AppKitTitleBar.h"
+#import "AppKitWindowModule.h"
 #include "DevBundle.h"
 
 #include <csignal>
@@ -278,6 +280,13 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
         }
+        // The title bar. Reaches the window through the one AppKitTitleBar,
+        // which the host attached at startup -- the same arrangement the
+        // Windows host has, and for the same reason: a module cannot be handed
+        // a window it is created before.
+        if (name == basalt::AppKitWindowModule::kModuleName) {
+          return std::make_shared<basalt::AppKitWindowModule>(jsInvoker);
+        }
         // Only outside dev mode, for the same reason DevSettings is above.
         //
         // This module's scriptURL is what HMRClient registers with Metro as its
@@ -463,6 +472,8 @@ int main(int argc, const char *argv[]) {
                       defer:NO];
     gHost.window.title = @"react-native-basalt — macOS";
     gHost.window.delegate = delegate;
+    // The title bar talks to this window from here on; see AppKitTitleBar.h.
+    basalt::titleBar().attach(gHost.window);
     [gHost.window center];
     gHost.scaleFactor = (int)gHost.window.backingScaleFactor;
 

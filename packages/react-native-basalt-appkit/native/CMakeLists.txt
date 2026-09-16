@@ -96,7 +96,8 @@ set(BASALT_APPKIT_TEST_SOURCES
   tests/test_appkit_accessibility.mm
   # macOS's half of the platform-services seam. The alert is the reason: a
   # sheet is its own window and never appears in a snapshot.
-  tests/test_appkit_services.mm)
+  tests/test_appkit_services.mm
+  tests/test_appkit_titlebar.mm)
 
 # ---------------------------------------------------------------------------
 # basalt_appkit_mounting — the AppKit half of the Fabric mounting manager.
@@ -132,7 +133,9 @@ if(TARGET basalt_core)
     # shared half, and only the decode and the cache are here.
     appkit/AppKitImageLoader.mm
     # <TextInput>, over a real NSTextField.
-    appkit/AppKitTextInput.mm)
+    appkit/AppKitTextInput.mm
+    appkit/AppKitTitleBar.mm
+    appkit/AppKitWindowModule.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)
