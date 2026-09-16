@@ -582,6 +582,33 @@ has gone unrecorded until now.
 
 ## TextInput
 
+- **Clicking a `<TextInput>` does not focus it.** On both hosts. The field only
+  takes focus when something calls `focus()` -- through the ref, through
+  `TextInput.State.focusTextInput`, or through the `focus` command -- which is
+  how every existing test and the demo happen to do it, and why this went
+  unnoticed. A user clicking into a field, which is how a field is normally
+  focused, gets nothing.
+
+  Verified with a control rather than inferred: a probe with a `<TextInput>`
+  above a `<Pressable>`, tapped in turn. The Pressable's `onPress` fires on both
+  hosts and the field's `onFocus` never does, so the taps land and the
+  dispatcher works -- focus is what is missing. It is not an artifact of
+  `BASALT_TEST_TAP` injecting past the window system either: a real click
+  through System Events, which reported hitting `text field 1 of window
+  react-native-basalt`, produced no `onFocus` on AppKit, and a keystroke after
+  it produced no `onChange`.
+
+  What is untested is a real click on a real Linux session, since the GTK half
+  of this was measured over quartz. Worth confirming there before deciding the
+  fix is shared.
+
+  The likely shape: the peer is a real `GtkText`/`NSTextField` and would take
+  focus from a click that reached *it*, but a touch is dispatched to the
+  `RnView` and stops there. Whatever the cause, `scripts/integration_test.py`
+  cannot see it -- its focus scenario taps a *button* that calls `focus()`, so a
+  tap-to-focus regression is invisible to the suite that looks like it covers
+  focus.
+
 - ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
   in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
   sends `text={value ?? defaultValue}`, so an uncontrolled field with no default
@@ -698,6 +725,25 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
 - Packaging: Arch PKGBUILD, Flatpak.
 
 ## Testing
+
+- **No unit test can observe an event.** Neither suite attaches an
+  `EventEmitter` to the shadow views it builds, and `test_appkit_textinput.mm`
+  says so in as many words: *"No emitter is attached to these hand-built shadow
+  views, so what this pins is that the round trip did not throw."* That is a
+  reasonable thing to pin and it is not coverage of the event.
+
+  So nothing about `onChange`, `onFocus`, `onBlur`, `onKeyPress`,
+  `onSelectionChange` or `onSubmitEditing` is tested anywhere below the
+  end-to-end suite. Three of the four `<TextInput>` features added in phases 51
+  and 52 rest on probe apps run by hand -- which is good evidence that they
+  worked once, on the machine they were written on, and no evidence at all
+  against a regression.
+
+  The fix is to give the suites a stub emitter: the managers already take an
+  `EmitterLookup` in their constructor, so a test could hand back an emitter
+  that records what it was asked to dispatch, and assertions become ordinary.
+  `onKeyPress` firing before `onChange` is the case that most wants this, since
+  it is an *ordering* guarantee that currently nothing checks.
 
 - **One flaky end-to-end scenario.** "focus a TextInput, type, and see it
   round-trip through React" failed once in five consecutive runs of
