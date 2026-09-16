@@ -572,12 +572,17 @@ jobs:
         run: scripts/bundle.sh react-native-src --prod --platform windows
 
       - name: End-to-end tests
-        # Four of five scenarios: Fast Refresh needs scripts/metro.sh, which is
-        # a shell script, and it would be skipped here even without this.
+        # All but Fast Refresh, which needs scripts/metro.sh to stay running
+        # and would be skipped here even without the flag.
         # Input is injected -- SendInput would move the runner's real cursor --
         # which is the mode integration_test.py picks on its own.
         shell: pwsh
         env:
+          # For the two scenarios that bundle an app of their own -- hover and
+          # pointerEvents, both about input the demo has nothing listening for.
+          # scripts/bundle.sh looks for a React Native checkout beside the repo,
+          # and CI puts it inside the workspace instead.
+          RN_DIR: react-native-src
           BASALT_SKIP_FAST_REFRESH: "1"
         run: |
           python scripts/integration_test.py --platform windows

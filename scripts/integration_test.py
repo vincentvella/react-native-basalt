@@ -579,17 +579,21 @@ def bundle_app(build: Path, entry: str) -> Path:
     bundled = build / f"{entry}.{PLATFORM}.jsbundle.js"
     if bundled.exists():
         return bundled
-    built = subprocess.run(
-        [
-            str(REPO / "scripts" / "bundle.sh"),
-            "--prod",
-            "--platform", PLATFORM,
-            "--entry", f"{entry}.js",
-            "--out", f"{entry}.{PLATFORM}.jsbundle",
-            "--build-dir", build.name,
-        ],
-        cwd=REPO, capture_output=True, text=True, timeout=600,
-    )
+    command = [
+        str(REPO / "scripts" / "bundle.sh"),
+        "--prod",
+        "--platform", PLATFORM,
+        "--entry", f"{entry}.js",
+        "--out", f"{entry}.{PLATFORM}.jsbundle",
+        "--build-dir", build.name,
+    ]
+    # Windows cannot exec a shell script, and answers an attempt with
+    # "%1 is not a valid Win32 application" -- which says nothing about shells.
+    # Git for Windows brings bash, and CI's own bundle step already runs this
+    # same script through it.
+    if os.name == "nt":
+        command.insert(0, "bash")
+    built = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=600)
     if built.returncode != 0 or not bundled.exists():
         raise Failure(f"could not bundle js/{entry}.js:\n{tail_text(built.stderr, 40)}")
     return bundled
