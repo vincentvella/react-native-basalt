@@ -118,6 +118,15 @@ class Skipped(Exception):
     """A scenario that cannot run here, and says why rather than passing."""
 
 
+# The demo's <TextInput>, from js/index.js: frame (24,183 320x44). Clicked
+# rather than tapped, so this is a point inside it in surface coordinates.
+FIELD_POINT = (120, 205)
+
+# styles.fieldFocused sets borderColor to PALETTE[0], and describeTree prints
+# per-edge colours -- so focus is visible in the tree without the demo needing
+# to render anything new for the test's benefit.
+FOCUSED_BORDER = "borderc=(#4285f4ff,#4285f4ff,#4285f4ff,#4285f4ff)"
+
 INPUT_MODE = "injected"
 
 
@@ -165,6 +174,93 @@ def type_with_xdotool(text: str) -> None:
     """Types through the X server, so GDK and the input method see the keys."""
     subprocess.run(["xdotool", "type", "--delay", "80", text], check=True)
     time.sleep(1.5)
+
+
+# --- A real click, which is the only kind that can focus a field -------------
+
+
+def click_field_with_cgevent(surface_height: int) -> None:
+    """Clicks the demo's <TextInput> with a real mouse event, on macOS.
+
+    Not `BASALT_TEST_TAP`, and not System Events' `click at`. The first enters
+    at the touch dispatcher, below the window system, so it moves React
+    Native's responder and never reaches the peer that takes focus. The second
+    performs an accessibility *press*, which a text field does nothing with --
+    and it answers with the name of the element it found, which makes it look
+    like it worked. Both were tried, both reported the feature broken, and the
+    feature was fine.
+
+    The field is located through accessibility rather than by arithmetic on the
+    window's origin: the title bar's height is the host's business and nothing
+    here should have to know it. That also means this clicks the control the
+    system believes is there, which is worth something on its own.
+    """
+    # Derived rather than looked up. The field is exposed to accessibility as
+    # an AXGroup rather than an AXTextField -- see plan/backlog.md -- so there
+    # is no role to search for, and hunting the only group in the window would
+    # break the first time the demo grows another.
+    #
+    # So: ask the window where it is and how big it is, and take the title
+    # bar's height as the difference between that and the surface, which the
+    # caller read out of a tree dump. Nothing here has to know what AppKit's
+    # title bar measures.
+    script = """
+    tell application "System Events"
+      set procs to (every process whose name contains "basalt")
+      if (count of procs) = 0 then error "no host process"
+      set w to first window of (item 1 of procs)
+      set {wx, wy} to position of w
+      set {ww, wh} to size of w
+      return (wx as text) & "," & (wy as text) & "," & (ww as text) & "," & (wh as text)
+    end tell
+    """
+    found = subprocess.run(
+        ["osascript", "-e", script], capture_output=True, text=True
+    )
+    if found.returncode != 0 or found.stdout.count(",") != 3:
+        raise Failure(f"could not find the host window: {found.stderr.strip()}")
+    wx, wy, _ww, wh = (int(part) for part in found.stdout.strip().split(","))
+
+    chrome = wh - surface_height
+    x = wx + FIELD_POINT[0]
+    y = wy + chrome + FIELD_POINT[1]
+
+    # CoreGraphics through ctypes, so nothing has to be compiled to run the
+    # suite. A post that goes nowhere is what a missing accessibility
+    # permission looks like, which the scenario's failure names.
+    import ctypes
+
+    core = ctypes.cdll.LoadLibrary(
+        "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+    )
+
+    class CGPoint(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+    core.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+    core.CGEventCreateMouseEvent.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, CGPoint, ctypes.c_uint32
+    ]
+    core.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+
+    point = CGPoint(x, y)
+    for event_type in (5, 1, 2):  # mouseMoved, leftMouseDown, leftMouseUp
+        event = core.CGEventCreateMouseEvent(None, event_type, point, 0)
+        core.CGEventPost(0, event)  # kCGHIDEventTap
+        time.sleep(0.15)
+
+
+def click_field_for_real(surface_height: int) -> None:
+    """The platform's way of producing a click a window system believes in."""
+    if PLATFORM == "macos":
+        click_field_with_cgevent(surface_height)
+        return
+    if PLATFORM == "linux":
+        # The demo's field, from js/index.js. xdotool goes through the X server,
+        # so GDK delivers the press itself.
+        click_with_xdotool([(FIELD_POINT[0], FIELD_POINT[1])])
+        return
+    raise Skipped(f"no real click on {PLATFORM}")
 
 
 def run_host(bundle: Path, taps: str = "", run_ms: int = 4000, typing: str = "") -> str:
@@ -658,11 +754,75 @@ def test_text_input(bundle: Path) -> None:
     )
 
 
+
+def test_click_focuses_a_field(bundle: Path) -> None:
+    """A real click into a <TextInput> focuses it.
+
+    The one interaction nothing else here covers. "focus a TextInput, type, and
+    see it round-trip" looks like it does, and does not: it taps the demo's
+    *button*, which calls focus() -- so every path through this suite focuses
+    programmatically, and a regression in focus-by-click would be invisible.
+
+    The demo's field takes a different border colour when it is focused, and
+    `describeTree` prints per-edge border colours, so the tree is the assertion
+    and nothing new has to be rendered to check it.
+    """
+    if PLATFORM == "windows":
+        raise Skipped("SendInput moves the runner's real cursor")
+    if PLATFORM == "linux" and not real_input_available():
+        raise Skipped("needs a display and xdotool; a click has to be real")
+
+    # The surface's height, so the click can be aimed without anything here
+    # knowing what a title bar measures. One short run with no input, which is
+    # cheaper than guessing and cannot drift.
+    root = re.search(r"view tag=\d+ frame=\(0,0 [\d.]+x([\d.]+)\)", run_host(bundle, run_ms=3000))
+    if root is None:
+        raise Failure("could not read the surface height from a tree dump")
+    surface_height = int(float(root.group(1)))
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env = dict(os.environ)
+        env["BASALT_DUMP_TREE"] = str(dump)
+        env["BASALT_QUIT_AFTER_MS"] = "12000"
+        env.pop("BASALT_TEST_TAP", None)
+        env.pop("BASALT_TEST_TYPE", None)
+
+        process = subprocess.Popen(
+            [str(HOST), str(bundle), MODULE], cwd=REPO, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        # The window has to exist, and be where the system thinks it is.
+        time.sleep(5)
+        try:
+            click_field_for_real(surface_height)
+            time.sleep(2)
+        finally:
+            _, stderr = process.communicate(timeout=90)
+        _remember_output(stderr)
+        check_output(stderr, process.returncode)
+
+        if not dump.exists():
+            raise Failure("host wrote no widget tree")
+        tree = dump.read_text()
+
+    # PALETTE[0] on every edge, which styles.fieldFocused sets and nothing else
+    # in the demo uses as a border.
+    if FOCUSED_BORDER not in tree:
+        raise Failure(
+            "the field did not take focus from a real click; its border is still "
+            f"unfocused.\nOn macOS the usual cause is that the run has no "
+            f"accessibility permission, so CGEventPost silently posts nothing.\n"
+            f"{tree[:1200]}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
     ("scroll away and back", test_scroll_round_trip),
     ("focus a TextInput, type, and see it round-trip through React", test_text_input),
+    ("click a TextInput with a real mouse and see it focus", test_click_focuses_a_field),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 
