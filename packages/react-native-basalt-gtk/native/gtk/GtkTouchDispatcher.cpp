@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <vector>
 
 namespace basalt {
 
@@ -144,22 +145,96 @@ void GtkTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, 
 // Hit testing
 // ---------------------------------------------------------------------------
 
-Tag hitTestTag(RnView *root, double x, double y) {
-  if (root == nullptr) {
-    return 0;
-  }
-  GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
+namespace {
 
-  // The deepest widget may not be a React Native view -- and even when every
-  // widget is one, walking up is what makes a touch on a child count as a touch
-  // on the ancestor that actually handles it.
-  while (picked != nullptr && !RN_IS_VIEW(picked)) {
-    picked = gtk_widget_get_parent(picked);
+// `pointerEvents`, which GTK can express one quarter of.
+//
+// `none` is `can-target`, set on the widget when the prop arrives: GTK's own
+// pick then skips the widget and everything inside it, so a press reaches
+// whatever is behind. That is the whole of it and nothing here has to help.
+//
+// The other two have no equivalent, because a GTK widget is targetable or it is
+// not and these are neither:
+//
+//   box-only  the view is a target and nothing inside it is. Resolved by
+//             walking up from the pick: the outermost box-only ancestor is the
+//             answer, because everything within it has been taken out of hit
+//             testing.
+//
+//   box-none  the view is not a target and everything inside it is. If the
+//             pick landed on the view *itself* then nothing inside it was hit,
+//             and the press belongs to whatever is behind -- which is what an
+//             absolutely-positioned overlay, the reason this mode exists, is
+//             asking for. GTK will answer that question, but only about a
+//             widget it considers untargetable, so the view is made so for the
+//             length of one more pick and put back.
+//
+// The last part is the only inelegance, and the alternative is worse: a hit
+// test of this project's own over the RnView tree, which would have to redo
+// the transform and clip handling GTK already does correctly. AppKit and Win32
+// own their hit tests and express all three modes directly; this is the same
+// answer reached the only way the toolkit allows.
+RnView *pickTarget(RnView *root, double x, double y) {
+  if (root == nullptr) {
+    return nullptr;
   }
-  if (picked == nullptr) {
-    return 0;
+
+  // Bounded: each pass makes exactly one more view untargetable, so a tree of
+  // nested box-none views terminates, and a bug here fails a hit test rather
+  // than hanging the main loop.
+  std::vector<RnView *> suppressed;
+  RnView *target = nullptr;
+  for (int pass = 0; pass < 16; pass++) {
+    GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
+
+    // The deepest widget may not be a React Native view -- a <TextInput>'s peer
+    // is a GtkText -- and even when every widget is one, walking up is what
+    // makes a touch on a child count as a touch on the ancestor that handles
+    // it.
+    while (picked != nullptr && !RN_IS_VIEW(picked)) {
+      picked = gtk_widget_get_parent(picked);
+    }
+    if (picked == nullptr) {
+      break;
+    }
+
+    // Walk to the root, remembering the outermost box-only. It wins over
+    // anything found deeper, because nothing deeper is a target at all.
+    RnView *boxOnly = nullptr;
+    for (GtkWidget *widget = picked; widget != nullptr; widget = gtk_widget_get_parent(widget)) {
+      if (RN_IS_VIEW(widget) &&
+          rn_view_get_pointer_events(RN_VIEW(widget)) == RN_POINTER_EVENTS_BOX_ONLY) {
+        boxOnly = RN_VIEW(widget);
+      }
+      if (widget == GTK_WIDGET(root)) {
+        break;
+      }
+    }
+    if (boxOnly != nullptr) {
+      target = boxOnly;
+      break;
+    }
+
+    if (rn_view_get_pointer_events(RN_VIEW(picked)) != RN_POINTER_EVENTS_BOX_NONE) {
+      target = RN_VIEW(picked);
+      break;
+    }
+    // Transparent, and nothing inside it was hit. Ask again without it.
+    gtk_widget_set_can_target(picked, FALSE);
+    suppressed.push_back(RN_VIEW(picked));
   }
-  return static_cast<Tag>(rn_view_get_tag(RN_VIEW(picked)));
+
+  for (RnView *view : suppressed) {
+    gtk_widget_set_can_target(GTK_WIDGET(view), TRUE);
+  }
+  return target;
+}
+
+} // namespace
+
+Tag hitTestTag(RnView *root, double x, double y) {
+  RnView *target = pickTarget(root, x, y);
+  return target == nullptr ? 0 : static_cast<Tag>(rn_view_get_tag(target));
 }
 
 namespace {
@@ -177,7 +252,10 @@ void walkHitChain(RnView *root, double x, double y, Visit &&visit) {
     return;
   }
 
-  GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
+  // From the resolved target rather than from the raw pick, so that a gesture
+  // handler and a hover see the same view a press would. A box-only ancestor
+  // that swallows a press swallows a hover too.
+  GtkWidget *picked = GTK_WIDGET(pickTarget(root, x, y));
   for (GtkWidget *widget = picked; widget != nullptr; widget = gtk_widget_get_parent(widget)) {
     if (RN_IS_VIEW(widget)) {
       // The widget's own origin in the root's coordinates. GTK computes it,

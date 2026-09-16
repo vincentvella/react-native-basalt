@@ -165,3 +165,78 @@ TEST(a_synthesised_hover_walks_the_tree_without_an_emitter) {
   gtk_window_destroy(GTK_WINDOW(window));
   manager.destroySurfaceRoot(1);
 }
+
+// `pointerEvents`, which decides what a press can land on rather than what is
+// drawn. GTK expresses exactly one of the four values -- `none`, through
+// can-target -- so these are also the tests for the resolution
+// GtkTouchDispatcher does for the other two.
+TEST(pointer_events_none_passes_a_press_through_to_what_is_behind) {
+  Scene scene(400, 400);
+  RnView *behind = addChild(scene.root, 60, 0.0F, 0.0F, 200.0F, 200.0F);
+  RnView *over = rn_view_new(61);
+  g_object_ref_sink(over);
+  rn_view_set_frame(over, 0.0F, 0.0F, 200.0F, 200.0F);
+  rn_view_insert_child(scene.root, over, 1);
+  scene.show();
+  (void)behind;
+
+  // Painted last, so it is on top and takes the press.
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 61);
+
+  rn_view_set_pointer_events(over, RN_POINTER_EVENTS_NONE);
+  Scene::pump();
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 60);
+}
+
+TEST(pointer_events_none_takes_the_children_with_it) {
+  Scene scene(400, 400);
+  RnView *over = addChild(scene.root, 62, 0.0F, 0.0F, 200.0F, 200.0F);
+  addChild(over, 63, 0.0F, 0.0F, 100.0F, 100.0F);
+  scene.show();
+
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 63);
+  // The whole subtree leaves hit testing, not just the view the prop is on --
+  // which is GTK's own can-target semantics and the reason `none` needs no
+  // help from the dispatcher.
+  rn_view_set_pointer_events(over, RN_POINTER_EVENTS_NONE);
+  Scene::pump();
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 1);
+}
+
+TEST(pointer_events_box_none_is_transparent_and_its_children_are_not) {
+  Scene scene(400, 400);
+  addChild(scene.root, 64, 0.0F, 0.0F, 300.0F, 300.0F);
+  RnView *overlay = rn_view_new(65);
+  g_object_ref_sink(overlay);
+  rn_view_set_frame(overlay, 0.0F, 0.0F, 300.0F, 300.0F);
+  rn_view_insert_child(scene.root, overlay, 1);
+  addChild(overlay, 66, 0.0F, 0.0F, 100.0F, 100.0F);
+  rn_view_set_pointer_events(overlay, RN_POINTER_EVENTS_BOX_NONE);
+  scene.show();
+
+  // Over the child: the overlay's children are still targets.
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 66);
+  // Over the overlay and nothing inside it: the press belongs to the view
+  // *behind*, not to the overlay's parent. Reaching that answer is what the
+  // re-pick in pickTarget is for; returning the parent would look right until
+  // something was underneath.
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 200.0, 200.0)), 64);
+  // And the view is targetable again afterwards -- the suppression lasts for
+  // one pick, not for good.
+  EXPECT(gtk_widget_get_can_target(GTK_WIDGET(overlay)));
+}
+
+TEST(pointer_events_box_only_swallows_presses_meant_for_its_children) {
+  Scene scene(400, 400);
+  RnView *panel = addChild(scene.root, 67, 0.0F, 0.0F, 300.0F, 300.0F);
+  addChild(panel, 68, 0.0F, 0.0F, 100.0F, 100.0F);
+  scene.show();
+
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 68);
+  rn_view_set_pointer_events(panel, RN_POINTER_EVENTS_BOX_ONLY);
+  Scene::pump();
+  // The press lands on the panel even though it is over the child, which is
+  // what makes a disabled panel disable everything in it.
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 50.0, 50.0)), 67);
+  EXPECT_EQ(static_cast<int>(basalt::hitTestTag(scene.root, 200.0, 200.0)), 67);
+}

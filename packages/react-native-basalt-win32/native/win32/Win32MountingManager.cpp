@@ -261,8 +261,24 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
   // with <TitleBar.DragRegion>.
   view->setNativeId(props->nativeId);
 
-  // TODO(props): per-corner radii, borders, pointerEvents. The GTK and AppKit
-  // sides have all of them.
+  // Hit testing only. `hitTest` reads it; nothing about painting does.
+  switch (props->pointerEvents) {
+    case facebook::react::PointerEventsMode::None:
+      view->setPointerEvents(win32::RnWin32View::PointerEvents::None);
+      break;
+    case facebook::react::PointerEventsMode::BoxNone:
+      view->setPointerEvents(win32::RnWin32View::PointerEvents::BoxNone);
+      break;
+    case facebook::react::PointerEventsMode::BoxOnly:
+      view->setPointerEvents(win32::RnWin32View::PointerEvents::BoxOnly);
+      break;
+    case facebook::react::PointerEventsMode::Auto:
+      view->setPointerEvents(win32::RnWin32View::PointerEvents::Auto);
+      break;
+  }
+
+  // TODO(props): per-corner radii, borders. The GTK and AppKit
+  // sides have both of them.
   //
   // Since phase 47 this gap is visible rather than asserted: `describeTree`
   // prints `radii=` and `borderw=`/`borderc=`, so a bordered view dumps

@@ -26,6 +26,7 @@ build="${BASALT_BUILD_DIR:-build}"
 APPS=(
   "views:BasaltViews"
   "press:BasaltPress"
+  "pointerevents:BasaltPointerEvents"
   "scroll:BasaltScroll"
   "image:BasaltImage"
   "text:BasaltText"

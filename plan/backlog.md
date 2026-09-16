@@ -538,6 +538,16 @@ has gone unrecorded until now.
   a wheel would be worse than silence -- a wheel is not a throw.
 - `setIsJSResponder` is a no-op. It matters once something scrolls natively, so
   it lands with `ScrollView`.
+- ~~`pointerEvents` is ignored.~~ All four values work on all three hosts, and
+  `describeTree` prints `pe=` so the cross-host diff can see the prop arrived.
+  AppKit and Win32 own their hit tests, so the three modes are four lines each
+  there. GTK expresses exactly one: `none` is `can-target`, which makes
+  `gtk_widget_pick` skip the widget and everything inside it. `box-only` is
+  resolved by walking up from the pick, and `box-none` by making the view
+  untargetable for the length of one more pick and putting it back -- which is
+  the only way to reach the sibling *behind* an overlay without replacing
+  GTK's picking, and that would mean redoing the transform and clip handling it
+  already gets right.
 - `Touch::offsetPoint` carries page coordinates rather than coordinates relative
   to the target view. Pressability does not read it; anything doing its own hit
   maths would.

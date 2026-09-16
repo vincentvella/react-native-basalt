@@ -189,3 +189,78 @@ TEST(hit_test_follows_a_transform) {
 TEST(hit_test_on_a_null_root_is_a_miss) {
   EXPECT_EQ(tagAt(nullptr, 10, 10), -1);
 }
+
+// `pointerEvents`, which decides what a press can land on rather than what is
+// drawn. The same four cases the GTK and AppKit suites ask, in the same order,
+// because the answer has to be the same on all three.
+TEST(pointer_events_none_passes_a_press_through_to_what_is_behind) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *behind = tree.box(10, 0, 0, 200, 200);
+  RnWin32View *over = tree.box(11, 0, 0, 200, 200);
+  root->insertChild(behind, 0);
+  root->insertChild(over, 1);
+
+  // Painted last, so it is on top and takes the press.
+  EXPECT_EQ(tagAt(root, 50, 50), 11);
+
+  over->setPointerEvents(RnWin32View::PointerEvents::None);
+  EXPECT_EQ(tagAt(root, 50, 50), 10);
+}
+
+TEST(pointer_events_none_takes_the_children_with_it) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *over = tree.box(11, 0, 0, 200, 200);
+  over->insertChild(tree.box(12, 0, 0, 100, 100), 0);
+  root->insertChild(over, 0);
+
+  EXPECT_EQ(tagAt(root, 50, 50), 12);
+  // The whole subtree leaves hit testing, not just the view the prop is on.
+  over->setPointerEvents(RnWin32View::PointerEvents::None);
+  EXPECT_EQ(tagAt(root, 50, 50), 1);
+}
+
+TEST(pointer_events_box_none_is_transparent_and_its_children_are_not) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *behind = tree.box(10, 0, 0, 300, 300);
+  RnWin32View *overlay = tree.box(11, 0, 0, 300, 300);
+  overlay->insertChild(tree.box(12, 0, 0, 100, 100), 0);
+  root->insertChild(behind, 0);
+  root->insertChild(overlay, 1);
+  overlay->setPointerEvents(RnWin32View::PointerEvents::BoxNone);
+
+  // Over the child: the overlay's children are still targets.
+  EXPECT_EQ(tagAt(root, 50, 50), 12);
+  // Over the overlay and nothing inside it: the press belongs to the view
+  // *behind*, not to the overlay's parent. That is the whole reason the mode
+  // exists, and returning the parent would look right until something was
+  // underneath.
+  EXPECT_EQ(tagAt(root, 200, 200), 10);
+}
+
+TEST(pointer_events_box_only_swallows_presses_meant_for_its_children) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *panel = tree.box(11, 0, 0, 300, 300);
+  panel->insertChild(tree.box(12, 0, 0, 100, 100), 0);
+  root->insertChild(panel, 0);
+
+  EXPECT_EQ(tagAt(root, 50, 50), 12);
+  panel->setPointerEvents(RnWin32View::PointerEvents::BoxOnly);
+  // The press lands on the panel even though it is over the child, which is
+  // what makes a disabled panel disable everything in it.
+  EXPECT_EQ(tagAt(root, 50, 50), 11);
+  EXPECT_EQ(tagAt(root, 200, 200), 11);
+}
+
+TEST(pointer_events_shows_up_in_the_tree_dump) {
+  Tree tree;
+  RnWin32View *view = tree.box(10, 0, 0, 100, 100);
+  view->setPointerEvents(RnWin32View::PointerEvents::BoxNone);
+  // Printed because it is invisible otherwise: a view with this prop is drawn
+  // exactly like one without, so the cross-host diff can only see the prop
+  // arrived if each host prints it.
+  EXPECT(view->describeTree().find("pe=box-none") != std::string::npos);
+}

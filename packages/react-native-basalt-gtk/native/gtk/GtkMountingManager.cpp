@@ -697,7 +697,25 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
     rn_view_set_transform(view, &matrix);
   }
 
-  // TODO(props): borderStyles (dashed/dotted), pointerEvents, backfaceVisibility.
+  // Hit testing only. `none` becomes GTK's can-target inside the setter; the
+  // other two are resolved by GtkTouchDispatcher, which is the only thing that
+  // reads them.
+  switch (props->pointerEvents) {
+    case facebook::react::PointerEventsMode::None:
+      rn_view_set_pointer_events(view, RN_POINTER_EVENTS_NONE);
+      break;
+    case facebook::react::PointerEventsMode::BoxNone:
+      rn_view_set_pointer_events(view, RN_POINTER_EVENTS_BOX_NONE);
+      break;
+    case facebook::react::PointerEventsMode::BoxOnly:
+      rn_view_set_pointer_events(view, RN_POINTER_EVENTS_BOX_ONLY);
+      break;
+    case facebook::react::PointerEventsMode::Auto:
+      rn_view_set_pointer_events(view, RN_POINTER_EVENTS_AUTO);
+      break;
+  }
+
+  // TODO(props): borderStyles (dashed/dotted), backfaceVisibility.
 }
 
 void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shadowView) {

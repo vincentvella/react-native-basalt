@@ -366,3 +366,105 @@ TEST(a_synthesised_hover_walks_the_tree_without_an_emitter) {
     manager.destroySurfaceRoot(kSurfaceId);
   }
 }
+
+// `pointerEvents`, which decides what a press can land on rather than what is
+// drawn. Four values, and the two in the middle are the ones worth testing:
+// `none` and `auto` are obvious, `box-none` and `box-only` are the pair
+// everyone gets the wrong way round.
+TEST(pointer_events_none_passes_a_press_through_to_what_is_behind) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 300);
+    RnAppKitView *behind = box(10, 0, 0, 200, 200);
+    RnAppKitView *over = box(11, 0, 0, 200, 200);
+    [root insertRnChild:behind atIndex:0];
+    [root insertRnChild:over atIndex:1];
+
+    // Painted last, so it is on top and takes the press.
+    EXPECT_EQ(hit(root, 50, 50), 11L);
+
+    over.rnPointerEvents = RnAppKitPointerEventsNone;
+    EXPECT_EQ(hit(root, 50, 50), 10L);
+  }
+}
+
+TEST(pointer_events_none_takes_the_children_with_it) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 300);
+    RnAppKitView *over = box(11, 0, 0, 200, 200);
+    RnAppKitView *inside = box(12, 0, 0, 100, 100);
+    [over insertRnChild:inside atIndex:0];
+    [root insertRnChild:over atIndex:0];
+
+    EXPECT_EQ(hit(root, 50, 50), 12L);
+    // The whole subtree leaves hit testing, not just the view the prop is on.
+    over.rnPointerEvents = RnAppKitPointerEventsNone;
+    EXPECT_EQ(hit(root, 50, 50), 1L);
+  }
+}
+
+TEST(pointer_events_box_none_is_transparent_and_its_children_are_not) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 300);
+    RnAppKitView *behind = box(10, 0, 0, 300, 300);
+    RnAppKitView *overlay = box(11, 0, 0, 300, 300);
+    RnAppKitView *button = box(12, 0, 0, 100, 100);
+    [overlay insertRnChild:button atIndex:0];
+    [root insertRnChild:behind atIndex:0];
+    [root insertRnChild:overlay atIndex:1];
+
+    overlay.rnPointerEvents = RnAppKitPointerEventsBoxNone;
+    // Over the button: the overlay's child is still a target.
+    EXPECT_EQ(hit(root, 50, 50), 12L);
+    // Over the overlay and nothing inside it: the press belongs to the view
+    // *behind*, not to the overlay's parent. This is the whole reason the mode
+    // exists -- an absolutely-positioned layer that does not block what it
+    // covers -- and returning the parent here would look right until something
+    // was underneath.
+    EXPECT_EQ(hit(root, 200, 200), 10L);
+  }
+}
+
+TEST(pointer_events_box_only_swallows_presses_meant_for_its_children) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 300);
+    RnAppKitView *panel = box(11, 0, 0, 300, 300);
+    RnAppKitView *button = box(12, 0, 0, 100, 100);
+    [panel insertRnChild:button atIndex:0];
+    [root insertRnChild:panel atIndex:0];
+
+    EXPECT_EQ(hit(root, 50, 50), 12L);
+    panel.rnPointerEvents = RnAppKitPointerEventsBoxOnly;
+    // The press lands on the panel even though it is over the button, which is
+    // what makes a disabled panel disable everything in it.
+    EXPECT_EQ(hit(root, 50, 50), 11L);
+    EXPECT_EQ(hit(root, 200, 200), 11L);
+  }
+}
+
+TEST(pointer_events_reaches_the_view_from_the_props_and_the_tree_dump) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:300];
+
+    ShadowView blocked = makeView(10, 0, 0, 100, 100);
+    auto props = std::make_shared<ViewProps>();
+    props->pointerEvents = facebook::react::PointerEventsMode::BoxNone;
+    blocked.props = props;
+
+    ShadowViewMutationList mutations;
+    mutations.push_back(ShadowViewMutation::CreateMutation(blocked));
+    mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, blocked, 0));
+    apply(manager, std::move(mutations));
+
+    EXPECT_EQ((long)manager.viewForTag(10).rnPointerEvents,
+              (long)RnAppKitPointerEventsBoxNone);
+    // In the dump, because it is invisible otherwise: a view with this prop is
+    // drawn exactly like one without, so the cross-host diff can only see the
+    // prop arrived if each host prints it.
+    NSString *tree = [root describeTree];
+    EXPECT([tree containsString:@"pe=box-none"]);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}

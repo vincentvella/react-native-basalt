@@ -129,6 +129,17 @@ class RnWin32View {
   void setZIndex(int zIndex);
   int zIndex() const { return zIndex_; }
 
+  // `pointerEvents`, which decides what a press can land on rather than what is
+  // drawn. CSS's four values, and React Native's. Read by `hitTest` and by
+  // nothing else.
+  //
+  // On the view rather than in the mounting manager because hit testing is a
+  // pure function of the view tree -- `hitTest` takes no React Native types and
+  // has nowhere to look a prop up. The AppKit host arranges it the same way.
+  enum class PointerEvents { Auto, None, BoxNone, BoxOnly };
+  void setPointerEvents(PointerEvents mode) { pointerEvents_ = mode; }
+  PointerEvents pointerEvents() const { return pointerEvents_; }
+
   // `display: none`. A hidden view is neither painted nor hit, and neither are
   // its children. Distinct from `opacity: 0`, which paints nothing and is still
   // there to be pressed.
@@ -264,6 +275,7 @@ class RnWin32View {
   HWND editablePeer_ = nullptr;
   std::string nativeId_;
   int zIndex_ = 0;
+  PointerEvents pointerEvents_ = PointerEvents::Auto;
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;
 

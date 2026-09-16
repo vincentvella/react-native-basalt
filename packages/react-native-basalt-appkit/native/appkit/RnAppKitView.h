@@ -122,6 +122,20 @@ typedef NS_ENUM(NSInteger, RnAppKitAccessibleFlag) {
   RnAppKitAccessibleTrue,
 };
 
+// `pointerEvents`, which decides what a press can land on rather than what is
+// drawn. CSS's four values, and React Native's: a view is a target, or it is
+// not, or its children are and it is not, or it is and they are not.
+//
+// Here rather than in the mounting manager because hit testing is a pure
+// function of the view tree -- `RnAppKitHitTest` takes no React Native types
+// and has nowhere to look a prop up.
+typedef NS_ENUM(NSInteger, RnAppKitPointerEvents) {
+  RnAppKitPointerEventsAuto,
+  RnAppKitPointerEventsNone,
+  RnAppKitPointerEventsBoxNone,
+  RnAppKitPointerEventsBoxOnly,
+};
+
 typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
   RnAppKitImageFitCover,
   RnAppKitImageFitContain,
@@ -154,6 +168,10 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // React Native both promise.
 - (void)setRnZIndex:(NSInteger)zIndex;
 @property(nonatomic, readonly) NSInteger rnZIndex;
+
+// `pointerEvents`. Read by RnAppKitHitTest and by nothing else -- it changes
+// what a press finds and never what is drawn.
+@property(nonatomic) RnAppKitPointerEvents rnPointerEvents;
 
 // This view's children in the order they paint: back to front, stably sorted
 // by zIndex. The same list hit testing walks in reverse, so what is on top is

@@ -409,8 +409,31 @@ void RnWin32View::paintChildren(ID2D1RenderTarget *target) const {
 
 // --- Hit testing ------------------------------------------------------------
 
+namespace {
+
+// The spelling React Native uses for the prop, which is also CSS's, so the
+// three hosts' dumps say the same words.
+const char *pointerEventsName(RnWin32View::PointerEvents mode) {
+  switch (mode) {
+    case RnWin32View::PointerEvents::None:
+      return "none";
+    case RnWin32View::PointerEvents::BoxNone:
+      return "box-none";
+    case RnWin32View::PointerEvents::BoxOnly:
+      return "box-only";
+    case RnWin32View::PointerEvents::Auto:
+      break;
+  }
+  return "auto";
+}
+
+} // namespace
+
 RnWin32View *hitTest(RnWin32View *root, float x, float y) {
-  if (root == nullptr || root->hidden()) {
+  // `pointerEvents: none` takes the view and everything inside it out of hit
+  // testing entirely, so the caller's loop carries on to whatever is behind.
+  if (root == nullptr || root->hidden() ||
+      root->pointerEvents() == RnWin32View::PointerEvents::None) {
     return nullptr;
   }
 
@@ -428,20 +451,35 @@ RnWin32View *hitTest(RnWin32View *root, float x, float y) {
 
   // Backwards: the last child painted is the topmost, and the topmost is what a
   // press should land on.
-  const std::vector<RnWin32View *> ordered = root->childrenInPaintOrder();
-  for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
-    RnWin32View *child = *it;
-    float local[6];
-    child->localToParent(local);
+  //
+  // `box-only` is the one mode that skips this: the box is the target and
+  // nothing inside it is, which is what makes an overlay swallow a press meant
+  // for a button drawn on top of it.
+  if (root->pointerEvents() != RnWin32View::PointerEvents::BoxOnly) {
+    const std::vector<RnWin32View *> ordered = root->childrenInPaintOrder();
+    for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
+      RnWin32View *child = *it;
+      float local[6];
+      child->localToParent(local);
 
-    float childX = 0.0f;
-    float childY = 0.0f;
-    if (!invertPoint(local, contentX, contentY, childX, childY)) {
-      continue;
+      float childX = 0.0f;
+      float childY = 0.0f;
+      if (!invertPoint(local, contentX, contentY, childX, childY)) {
+        continue;
+      }
+      if (RnWin32View *hit = hitTest(child, childX, childY)) {
+        return hit;
+      }
     }
-    if (RnWin32View *hit = hitTest(child, childX, childY)) {
-      return hit;
-    }
+  }
+
+  // `box-none` is transparent to a press that misses everything inside it.
+  // Returning null rather than the parent is the whole of it: the caller is
+  // partway through its own list of children, so the press carries on to the
+  // sibling *behind* this view -- which is what the absolutely-positioned
+  // overlay this mode exists for is asking for.
+  if (root->pointerEvents() == RnWin32View::PointerEvents::BoxNone) {
+    return nullptr;
   }
 
   // A point inside this view but over none of its children is this view. React
@@ -522,6 +560,14 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
                  " scroll=(%g,%g)",
                  static_cast<double>(scrollX_),
                  static_cast<double>(scrollY_));
+  }
+  // Printed only when it is not the default, like every other field here.
+  // Worth printing at all because it is invisible: a view with
+  // `pointerEvents: none` is drawn exactly like one without, and the only way
+  // the cross-host diff can say the prop arrived on all three is if each one
+  // reports it.
+  if (pointerEvents_ != PointerEvents::Auto) {
+    appendFormat(out, " pe=%s", pointerEventsName(pointerEvents_));
   }
 
   if (image_ != nullptr) {

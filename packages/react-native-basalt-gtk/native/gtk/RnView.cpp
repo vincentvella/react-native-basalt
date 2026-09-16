@@ -162,6 +162,8 @@ struct _RnView {
 
   int z_index;
 
+  RnPointerEvents pointer_events;
+
   // Border plus padding, for the native peer below. React Native calls this a
   // content inset and Yoga has already resolved it; a GtkText knows nothing
   // about either and would otherwise sit flush against the border.
@@ -603,6 +605,22 @@ void rn_view_set_role_name(RnView *self, const char *name) {
   self->role_name = name != nullptr && *name != '\0' ? g_strdup(name) : nullptr;
 }
 
+// The spelling React Native uses for the prop, which is also CSS's, so the
+// three hosts' dumps say the same words.
+static const char *rn_pointer_events_name(RnPointerEvents mode) {
+  switch (mode) {
+    case RN_POINTER_EVENTS_NONE:
+      return "none";
+    case RN_POINTER_EVENTS_BOX_NONE:
+      return "box-none";
+    case RN_POINTER_EVENTS_BOX_ONLY:
+      return "box-only";
+    case RN_POINTER_EVENTS_AUTO:
+      break;
+  }
+  return "auto";
+}
+
 static const char *rn_image_fit_name(RnImageFit fit) {
   switch (fit) {
     case RN_IMAGE_FIT_CONTAIN:
@@ -703,6 +721,24 @@ void rn_view_set_z_index(RnView *self, int z_index) {
   if (parent != nullptr) {
     gtk_widget_queue_draw(parent);
   }
+}
+
+void rn_view_set_pointer_events(RnView *self, RnPointerEvents mode) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->pointer_events == mode) {
+    return;
+  }
+  self->pointer_events = mode;
+  // `none` is the one mode GTK understands: an untargetable widget is skipped
+  // by gtk_widget_pick along with everything inside it, so a press lands on
+  // whatever is behind. The other two are left to the hit test, because a
+  // widget can only be targetable or not and they are neither.
+  gtk_widget_set_can_target(GTK_WIDGET(self), mode != RN_POINTER_EVENTS_NONE);
+}
+
+RnPointerEvents rn_view_get_pointer_events(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), RN_POINTER_EVENTS_AUTO);
+  return self->pointer_events;
 }
 
 void rn_view_set_clips_children(RnView *self, gboolean clips) {
@@ -843,6 +879,14 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   }
   if (self->scroll_x != 0.0 || self->scroll_y != 0.0) {
     g_string_append_printf(out, " scroll=(%g,%g)", self->scroll_x, self->scroll_y);
+  }
+  // Printed only when it is not the default, like every other field here.
+  // Worth printing at all because it is invisible: a view with
+  // `pointerEvents: none` is drawn exactly like one without, and the only way
+  // the cross-host diff can say the prop arrived on all three is if each one
+  // reports it.
+  if (self->pointer_events != RN_POINTER_EVENTS_AUTO) {
+    g_string_append_printf(out, " pe=%s", rn_pointer_events_name(self->pointer_events));
   }
   if (self->texture != nullptr) {
     // The fit is here because it is the only thing about a drawn image that a

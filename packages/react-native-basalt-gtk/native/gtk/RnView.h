@@ -76,6 +76,24 @@ void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix);
 // without touching the child list that mutations index into.
 void rn_view_set_z_index(RnView *self, int z_index);
 
+// `pointerEvents`, which decides what a press can land on rather than what is
+// drawn. CSS's four values, and React Native's.
+//
+// GTK expresses exactly one of them. `none` is `can-target`, which makes
+// `gtk_widget_pick` skip the widget and everything inside it, so a press
+// reaches whatever is behind -- which is precisely the semantics. The other two
+// have no equivalent, so they are stored here and resolved by the hit test;
+// see GtkTouchDispatcher.cpp.
+typedef enum {
+  RN_POINTER_EVENTS_AUTO,
+  RN_POINTER_EVENTS_NONE,
+  RN_POINTER_EVENTS_BOX_NONE,
+  RN_POINTER_EVENTS_BOX_ONLY,
+} RnPointerEvents;
+
+void rn_view_set_pointer_events(RnView *self, RnPointerEvents mode);
+RnPointerEvents rn_view_get_pointer_events(RnView *self);
+
 // The text of a <Paragraph>, already laid out.
 //
 // A Paragraph is a View that also paints text, so it gets no separate widget

@@ -17,8 +17,26 @@
 // flattening hoists most such children out to an ancestor that does contain
 // them, so this matters less than it reads; the GTK side has the same limit for
 // the same reason.
+// The spelling React Native uses for the prop, which is also CSS's, so the
+// three hosts' dumps say the same words.
+static const char *RnAppKitPointerEventsName(RnAppKitPointerEvents mode) {
+  switch (mode) {
+    case RnAppKitPointerEventsNone:
+      return "none";
+    case RnAppKitPointerEventsBoxNone:
+      return "box-none";
+    case RnAppKitPointerEventsBoxOnly:
+      return "box-only";
+    case RnAppKitPointerEventsAuto:
+      break;
+  }
+  return "auto";
+}
+
 RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
-  if (root == nil || root.hidden) {
+  // `pointerEvents: none` takes the view and everything inside it out of hit
+  // testing entirely, so the caller's loop carries on to whatever is behind.
+  if (root == nil || root.hidden || root.rnPointerEvents == RnAppKitPointerEventsNone) {
     return nil;
   }
 
@@ -38,12 +56,27 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   // Back to front, so reversed is topmost first -- and "topmost" has to mean
   // what was painted last, which zIndex can change. Win32's hitTest walks its
   // own childrenInPaintOrder the same way round.
-  for (RnAppKitView *child in [root rnChildrenInPaintOrder].reverseObjectEnumerator) {
-    const NSRect frame = child.frame;
-    RnAppKitView *hit = RnAppKitHitTest(child, bx - frame.origin.x, by - frame.origin.y);
-    if (hit != nil) {
-      return hit;
+  //
+  // `box-only` is the one mode that skips this: the box is the target and
+  // nothing inside it is, which is what makes an overlay swallow a press meant
+  // for a button drawn on top of it.
+  if (root.rnPointerEvents != RnAppKitPointerEventsBoxOnly) {
+    for (RnAppKitView *child in [root rnChildrenInPaintOrder].reverseObjectEnumerator) {
+      const NSRect frame = child.frame;
+      RnAppKitView *hit = RnAppKitHitTest(child, bx - frame.origin.x, by - frame.origin.y);
+      if (hit != nil) {
+        return hit;
+      }
     }
+  }
+
+  // `box-none` is transparent to a press that misses everything inside it.
+  // Returning nil rather than the parent is the whole of it: the caller is
+  // partway through its own list of children, so the press carries on to the
+  // sibling *behind* this view -- which is what the absolutely-positioned
+  // overlay this mode exists for is asking for.
+  if (root.rnPointerEvents == RnAppKitPointerEventsBoxNone) {
+    return nil;
   }
   return root;
 }
@@ -836,6 +869,14 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   const NSPoint scroll = self.bounds.origin;
   if (scroll.x != 0 || scroll.y != 0) {
     [out appendFormat:@" scroll=(%g,%g)", scroll.x, scroll.y];
+  }
+  // Printed only when it is not the default, like every other field here.
+  // Worth printing at all because it is invisible: a view with
+  // `pointerEvents: none` is drawn exactly like one without, and the only way
+  // the cross-host diff can say the prop arrived on all three is if each one
+  // reports it.
+  if (self.rnPointerEvents != RnAppKitPointerEventsAuto) {
+    [out appendFormat:@" pe=%s", RnAppKitPointerEventsName(self.rnPointerEvents)];
   }
   if (_image != nullptr) {
     // The same `texture=WxH fit=<name>` the GTK side emits, so an <Image> shows

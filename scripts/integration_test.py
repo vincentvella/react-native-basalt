@@ -568,6 +568,33 @@ def tail(log: Path, lines: int = 25) -> str:
     return "\n".join(log.read_text().splitlines()[-lines:])
 
 
+def bundle_app(build: Path, entry: str) -> Path:
+    """Bundles js/<entry>.js for this platform, unless it is already there.
+
+    Most scenarios run the demo, which CI bundles as a build step. The two that
+    need an app of their own -- hover and pointerEvents, both about input that
+    the demo has nothing listening for -- build it here rather than adding two
+    more steps to every CI job that will not use them.
+    """
+    bundled = build / f"{entry}.{PLATFORM}.jsbundle.js"
+    if bundled.exists():
+        return bundled
+    built = subprocess.run(
+        [
+            str(REPO / "scripts" / "bundle.sh"),
+            "--prod",
+            "--platform", PLATFORM,
+            "--entry", f"{entry}.js",
+            "--out", f"{entry}.{PLATFORM}.jsbundle",
+            "--build-dir", build.name,
+        ],
+        cwd=REPO, capture_output=True, text=True, timeout=600,
+    )
+    if built.returncode != 0 or not bundled.exists():
+        raise Failure(f"could not bundle js/{entry}.js:\n{tail_text(built.stderr, 40)}")
+    return bundled
+
+
 def tail_text(text: str, lines: int = 25) -> str:
     return "\n".join(text.splitlines()[-lines:])
 
@@ -861,21 +888,7 @@ def test_hover(bundle: Path) -> None:
     which no automated run can do without taking the pointer away from whoever
     is using the machine.
     """
-    hover_bundle = bundle.parent / f"hover.{PLATFORM}.jsbundle.js"
-    if not hover_bundle.exists():
-        build = subprocess.run(
-            [
-                str(REPO / "scripts" / "bundle.sh"),
-                "--prod",
-                "--platform", PLATFORM,
-                "--entry", "hover.js",
-                "--out", f"hover.{PLATFORM}.jsbundle",
-                "--build-dir", bundle.parent.name,
-            ],
-            cwd=REPO, capture_output=True, text=True, timeout=600,
-        )
-        if build.returncode != 0 or not hover_bundle.exists():
-            raise Failure(f"could not bundle js/hover.js:\n{tail_text(build.stderr, 40)}")
+    hover_bundle = bundle_app(bundle.parent, "hover")
 
     points = ";".join(
         f"{x},{y}" for x, y in (HOVER_LEFT_BOX, HOVER_RIGHT_BOX, HOVER_CARD_ONLY)
@@ -932,6 +945,67 @@ def test_hover(bundle: Path) -> None:
         )
 
 
+def test_pointer_events(bundle: Path) -> None:
+    """What a press can land on, which is not the same as what is drawn.
+
+    Runs js/pointerevents.js: four rows, one per value of the prop, each a
+    panel with a button inside it and a backdrop behind it. Every one of the
+    three reports which view it thinks was pressed, so each tap has exactly one
+    right answer and a wrong implementation says which way it is wrong.
+
+    `box-none` and `box-only` are the pair worth the app. They are the two
+    everyone gets the wrong way round, and the difference between `box-none`
+    and simply falling back to the parent is only visible when something is
+    underneath -- which is what the backdrop is for.
+    """
+    app = bundle_app(bundle.parent, "pointerevents")
+
+    # Panel-sized coordinates from the app's own layout: rows 110 tall with 12
+    # between them under 24 of padding, and a panel inset 14 inside each. x=500
+    # is over the panel and clear of the button; x=100 is over the button.
+    taps = [(500, 80), (500, 200), (500, 320), (100, 320), (500, 440), (100, 440)]
+    expected = [
+        # auto: the ordinary case.
+        "auto: panel",
+        # none: the panel and its button are out of hit testing entirely.
+        "none: backdrop",
+        # box-none: transparent to a press that misses its children...
+        "box-none: backdrop",
+        # ...and its children are still targets.
+        "box-none: button",
+        # box-only: the panel takes the press wherever it lands, including
+        # over the button.
+        "box-only: panel",
+        "box-only: panel",
+    ]
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "12000"
+    env["BASALT_TEST_TAP"] = ";".join(f"{x},{y}" for x, y in taps)
+    env.pop("BASALT_TEST_TYPE", None)
+    env.pop("BASALT_TEST_HOVER", None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltPointerEvents"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=150,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+
+    # Both streams: GLib sends g_message to stdout and only warnings to stderr.
+    pressed = [
+        line.split("pressed ", 1)[1].strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if "pressed " in line
+    ]
+    if pressed != expected:
+        raise Failure(
+            "a press landed on the wrong view.\n"
+            f"expected: {expected}\n"
+            f"got:      {pressed}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -939,6 +1013,7 @@ SCENARIOS = [
     ("focus a TextInput, type, and see it round-trip through React", test_text_input),
     ("click a TextInput with a real mouse and see it focus", test_click_focuses_a_field),
     ("hover across nested views and see enter, leave, over and out", test_hover),
+    ("pointerEvents decides what four taps land on", test_pointer_events),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 
