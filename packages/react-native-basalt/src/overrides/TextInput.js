@@ -33,10 +33,18 @@
 'use strict';
 
 import * as React from 'react';
-import {useCallback, useImperativeHandle, useRef, useState} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import RCTSinglelineTextInputNativeComponent, {
   Commands,
 } from 'react-native/Libraries/Components/TextInput/RCTSingelineTextInputNativeComponent';
+import TextInputState from 'react-native/Libraries/Components/TextInput/TextInputState';
 import StyleSheet from 'react-native/Libraries/StyleSheet/StyleSheet';
 
 /**
@@ -63,8 +71,13 @@ function TextInput(
   const [mostRecentEventCount, setMostRecentEventCount] = useState(0);
   const focused = useRef(false);
 
-  useImperativeHandle(
-    forwardedRef,
+
+  // Built as one object rather than inline, because the registry has to hold
+  // the *same* thing callers do. `useImperativeHandle` means the ref a caller
+  // gets is this handle and not the host instance, so registering the host
+  // instance would make `isTextInput(ref)` answer false about a field that is
+  // very much one -- which is exactly what it did first time round.
+  const handle = useMemo(
     () => ({
       focus() {
         if (inputRef.current != null) {
@@ -106,6 +119,25 @@ function TextInput(
     [mostRecentEventCount, onChangeText],
   );
 
+  useImperativeHandle(forwardedRef, () => handle, [handle]);
+
+  // The shared registry, which is what makes `TextInput.State` and
+  // `dismissKeyboard`-shaped code work: a field has to be in `inputs` before
+  // anything can ask whether it is one, and has to leave when it unmounts or
+  // the set grows for the life of the app.
+  useEffect(() => {
+    TextInputState.registerInput(handle);
+    return () => {
+      TextInputState.unregisterInput(handle);
+      // A field that unmounts while focused would otherwise leave the registry
+      // pointing at something React has thrown away, and
+      // `currentlyFocusedInput()` would answer with it.
+      if (TextInputState.currentlyFocusedInput() === handle) {
+        TextInputState.blurInput(handle);
+      }
+    };
+  }, [handle]);
+
   const handleChange = useCallback(
     event => {
       const {text, eventCount} = event.nativeEvent;
@@ -119,17 +151,22 @@ function TextInput(
   const handleFocus = useCallback(
     event => {
       focused.current = true;
+      // The platform is the authority on what has focus, so the registry is
+      // told here rather than by whoever called focus() -- a click into a field
+      // never goes through that path at all.
+      TextInputState.focusInput(handle);
       onFocus?.(event);
     },
-    [onFocus],
+    [handle, onFocus],
   );
 
   const handleBlur = useCallback(
     event => {
       focused.current = false;
+      TextInputState.blurInput(handle);
       onBlur?.(event);
     },
-    [onBlur],
+    [handle, onBlur],
   );
 
   return (
@@ -159,4 +196,60 @@ const styles = StyleSheet.create({
   },
 });
 
-export default React.forwardRef(TextInput);
+const ForwardedTextInput = React.forwardRef(TextInput);
+
+/**
+ * `TextInput.State`, which is React Native's own registry with two methods
+ * replaced.
+ *
+ * `focusTextInput` and `blurTextInput` upstream are
+ *
+ *     if (Platform.OS === 'ios') { iOSTextInputCommands.focus(ref); }
+ *     else if (Platform.OS === 'android') { ... }
+ *
+ * -- the same missing third branch that makes TextInput.js itself unusable
+ * here. On these platforms they would update the registry and then focus
+ * nothing, which is worse than not existing: `currentlyFocusedInput()` would
+ * name a field that does not have focus.
+ *
+ * So the rest of the module is taken as it is, and these two dispatch the
+ * commands the component already uses. Wrapped rather than forked, because the
+ * other nine functions are the registry itself and have no platform in them.
+ */
+const State = {
+  ...TextInputState,
+
+  focusTextInput(textField) {
+    if (textField == null) {
+      return;
+    }
+    // Upstream's guards, which are not incidental: focusing what is already
+    // focused would emit a second onFocus, and a disabled field must refuse.
+    if (
+      TextInputState.currentlyFocusedInput() === textField ||
+      textField.currentProps?.editable === false
+    ) {
+      return;
+    }
+    TextInputState.focusInput(textField);
+    // The handle's own method, which dispatches the command against the host
+    // instance it closed over. `Commands.focus` cannot be called with the
+    // handle, and the handle is what the registry holds.
+    textField.focus?.();
+  },
+
+  blurTextInput(textField) {
+    if (textField == null) {
+      return;
+    }
+    if (TextInputState.currentlyFocusedInput() !== textField) {
+      return;
+    }
+    TextInputState.blurInput(textField);
+    textField.blur?.();
+  },
+};
+
+ForwardedTextInput.State = State;
+
+export default ForwardedTextInput;
