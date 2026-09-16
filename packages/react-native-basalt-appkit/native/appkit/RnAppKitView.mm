@@ -1006,7 +1006,8 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     if ([handler rnScrollView:self
                            by:delta
                       precise:event.hasPreciseScrollingDeltas
-                        phase:event.phase]) {
+                        phase:event.phase
+                     momentum:event.momentumPhase]) {
       return;
     }
   }

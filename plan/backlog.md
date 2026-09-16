@@ -523,6 +523,19 @@ has gone unrecorded until now.
   hover listeners from paying for a JavaScript round trip per motion event.
   What is still missing is `onMouseEnter`/`onMouseLeave`, which are not React
   Native core props at all: they exist only in the macOS and Windows forks.
+- ~~No momentum scrolling.~~ `onMomentumScrollBegin` and `onMomentumScrollEnd`
+  fire on macOS and Linux, and the two platforms need opposite amounts of work
+  for it. macOS decelerates a scroll itself and puts a `momentumPhase` on the
+  event, so the AppKit host reports what it is handed. GTK emits one
+  `decelerate` signal carrying the velocity the gesture ended at and then
+  stops, so the coasting is modelled here -- core/ScrollMomentum.h, exponential
+  friction at React Native's own `decelerationRate`.
+
+  Windows has neither. A precision touchpad reports `WM_MOUSEWHEEL` with fine
+  deltas and no fling: inertia there belongs to Direct Manipulation, which
+  wants to own the viewport. So a Windows fling coasts no further than the
+  fingers took it, and the two events never fire. Driving the shared model off
+  a wheel would be worse than silence -- a wheel is not a throw.
 - `setIsJSResponder` is a no-op. It matters once something scrolls natively, so
   it lands with `ScrollView`.
 - `Touch::offsetPoint` carries page coordinates rather than coordinates relative

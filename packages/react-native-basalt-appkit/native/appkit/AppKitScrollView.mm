@@ -27,16 +27,20 @@ static constexpr double kWheelStepPixels = 53.0;
 - (BOOL)rnScrollView:(RnAppKitView *)view
                   by:(NSPoint)delta
              precise:(BOOL)precise
-               phase:(NSEventPhase)phase {
+               phase:(NSEventPhase)phase
+            momentum:(NSEventPhase)momentum {
   if (_manager == nullptr) {
     return NO;
   }
-  // A touchpad reports phases; a wheel reports none. Momentum arrives after the
-  // fingers left, as movement with no drag around it -- so a momentum scroll
-  // begins no drag, and reporting one that never ends would be worse than
-  // reporting none.
+  // A touchpad reports phases; a wheel reports none. The two streams do not
+  // overlap: while the fingers are down `momentum` is NSEventPhaseNone, and
+  // once the system is coasting `phase` is. So a drag and the momentum after it
+  // are told apart here and nowhere else.
   const bool began = phase == NSEventPhaseBegan;
   const bool ended = phase == NSEventPhaseEnded || phase == NSEventPhaseCancelled;
+  const bool momentumBegan = momentum == NSEventPhaseBegan;
+  const bool momentumEnded =
+      momentum == NSEventPhaseEnded || momentum == NSEventPhaseCancelled;
 
   // A precise device reports pixels; a wheel reports line counts. Treating a
   // line as a pixel makes the wheel move the content by one pixel a notch,
@@ -51,7 +55,9 @@ static constexpr double kWheelStepPixels = 53.0;
                             -delta.x * scale,
                             -delta.y * scale,
                             began,
-                            ended);
+                            ended,
+                            momentumBegan,
+                            momentumEnded);
 }
 
 @end
@@ -157,7 +163,13 @@ void AppKitScrollViewManager::remove(Tag tag) {
 // The wheel
 // ---------------------------------------------------------------------------
 
-bool AppKitScrollViewManager::scrollBy(Tag tag, double dx, double dy, bool began, bool ended) {
+bool AppKitScrollViewManager::scrollBy(Tag tag,
+                                       double dx,
+                                       double dy,
+                                       bool began,
+                                       bool ended,
+                                       bool momentumBegan,
+                                       bool momentumEnded) {
   const auto it = entries_.find(tag);
   if (it == entries_.end()) {
     return false;
@@ -171,6 +183,10 @@ bool AppKitScrollViewManager::scrollBy(Tag tag, double dx, double dy, bool began
     entry.dragging = true;
     emitScrollEvent(entry, "beginDrag");
   }
+  if (momentumBegan && !entry.coasting) {
+    entry.coasting = true;
+    emitScrollEvent(entry, "momentumBegin");
+  }
 
   // Already in pixels: the trampoline resolved lines against kWheelStepPixels,
   // because only the event knows which it was.
@@ -179,6 +195,10 @@ bool AppKitScrollViewManager::scrollBy(Tag tag, double dx, double dy, bool began
   if (ended && entry.dragging) {
     entry.dragging = false;
     emitScrollEvent(entry, "endDrag");
+  }
+  if (momentumEnded && entry.coasting) {
+    entry.coasting = false;
+    emitScrollEvent(entry, "momentumEnd");
   }
   return true;
 }
@@ -253,8 +273,13 @@ void AppKitScrollViewManager::emitScrollEvent(Entry &entry, const char *which) {
 
   ScrollEvent event{};
   fill(event);
-  if (std::string_view(which) == "beginDrag") {
+  const std::string_view kind(which);
+  if (kind == "beginDrag") {
     emitter->onScrollBeginDrag(event);
+  } else if (kind == "momentumBegin") {
+    emitter->onMomentumScrollBegin(event);
+  } else if (kind == "momentumEnd") {
+    emitter->onMomentumScrollEnd(event);
   } else {
     emitter->onScroll(event);
   }

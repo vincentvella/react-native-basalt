@@ -29,6 +29,7 @@
 #pragma once
 
 #include "RnView.h"
+#include "ScrollMomentum.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
 #include <react/renderer/core/EventEmitter.h>
@@ -52,6 +53,21 @@ class GtkScrollViewManager {
   void update(RnView *view, const facebook::react::ShadowView &shadowView);
 
   void remove(facebook::react::Tag tag);
+
+  // Starts a fling at a velocity in pixels per second, as GTK's `decelerate`
+  // reports one. Returns false if it was too slow to be worth animating.
+  //
+  // Public, and not only because the signal handler is static. The coasting is
+  // otherwise untestable: a real fling needs a touchscreen, and the frame clock
+  // that drives it needs a mapped window and two seconds of main loop. This and
+  // `advanceFling` are the same escape hatch `GtkTouchDispatcher::synthesiseTap`
+  // is, entering exactly where GDK does and skipping nothing above it.
+  bool fling(facebook::react::Tag tag, double velocityX, double velocityY);
+
+  // Advances a running fling by `seconds`, applying the offset and emitting
+  // what falls out of it. Returns false once it has finished, which is also
+  // when onMomentumScrollEnd has been emitted.
+  bool advanceFling(facebook::react::Tag tag, double seconds);
 
   // ScrollView's imperative commands: scrollTo, scrollToEnd. Returns false if
   // the command is not one this handles.
@@ -83,11 +99,31 @@ class GtkScrollViewManager {
     double offsetY{0};
     gint64 lastEmitMicros{0};
     bool dragging{false};
+
+    // The fling after the fingers left. GTK hands over a velocity and stops, so
+    // the coasting is run here: a tick callback on the view, advancing the
+    // model, until it falls below a pixel a frame or hits an edge.
+    ScrollMomentum momentum;
+    guint momentumTickId{0};
+    gint64 momentumLastMicros{0};
+    // React Native's decelerationRate prop, read off the ScrollView's props so
+    // an app that asks for a fast fling gets one.
+    double decelerationRate{ScrollMomentum::kNormalDeceleration};
   };
 
   static gboolean onScroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer userData);
   static void onScrollBegin(GtkEventControllerScroll *controller, gpointer userData);
   static void onScrollEnd(GtkEventControllerScroll *controller, gpointer userData);
+  static void onDecelerate(GtkEventControllerScroll *controller,
+                           double velocityX,
+                           double velocityY,
+                           gpointer userData);
+  static gboolean onMomentumTick(GtkWidget *widget, GdkFrameClock *clock, gpointer userData);
+
+  // Ends a fling, with or without telling JavaScript. `emitEnd` is false only
+  // when the ScrollView itself is going away, where the emitter is about to
+  // stop existing anyway.
+  void stopMomentum(Entry &entry, bool emitEnd);
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
   void emitScrollEvent(Entry &entry, const char *which);

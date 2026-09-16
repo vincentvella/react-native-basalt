@@ -46,6 +46,16 @@
 // one drag, ended by a short idle timeout -- see `kWheelIdleMs`. Without that
 // there would be no `onScrollBeginDrag` or `onScrollEndDrag` on this platform
 // at all, and the components that wait for them would wait forever.
+//
+// What Windows does not have: momentum. `onMomentumScrollBegin` and
+// `onMomentumScrollEnd` never fire here, and that is deliberate rather than
+// unfinished. A precision touchpad reports `WM_MOUSEWHEEL` with fine deltas and
+// no fling velocity -- inertia on Windows belongs to Direct Manipulation, which
+// wants to own the viewport and so cannot be used by a platform whose whole
+// invariant is that React Native decides where things go. macOS gets momentum
+// from the system and GTK gets a velocity this project animates
+// (core/ScrollMomentum.h); a wheel supplies neither, and modelling a fling off
+// one would report a throw that never happened.
 
 #pragma once
 

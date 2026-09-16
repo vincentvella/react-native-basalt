@@ -60,10 +60,18 @@ NS_ASSUME_NONNULL_BEGIN
 // the inner one first, which is what AppKit's own nesting does.
 @protocol RnAppKitScrollHandler <NSObject>
 // Returns YES if the scroll was consumed.
+//
+// Two phases, because a touchpad has two gestures in one stream. `phase` is
+// the fingers: it begins when they land and ends when they lift. `momentum` is
+// what the system keeps sending after they have gone, and it is the only
+// reason React Native's `onMomentumScrollBegin` and `onMomentumScrollEnd` can
+// be answered honestly on this platform -- macOS does the deceleration itself,
+// so there is nothing here to model, only something to report.
 - (BOOL)rnScrollView:(RnAppKitView *)view
                   by:(NSPoint)delta
              precise:(BOOL)precise
-               phase:(NSEventPhase)phase;
+               phase:(NSEventPhase)phase
+            momentum:(NSEventPhase)momentum;
 @end
 
 // The deepest view at a point, in `root`'s coordinates, or nil for a miss.

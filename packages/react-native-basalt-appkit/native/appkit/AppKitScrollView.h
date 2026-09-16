@@ -69,7 +69,19 @@ class AppKitScrollViewManager {
 
   // The wheel, from the Objective-C trampoline. Returns false when the scroll
   // was not consumed, which lets AppKit walk it up the responder chain.
-  bool scrollBy(facebook::react::Tag tag, double dx, double dy, bool began, bool ended);
+  //
+  // `began`/`ended` are the fingers on a touchpad, and become onScrollBeginDrag
+  // and onScrollEndDrag. `momentumBegan`/`momentumEnded` are the coasting that
+  // follows them, and become onMomentumScrollBegin and onMomentumScrollEnd. A
+  // wheel has neither: it reports no phase at all, so it is a run of plain
+  // scrolls, which is what it is.
+  bool scrollBy(facebook::react::Tag tag,
+                double dx,
+                double dy,
+                bool began,
+                bool ended,
+                bool momentumBegan,
+                bool momentumEnded);
 
  private:
   struct Entry {
@@ -90,6 +102,10 @@ class AppKitScrollViewManager {
     double offsetY{0};
     double lastEmitSeconds{0};
     bool dragging{false};
+    // Coasting after the fingers left. Tracked for the same reason `dragging`
+    // is: a momentum end that was never begun would leave JavaScript believing
+    // a scroll it never heard start has finished.
+    bool coasting{false};
   };
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);

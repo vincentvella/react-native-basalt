@@ -53,6 +53,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_devbundle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hover.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_momentum.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
@@ -155,6 +156,8 @@ if(DEFINED RN_DIR)
     # the same on every desktop.
     core/ImageBytes.cpp
     core/PlatformConstantsModule.cpp
+    # The fling GTK hands over half-finished; see the header.
+    core/ScrollMomentum.cpp
     core/SourceCodeModule.cpp
     core/StatusBarModule.cpp
     core/ReanimatedModule.cpp

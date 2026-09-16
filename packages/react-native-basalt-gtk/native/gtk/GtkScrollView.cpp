@@ -61,6 +61,12 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
     entry.scrollEnabled = props->scrollEnabled;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
+    // React Native resolves 'normal' and 'fast' to numbers before this sees
+    // them; zero is what an app that never set the prop leaves behind, and
+    // means the default rather than a fling that stops instantly.
+    if (props->decelerationRate > 0) {
+      entry.decelerationRate = static_cast<double>(props->decelerationRate);
+    }
   }
 
   if (const auto state =
@@ -86,14 +92,17 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
   rn_view_set_scroll_offset(view, x, y);
 
   if (inserted) {
-    // GTK_EVENT_CONTROLLER_SCROLL_KINETIC is deliberately absent: kinetic
-    // deceleration would need momentum events and a velocity model, and
-    // reporting a drag that never ends is worse than not reporting momentum.
+    // GTK_EVENT_CONTROLLER_SCROLL_KINETIC asks GDK for one `decelerate` signal
+    // carrying the velocity a gesture ended at. It is all GTK offers: the
+    // coasting itself is this file's, through core/ScrollMomentum.h, which is
+    // the half macOS gets from the system.
     entry.controller = gtk_event_controller_scroll_new(
-        static_cast<GtkEventControllerScrollFlags>(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES));
+        static_cast<GtkEventControllerScrollFlags>(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES |
+                                                   GTK_EVENT_CONTROLLER_SCROLL_KINETIC));
     g_signal_connect(entry.controller, "scroll", G_CALLBACK(onScroll), &entry);
     g_signal_connect(entry.controller, "scroll-begin", G_CALLBACK(onScrollBegin), &entry);
     g_signal_connect(entry.controller, "scroll-end", G_CALLBACK(onScrollEnd), &entry);
+    g_signal_connect(entry.controller, "decelerate", G_CALLBACK(onDecelerate), &entry);
     gtk_widget_add_controller(GTK_WIDGET(view), entry.controller);
   }
 }
@@ -107,6 +116,9 @@ void GtkScrollViewManager::remove(Tag tag) {
   // pointer to it, and gtk_widget_add_controller means the widget, not this,
   // owns the controller's lifetime.
   Entry &entry = it->second;
+  // The tick callback holds the same pointer the controller does, and outlives
+  // neither. Stopped without an event: the emitter is going away with the view.
+  stopMomentum(entry, false);
   if (entry.controller != nullptr && entry.view != nullptr && RN_IS_VIEW(entry.view)) {
     gtk_widget_remove_controller(GTK_WIDGET(entry.view), entry.controller);
   }
@@ -144,6 +156,9 @@ void GtkScrollViewManager::onScrollBegin(GtkEventControllerScroll * /*controller
   if (!entry->scrollEnabled) {
     return;
   }
+  // A new gesture takes the list off whatever it was coasting towards, which is
+  // what putting a finger on a moving list does everywhere else.
+  entry->owner->stopMomentum(*entry, true);
   entry->dragging = true;
   entry->owner->emitScrollEvent(*entry, "beginDrag");
 }
@@ -155,6 +170,112 @@ void GtkScrollViewManager::onScrollEnd(GtkEventControllerScroll * /*controller*/
   }
   entry->dragging = false;
   entry->owner->emitScrollEvent(*entry, "endDrag");
+}
+
+// ---------------------------------------------------------------------------
+// Momentum
+// ---------------------------------------------------------------------------
+
+void GtkScrollViewManager::onDecelerate(GtkEventControllerScroll * /*controller*/,
+                                        double velocityX,
+                                        double velocityY,
+                                        gpointer userData) {
+  auto *entry = static_cast<Entry *>(userData);
+  entry->owner->fling(entry->tag, velocityX, velocityY);
+}
+
+bool GtkScrollViewManager::fling(Tag tag, double velocityX, double velocityY) {
+  const auto it = entries_.find(tag);
+  if (it == entries_.end()) {
+    return false;
+  }
+  Entry &entry = it->second;
+  if (!entry.scrollEnabled || entry.view == nullptr) {
+    return false;
+  }
+
+  // GTK emits `decelerate` around the same moment as `scroll-end`, and does not
+  // promise which comes first. React Native's order does promise: a drag ends
+  // before the momentum after it begins, and a JavaScript list that sees them
+  // the other way round decides a scroll is still in progress after it has
+  // finished. So the drag is ended here if it has not been already.
+  if (entry.dragging) {
+    entry.dragging = false;
+    emitScrollEvent(entry, "endDrag");
+  }
+
+  if (!entry.momentum.start(velocityX, velocityY, entry.decelerationRate)) {
+    return false;
+  }
+  entry.momentumLastMicros = g_get_monotonic_time();
+  emitScrollEvent(entry, "momentumBegin");
+  entry.momentumTickId =
+      gtk_widget_add_tick_callback(GTK_WIDGET(entry.view), onMomentumTick, &entry, nullptr);
+  return true;
+}
+
+bool GtkScrollViewManager::advanceFling(Tag tag, double seconds) {
+  const auto it = entries_.find(tag);
+  if (it == entries_.end()) {
+    return false;
+  }
+  Entry &entry = it->second;
+  if (!entry.momentum.isRunning()) {
+    return false;
+  }
+
+  double dx = 0;
+  double dy = 0;
+  const bool running = entry.momentum.advance(seconds, dx, dy);
+
+  const double beforeX = entry.offsetX;
+  const double beforeY = entry.offsetY;
+  applyOffset(entry, beforeX + dx, beforeY + dy, true);
+
+  // Stopped, or run into an edge and gone nowhere. The second is not the same
+  // check as the first: a fling at the top of a list has velocity left and
+  // nothing to spend it on, and without this it would coast silently for a
+  // second before reporting that it had finished.
+  const bool moved = entry.offsetX != beforeX || entry.offsetY != beforeY;
+  if (running && moved) {
+    return true;
+  }
+  entry.momentum.stop();
+  if (entry.momentumTickId != 0) {
+    // Cleared rather than removed: a tick callback that returns G_SOURCE_REMOVE
+    // is already gone, and removing it again is a GTK warning.
+    entry.momentumTickId = 0;
+  }
+  emitScrollEvent(entry, "momentumEnd");
+  return false;
+}
+
+gboolean GtkScrollViewManager::onMomentumTick(GtkWidget * /*widget*/,
+                                              GdkFrameClock *clock,
+                                              gpointer userData) {
+  auto *entry = static_cast<Entry *>(userData);
+
+  // The frame clock's own time rather than g_get_monotonic_time: it is the time
+  // the frame is *for*, so a fling advances by exactly one frame's worth even
+  // when the callback runs late.
+  const gint64 now = gdk_frame_clock_get_frame_time(clock);
+  const double seconds = static_cast<double>(now - entry->momentumLastMicros) / 1e6;
+  entry->momentumLastMicros = now;
+
+  return entry->owner->advanceFling(entry->tag, seconds) ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
+void GtkScrollViewManager::stopMomentum(Entry &entry, bool emitEnd) {
+  if (entry.momentumTickId != 0) {
+    if (entry.view != nullptr && RN_IS_VIEW(entry.view)) {
+      gtk_widget_remove_tick_callback(GTK_WIDGET(entry.view), entry.momentumTickId);
+    }
+    entry.momentumTickId = 0;
+    if (emitEnd) {
+      emitScrollEvent(entry, "momentumEnd");
+    }
+  }
+  entry.momentum.stop();
 }
 
 // ---------------------------------------------------------------------------
@@ -227,8 +348,13 @@ void GtkScrollViewManager::emitScrollEvent(Entry &entry, const char *which) {
 
   ScrollEvent event{};
   fill(event);
-  if (std::string_view(which) == "beginDrag") {
+  const std::string_view kind(which);
+  if (kind == "beginDrag") {
     emitter->onScrollBeginDrag(event);
+  } else if (kind == "momentumBegin") {
+    emitter->onMomentumScrollBegin(event);
+  } else if (kind == "momentumEnd") {
+    emitter->onMomentumScrollEnd(event);
   } else {
     emitter->onScroll(event);
   }
@@ -264,6 +390,11 @@ bool GtkScrollViewManager::dispatchCommand(Tag tag, const std::string &name, con
     return false;
   }
   Entry &entry = it->second;
+  // A programmatic scroll wins over a fling, which is what an app calling
+  // scrollTo means by it. Told to JavaScript, because the fling was announced.
+  if (name == "scrollTo" || name == "scrollToEnd") {
+    stopMomentum(entry, true);
+  }
 
   if (name == "scrollTo") {
     // [x, y, animated]. Animation is not implemented; the offset is applied at

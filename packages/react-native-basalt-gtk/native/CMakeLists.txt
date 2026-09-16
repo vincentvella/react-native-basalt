@@ -213,6 +213,7 @@ if(TARGET basalt_core)
     tests/test_view.cpp
     tests/test_text.cpp
     tests/test_hittest.cpp
+    tests/test_scrollview.cpp
     tests/test_image.cpp
     tests/test_accessibility.cpp
     tests/test_viewprops.cpp
