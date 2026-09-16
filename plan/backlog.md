@@ -441,11 +441,28 @@ so anything importing them dies at startup.
   neither platform has a notification API wired up.
 - **A desktop notification API**, which is what `ToastAndroid` should really be
   and what any app wanting to tell a user something out-of-band needs.
+- ~~**LogBox has no red box.**~~ It has one, on all three hosts. What was
+  missing was not an overlay: `LogBoxInspectorContainer` is registered by
+  AppRegistry under the name "LogBox" exactly as an app registers its own
+  component, ReactCxxPlatform already implements the `LogBox` TurboModule, and
+  it only provides it when a host hands `ReactHost` a `SurfaceDelegate`. This
+  project passed null, so `NativeLogBox.show()` was a call into nothing -- and
+  the *toasts* worked all along, because AppContainer renders those inside the
+  app's own surface.
 - **A Metro error still has no red box.** Phase 33 stopped the error page being
   compiled as JavaScript and prints Metro's own message, which is most of the
   value, but the host exits rather than showing it. An app already running when
   a reload fails is a separate case, and it currently keeps running the code it
-  has, with the error only in the log.
+  has, with the error only in the log. Now that a second surface exists this is
+  much closer than it was.
+
+- ~~**`useNativeDriver: true` throws.**~~ "Native animated module is not
+  available" was every native-driven `Animated` call, and the fix was the same
+  shape as LogBox's: ReactCommon has a C++ implementation of the whole animated
+  graph (`react/renderer/animated`), ReactCxxPlatform provides the module for
+  it, and it only does so when a host hands over a
+  `NativeAnimatedNodesManagerProvider`. Found because LogBox's own spinner uses
+  one.
 
 ## Expo, beyond the template
 
@@ -594,6 +611,14 @@ has gone unrecorded until now.
   pattern node rather than one texture append.
 - `blurRadius`, `tintColor`, `overlayColor`, `fadeDuration` and
   `progressiveRenderingEnabled` are ignored.
+- ~~A `require()`d image drew nothing.~~ It laid out at the right size and had
+  no pixels, and the reason was neither the loader nor the mounting manager:
+  Metro's `build` command has no `--assets-dest`, so the files were never copied
+  next to the bundle. `scripts/copy_assets.js` reads the asset descriptors back
+  out of the bundle Metro just wrote and copies each one to where
+  `AssetSourceResolver.scaledAssetURLNearBundle` will look for it -- including
+  that rule's own escaping, where each `../` becomes a single `_`. The demo's
+  images never showed this because they are `{uri: ...}` rather than requires.
 - Assets are never fetched over the network, so a dev server's assets do not
   work; `downloadAsync` rejects saying so. The host has an http client already.
 - Nothing caches a downloaded asset, which is right for a local file and will
@@ -605,9 +630,10 @@ has gone unrecorded until now.
 ## ScrollView
 
 - Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11.
-- No momentum, so `onMomentumScrollBegin` and `onMomentumScrollEnd` never fire
-  and `onScrollEndDrag` reports zero velocity. `ScrollView._isAnimating()` is
-  wrong as a result.
+- ~~No momentum.~~ See the Input section. What is left is Windows, which has no
+  fling velocity to model one from, and `onScrollEndDrag`'s velocity, which is
+  still reported as zero on every host -- so `ScrollView._isAnimating()` is
+  still wrong.
 - `animated: true` scrolls instantly.
 - No snapping, paging or `maintainVisibleContentPosition`.
 - No scrollbars are drawn.

@@ -21,6 +21,9 @@
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
+#include "LogBoxSurface.h"
+
+#include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include "GtkTouchDispatcher.h"
 #include "RnView.h"
 
@@ -83,6 +86,12 @@ namespace {
 // surface root live in the mounting manager's registry like any other view.
 constexpr SurfaceId kSurfaceId = 1;
 
+// React Native's error inspector, which is a surface of its own -- registered
+// by AppRegistry under the name "LogBox", exactly as an app registers its own
+// component. Started over the app's when NativeLogBox.show() asks; see
+// core/LogBoxSurface.h.
+constexpr SurfaceId kLogBoxSurfaceId = 2;
+
 constexpr int kInitialWidth = 900;
 constexpr int kInitialHeight = 700;
 
@@ -104,6 +113,11 @@ struct Host {
   std::shared_ptr<basalt::GtkAnimationChoreographer> choreographer;
   std::unique_ptr<basalt::GtkTouchDispatcher> touchDispatcher;
   std::unique_ptr<basalt::GtkFocusManager> focusManager;
+  // The overlay the surface root sits in, and the error inspector's own root
+  // when it is showing. The overlay was already here for the window controls;
+  // the inspector goes above them, which is what a modal box should do.
+  GtkWidget *overlay{nullptr};
+  RnView *logBoxRoot{nullptr};
   std::unique_ptr<ReactHost> reactHost;
 
   // Drives RunLoopObserverManager::onRender, without which no event an emitter
@@ -432,6 +446,59 @@ void onRootResized(RnView * /*view*/, int width, int height, gpointer data) {
   g_debug("surface constraints -> %dx%d", width, height);
   host->reactHost->setSurfaceConstraints(
       kSurfaceId, constraintsFor(width, height), layoutContextFor(host->scaleFactor));
+
+  // The inspector covers the window, so it resizes with it.
+  if (host->logBoxRoot != nullptr) {
+    rn_view_set_frame(host->logBoxRoot, 0, 0, static_cast<float>(width), static_cast<float>(height));
+    host->reactHost->setSurfaceConstraints(
+        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(host->scaleFactor));
+  }
+}
+
+// Starts or stops React Native's error inspector.
+//
+// It is `LogBoxInspectorContainer`, registered by AppRegistry under the name
+// "LogBox" exactly as an app registers its own component -- so this is a second
+// surface rather than an overlay this host draws, and everything in it is React
+// Native's own JavaScript. See core/LogBoxSurface.h.
+//
+// Started and stopped rather than kept and hidden: a surface that exists is a
+// React tree that renders and re-renders, and the inspector is showing for a
+// vanishingly small part of a session.
+void hideLogBoxSurface(Host *host) {
+  if (host->reactHost == nullptr || host->logBoxRoot == nullptr) {
+    return;
+  }
+  host->reactHost->stopSurface(kLogBoxSurfaceId);
+  gtk_overlay_remove_overlay(GTK_OVERLAY(host->overlay), GTK_WIDGET(host->logBoxRoot));
+  host->mountingManager->destroySurfaceRoot(kLogBoxSurfaceId);
+  host->logBoxRoot = nullptr;
+}
+
+void showLogBoxSurface(Host *host, const std::string &appKey) {
+  if (host->reactHost == nullptr || host->overlay == nullptr || host->logBoxRoot != nullptr) {
+    return;
+  }
+
+  const int width = gtk_widget_get_width(GTK_WIDGET(host->root));
+  const int height = gtk_widget_get_height(GTK_WIDGET(host->root));
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  host->logBoxRoot = host->mountingManager->createSurfaceRoot(kLogBoxSurfaceId);
+  rn_view_set_frame(host->logBoxRoot, 0, 0, static_cast<float>(width), static_cast<float>(height));
+  // Added after the window controls, so it is above them: an error box that a
+  // close button sits on top of is one the user can close by accident.
+  gtk_widget_set_halign(GTK_WIDGET(host->logBoxRoot), GTK_ALIGN_FILL);
+  gtk_widget_set_valign(GTK_WIDGET(host->logBoxRoot), GTK_ALIGN_FILL);
+  gtk_overlay_add_overlay(GTK_OVERLAY(host->overlay), GTK_WIDGET(host->logBoxRoot));
+
+  host->reactHost->startSurface(kLogBoxSurfaceId,
+                                appKey,
+                                folly::dynamic::object(),
+                                constraintsFor(width, height),
+                                layoutContextFor(host->scaleFactor));
 }
 
 // The frame clock only exists once a widget is realised, so the choreographer
@@ -601,6 +668,7 @@ void onActivate(GtkApplication *app, gpointer data) {
   // put them back. An overlay is how: the root fills the window and the
   // controls sit over its top corner.
   GtkWidget *overlay = gtk_overlay_new();
+  host->overlay = overlay;
   gtk_overlay_set_child(GTK_OVERLAY(overlay), GTK_WIDGET(host->root));
 
   GtkWidget *controls = gtk_window_controls_new(GTK_PACK_END);
@@ -700,8 +768,36 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                                                : host->sourcePath,
                                                       "linux"),
                                                                   config.enableDevMode),
-                                                  nullptr,
-                                                  nullptr,
+                                                  // React Native's error
+                                                  // inspector. ReactCxxPlatform
+                                                  // implements the LogBox
+                                                  // TurboModule itself and only
+                                                  // provides it when a host
+                                                  // hands over one of these;
+                                                  // passing null, as this did,
+                                                  // left NativeLogBox.show() a
+                                                  // call into nothing. See
+                                                  // core/LogBoxSurface.h.
+                                                  std::make_shared<basalt::LogBoxSurfaceDelegate>(
+                                                      [host](const std::string &appKey) {
+                                                        showLogBoxSurface(host, appKey);
+                                                      },
+                                                      [host]() { hideLogBoxSurface(host); }),
+                                                  // `useNativeDriver: true`.
+                                                  // ReactCommon has a C++
+                                                  // implementation of the whole
+                                                  // animated graph and
+                                                  // ReactCxxPlatform provides
+                                                  // the module for it, but only
+                                                  // when a host asks by handing
+                                                  // over a provider. Without it
+                                                  // every native-driven
+                                                  // Animated call throws
+                                                  // "Native animated module is
+                                                  // not available".
+                                                  std::make_shared<
+                                                      facebook::react::
+                                                          NativeAnimatedNodesManagerProvider>(),
                                                   installBindings,
                                                   host->choreographer);
   } catch (const std::exception &error) {
@@ -810,7 +906,19 @@ void dumpTreeIfRequested(Host *host) {
   if (path == nullptr || host->root == nullptr) {
     return;
   }
-  char *description = rn_view_describe_tree(host->root);
+  char *appTree = rn_view_describe_tree(host->root);
+  // The error inspector is a second surface with a root of its own, so it is
+  // invisible to a dump of the app's. Appended rather than merged, because the
+  // two are siblings on screen and nesting one inside the other would say
+  // something untrue about the tree. Same separator the AppKit host writes.
+  char *description = appTree;
+  char *logBoxTree = nullptr;
+  if (host->logBoxRoot != nullptr) {
+    logBoxTree = rn_view_describe_tree(host->logBoxRoot);
+    description = g_strconcat(appTree, "--- LogBox ---\n", logBoxTree, nullptr);
+    g_free(appTree);
+    g_free(logBoxTree);
+  }
   GError *error = nullptr;
   if (g_file_set_contents(path, description, -1, &error) == FALSE) {
     g_warning("could not write %s: %s", path, error != nullptr ? error->message : "unknown error");

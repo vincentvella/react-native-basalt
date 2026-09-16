@@ -142,9 +142,13 @@ def real_input_available() -> bool:
     return bool(os.environ.get("DISPLAY")) and shutil.which("xdotool") is not None
 
 
-def check_output(stderr: str, returncode: int) -> None:
+def check_output(stderr: str, returncode: int, allow_js_errors: bool = False) -> None:
     if returncode != 0:
         raise Failure(f"host exited {returncode}\n{stderr[-2000:]}")
+    if allow_js_errors:
+        # For the one scenario whose whole point is an error: js/logbox.js calls
+        # console.error deliberately, and LogBox is what is being tested.
+        return
     for line in stderr.splitlines():
         # A JS error does not fail the process, so it has to be looked for.
         if "onJsError" in line or "Invariant Violation" in line:
@@ -568,7 +572,7 @@ def tail(log: Path, lines: int = 25) -> str:
     return "\n".join(log.read_text().splitlines()[-lines:])
 
 
-def bundle_app(build: Path, entry: str) -> Path:
+def bundle_app(build: Path, entry: str, dev: bool = False) -> Path:
     """Bundles js/<entry>.js for this platform, unless it is already there.
 
     Most scenarios run the demo, which CI bundles as a build step. The two that
@@ -580,7 +584,7 @@ def bundle_app(build: Path, entry: str) -> Path:
     if bundled.exists():
         return bundled
     arguments = [
-        "--prod",
+        "--dev" if dev else "--prod",
         "--platform", PLATFORM,
         "--entry", f"{entry}.js",
         "--out", f"{entry}.{PLATFORM}.jsbundle",
@@ -1093,6 +1097,73 @@ def test_keyboard_focus(bundle: Path) -> None:
         )
 
 
+def test_logbox(bundle: Path) -> None:
+    """A console error opens React Native's own inspector.
+
+    The red box is not something a host draws. It is
+    `LogBoxInspectorContainer`, registered by AppRegistry under the name
+    "LogBox" exactly as an app registers its own component -- so what a host
+    provides is a second surface, started when the LogBox TurboModule asks. The
+    toasts, which sit inside the app's own surface, have worked since <View> and
+    <Text> did; the box they open needed the surface.
+
+    A development bundle, because that is the only kind that has LogBox at all:
+    a production one registers a component that renders nothing.
+
+    The scenario taps the error toast and asserts on the inspector's own tree,
+    which each host appends to the dump under `--- LogBox ---`.
+    """
+    app = bundle_app(bundle.parent, "logbox", dev=True)
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "12000"
+    # The first tap is a miss, and is there only to let the error arrive: the
+    # app logs it a second and a half in, and taps fire a second apart. The
+    # second lands on the error toast, which is the lower of the two.
+    env["BASALT_TEST_TAP"] = "5,5;400,650"
+    env.pop("BASALT_TEST_TYPE", None)
+    env.pop("BASALT_TEST_HOVER", None)
+    env.pop("BASALT_TEST_FOCUS", None)
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env["BASALT_DUMP_TREE"] = str(dump)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltLogBox"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode, allow_js_errors=True)
+        if not dump.exists():
+            raise Failure("host wrote no widget tree")
+        tree = dump.read_text()
+
+    if "--- LogBox ---" not in tree:
+        raise Failure(
+            "tapping the error toast did not open the inspector; no second "
+            f"surface was started.\n{tree[-1500:]}"
+        )
+    inspector = tree.split("--- LogBox ---", 1)[1]
+
+    # The inspector's own furniture, which nothing else in the tree has.
+    for needle, why in (
+        ('text="Console Error"', "the inspector did not name the log's level"),
+        ('text="an error that should raise a red box"', "the message is missing"),
+        ('text="Call Stack"', "the stack section is missing"),
+    ):
+        if needle not in inspector:
+            raise Failure(f"{why}: expected {needle} in\n{inspector[:1500]}")
+
+    # LogBox's icons are `require()`d images, and Metro's `build` has no
+    # --assets-dest -- so without scripts/copy_assets.js they lay out at the
+    # right size and draw nothing. `texture=` is what says one arrived.
+    if "texture=" not in inspector:
+        raise Failure(
+            "the inspector's icons did not load; were the bundle's assets copied?\n"
+            f"{inspector[:1500]}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1102,6 +1173,7 @@ SCENARIOS = [
     ("hover across nested views and see enter, leave, over and out", test_hover),
     ("pointerEvents decides what four taps land on", test_pointer_events),
     ("Tab reaches a Pressable, and Enter presses it", test_keyboard_focus),
+    ("a console error opens LogBox's inspector", test_logbox),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

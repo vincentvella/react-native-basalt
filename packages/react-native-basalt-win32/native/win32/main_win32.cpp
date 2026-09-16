@@ -41,6 +41,9 @@
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
+#include "LogBoxSurface.h"
+
+#include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include "Win32Focus.h"
 #include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
@@ -111,6 +114,12 @@ namespace {
 // surface root live in the mounting manager's registry like any other view.
 constexpr SurfaceId kSurfaceId = 1;
 
+// React Native's error inspector, which is a surface of its own -- registered
+// by AppRegistry under the name "LogBox", exactly as an app registers its own
+// component. Started over the app's when NativeLogBox.show() asks; see
+// core/LogBoxSurface.h.
+constexpr SurfaceId kLogBoxSurfaceId = 2;
+
 constexpr int kInitialWidth = 900;
 constexpr int kInitialHeight = 700;
 
@@ -134,6 +143,10 @@ struct Host {
   std::unique_ptr<ReactHost> reactHost;
   std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
   std::unique_ptr<basalt::Win32FocusManager> focusManager;
+  // The error inspector's own surface root, or null when it is not showing.
+  // Painted after the app's and hit-tested before it, which is the whole of
+  // what "on top" means on a platform where a view is not a window.
+  win32::RnWin32View *logBoxRoot{nullptr};
 
   std::string bundlePath;
   // Empty means the bundle is a raw Fabric script rather than a React app.
@@ -416,7 +429,15 @@ void dumpTreeIfRequested() {
     return;
   }
   if (FILE *file = std::fopen(path, "wb")) {
-    const std::string described = gHost.root->describeTree();
+    std::string described = gHost.root->describeTree();
+    // The error inspector is a second surface with a root of its own, so it is
+    // invisible to a dump of the app's. Appended rather than merged, because
+    // the two are siblings on screen and nesting one inside the other would say
+    // something untrue about the tree. Same separator the other two hosts use.
+    if (gHost.logBoxRoot != nullptr) {
+      described += "--- LogBox ---\n";
+      described += gHost.logBoxRoot->describeTree();
+    }
     std::fwrite(described.data(), 1, described.size(), file);
     std::fclose(file);
     std::fprintf(stderr, "wrote view tree to %s\n", path);
@@ -741,6 +762,65 @@ void shutdown() {
 // The window
 // ---------------------------------------------------------------------------
 
+// Starts or stops React Native's error inspector.
+//
+// It is `LogBoxInspectorContainer`, registered by AppRegistry under the name
+// "LogBox" exactly as an app registers its own component -- so this is a second
+// surface rather than an overlay this host draws, and everything in it is React
+// Native's own JavaScript. See core/LogBoxSurface.h.
+//
+// Input is retargeted rather than layered. On the other two desktops a view is
+// a widget and the toolkit routes a press to whatever is on top; here there is
+// nothing to route, so the dispatchers are pointed at the inspector's root
+// while it is up and back at the app's when it comes down.
+void hideLogBoxSurface() {
+  if (gHost.reactHost == nullptr || gHost.logBoxRoot == nullptr) {
+    return;
+  }
+  gHost.reactHost->stopSurface(kLogBoxSurfaceId);
+  gHost.mountingManager->destroySurfaceRoot(kLogBoxSurfaceId);
+  gHost.logBoxRoot = nullptr;
+  if (gHost.touchDispatcher != nullptr) {
+    gHost.touchDispatcher->setSurfaceRoot(gHost.root);
+  }
+  if (gHost.focusManager != nullptr) {
+    gHost.focusManager->setSurfaceRoot(gHost.root);
+  }
+  if (gHost.window != nullptr) {
+    InvalidateRect(gHost.window, nullptr, FALSE);
+  }
+}
+
+void showLogBoxSurface(const std::string &appKey) {
+  if (gHost.reactHost == nullptr || gHost.root == nullptr || gHost.logBoxRoot != nullptr) {
+    return;
+  }
+
+  RECT client{};
+  GetClientRect(gHost.window, &client);
+  const int width = client.right - client.left;
+  const int height = client.bottom - client.top;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  gHost.logBoxRoot = gHost.mountingManager->createSurfaceRoot(kLogBoxSurfaceId);
+  gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
+  if (gHost.touchDispatcher != nullptr) {
+    gHost.touchDispatcher->setSurfaceRoot(gHost.logBoxRoot);
+  }
+  if (gHost.focusManager != nullptr) {
+    gHost.focusManager->setSurfaceRoot(gHost.logBoxRoot);
+  }
+
+  gHost.reactHost->startSurface(kLogBoxSurfaceId,
+                                appKey,
+                                folly::dynamic::object(),
+                                constraintsFor(width, height),
+                                layoutContextFor(gHost.scaleFactor));
+  InvalidateRect(gHost.window, nullptr, FALSE);
+}
+
 LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     // The title bar. Each of these is answered only while an app has asked for
@@ -801,6 +881,12 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         gHost.root->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
         gHost.reactHost->setSurfaceConstraints(
             kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+        // The inspector covers the window, so it resizes with it.
+        if (gHost.logBoxRoot != nullptr) {
+          gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
+          gHost.reactHost->setSurfaceConstraints(
+              kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+        }
       }
       // A maximise moves a hidden title bar's caption, and nothing else says so.
       basalt::titleBar().refreshMetrics();
@@ -1003,6 +1089,12 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         gHost.target->Clear(D2D1::ColorF(D2D1::ColorF::Black));
         gHost.target->SetTransform(D2D1::Matrix3x2F::Identity());
         gHost.root->paint(gHost.target.Get());
+        // The error inspector, over the app. A second surface rather than
+        // anything this host draws; see core/LogBoxSurface.h.
+        if (gHost.logBoxRoot != nullptr) {
+          gHost.target->SetTransform(D2D1::Matrix3x2F::Identity());
+          gHost.logBoxRoot->paint(gHost.target.Get());
+        }
         // A hidden title bar's caption buttons, over the app's own content.
         basalt::titleBar().paintButtons(gHost.target.Get());
         // A lost device is reported here and nowhere else. Dropping the target
@@ -1214,8 +1306,19 @@ int main(int argc, char **argv) {
                                  gHost.sourcePath.empty() ? "index" : gHost.sourcePath,
                                  "windows"),
             config.enableDevMode),
-        nullptr,
-        nullptr,
+        // React Native's error inspector. ReactCxxPlatform implements the
+        // LogBox TurboModule itself and only provides it when a host hands over
+        // one of these; passing null, as this did, left NativeLogBox.show() a
+        // call into nothing. See core/LogBoxSurface.h.
+        std::make_shared<basalt::LogBoxSurfaceDelegate>(
+            [](const std::string &appKey) { showLogBoxSurface(appKey); },
+            []() { hideLogBoxSurface(); }),
+        // `useNativeDriver: true`. ReactCommon has a C++ implementation of the
+        // whole animated graph and ReactCxxPlatform provides the module for it,
+        // but only when a host asks by handing over a provider. Without it every
+        // native-driven Animated call throws "Native animated module is not
+        // available".
+        std::make_shared<facebook::react::NativeAnimatedNodesManagerProvider>(),
         installBindings,
         gHost.choreographer);
   } catch (const std::exception &error) {

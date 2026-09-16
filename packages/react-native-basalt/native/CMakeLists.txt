@@ -149,6 +149,8 @@ if(DEFINED RN_DIR)
     core/Gestures.cpp
     # Hover: the pointer-event path React Native only has on Android.
     core/HoverTracker.cpp
+    # React Native's error inspector, which is a surface rather than a widget.
+    core/LogBoxSurface.cpp
     core/ExpoModules.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp

@@ -38,6 +38,9 @@
 #include "AppearanceModule.h"
 #include "BlobModule.h"
 #include "CoreModules.h"
+#include "LogBoxSurface.h"
+
+#include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include "ColorScheme.h"
 #import "AppKitTitleBar.h"
 #import "AppKitWindowModule.h"
@@ -89,6 +92,12 @@ namespace {
 // surface root live in the mounting manager's registry like any other view.
 constexpr SurfaceId kSurfaceId = 1;
 
+// React Native's error inspector, which is a surface of its own -- registered
+// by AppRegistry under the name "LogBox", exactly as an app registers its own
+// component. Started on top of the app's when NativeLogBox.show() asks; see
+// core/LogBoxSurface.h.
+constexpr SurfaceId kLogBoxSurfaceId = 2;
+
 constexpr int kInitialWidth = 900;
 constexpr int kInitialHeight = 700;
 
@@ -106,6 +115,16 @@ struct Host {
   std::shared_ptr<basalt::AppKitAnimationChoreographer> choreographer;
   std::unique_ptr<basalt::AppKitTouchDispatcher> touchDispatcher;
   std::unique_ptr<basalt::AppKitFocusManager> focusManager;
+  // The window's contentView, holding the app's surface root and -- when the
+  // error inspector is showing -- a second root above it.
+  //
+  // A container rather than making the app root the contentView and adding the
+  // inspector inside it: `insertRnChild:atIndex:` indexes into `subviews`, so a
+  // view the mutation stream did not put there would shift every later Insert
+  // by one.
+  NSView *container{nil};
+  // The error inspector's own surface root, or nil when it is not showing.
+  RnAppKitView *logBoxRoot{nil};
   std::unique_ptr<ReactHost> reactHost;
 
   CFRunLoopObserverRef runLoopObserver{nullptr};
@@ -340,7 +359,15 @@ void dumpTreeIfRequested() {
     return;
   }
   NSError *error = nil;
-  NSString *description = [gHost.root describeTree];
+  NSMutableString *description = [[gHost.root describeTree] mutableCopy];
+  // The error inspector is a second surface with a root of its own, so it is
+  // invisible to a dump of the app's. Appended rather than merged, because the
+  // two are siblings on screen and nesting one inside the other would say
+  // something untrue about the tree.
+  if (gHost.logBoxRoot != nil) {
+    [description appendString:@"--- LogBox ---\n"];
+    [description appendString:[gHost.logBoxRoot describeTree]];
+  }
   if (![description writeToFile:[NSString stringWithUTF8String:path]
                      atomically:YES
                        encoding:NSUTF8StringEncoding
@@ -349,6 +376,49 @@ void dumpTreeIfRequested() {
   } else {
     NSLog(@"wrote view tree to %s", path);
   }
+}
+
+// Starts or stops React Native's error inspector.
+//
+// It is `LogBoxInspectorContainer`, registered by AppRegistry under the name
+// "LogBox" exactly as an app registers its own component -- so this is a second
+// surface rather than an overlay this host draws, and everything in it is React
+// Native's own JavaScript. See core/LogBoxSurface.h.
+//
+// Started and stopped rather than kept and hidden: a surface that exists is a
+// React tree that renders and re-renders, and the inspector is showing for a
+// vanishingly small part of a session.
+void hideLogBoxSurface() {
+  if (gHost.reactHost == nullptr || gHost.logBoxRoot == nil) {
+    return;
+  }
+  gHost.reactHost->stopSurface(kLogBoxSurfaceId);
+  [gHost.logBoxRoot removeFromSuperview];
+  gHost.mountingManager->destroySurfaceRoot(kLogBoxSurfaceId);
+  gHost.logBoxRoot = nil;
+}
+
+void showLogBoxSurface(const std::string &appKey) {
+  if (gHost.reactHost == nullptr || gHost.container == nil || gHost.logBoxRoot != nil) {
+    return;
+  }
+
+  const NSSize size = gHost.container.bounds.size;
+  const int width = (int)size.width;
+  const int height = (int)size.height;
+
+  gHost.logBoxRoot = gHost.mountingManager->createSurfaceRoot(kLogBoxSurfaceId);
+  [gHost.logBoxRoot setRnFrameX:0 y:0 width:width height:height];
+  // Added last, so it is above the app. AppKit paints subviews in order and
+  // hit-tests them in reverse, which is what makes the inspector take the
+  // presses that would otherwise reach the app behind it.
+  [gHost.container addSubview:gHost.logBoxRoot];
+
+  gHost.reactHost->startSurface(kLogBoxSurfaceId,
+                                appKey,
+                                folly::dynamic::object(),
+                                constraintsFor(width, height),
+                                layoutContextFor(gHost.scaleFactor));
 }
 
 void shutdown() {
@@ -364,6 +434,7 @@ void shutdown() {
 
   gHost.focusManager.reset();
   gHost.touchDispatcher.reset();
+  gHost.logBoxRoot = nil;
   if (gHost.reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
     gHost.reactHost->stopAllSurfaces();
@@ -402,6 +473,13 @@ void shutdown() {
   [gHost.root setRnFrameX:0 y:0 width:width height:height];
   gHost.reactHost->setSurfaceConstraints(
       kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+
+  // The inspector covers the window, so it resizes with it.
+  if (gHost.logBoxRoot != nil) {
+    [gHost.logBoxRoot setRnFrameX:0 y:0 width:width height:height];
+    gHost.reactHost->setSurfaceConstraints(
+        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+  }
 }
 
 // The backing scale factor changes when a window moves between a Retina display
@@ -488,7 +566,10 @@ int main(int argc, const char *argv[]) {
     // base of every diff, so it has to exist before the surface starts.
     gHost.root = gHost.mountingManager->createSurfaceRoot(kSurfaceId);
     [gHost.root setRnFrameX:0 y:0 width:kInitialWidth height:kInitialHeight];
-    gHost.window.contentView = gHost.root;
+    gHost.container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kInitialWidth, kInitialHeight)];
+    gHost.container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [gHost.container addSubview:gHost.root];
+    gHost.window.contentView = gHost.container;
 
     // Input. Attached to the root, which is where hit testing starts.
     gHost.touchDispatcher =
@@ -496,6 +577,7 @@ int main(int argc, const char *argv[]) {
     // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
     gHost.focusManager =
         std::make_unique<basalt::AppKitFocusManager>(gHost.mountingManager.get(), gHost.root);
+
 
     gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
     gHost.choreographer = std::make_shared<basalt::AppKitAnimationChoreographer>();
@@ -560,8 +642,20 @@ int main(int argc, const char *argv[]) {
               gHost.sourcePath.empty() ? "index" : gHost.sourcePath,
               "macos"),
               config.enableDevMode),
-          nullptr,
-          nullptr,
+          // React Native's error inspector. ReactCxxPlatform implements the
+          // LogBox TurboModule itself and only provides it when a host hands
+          // over one of these; passing null, as this did, left
+          // NativeLogBox.show() a call into nothing. See core/LogBoxSurface.h.
+          std::make_shared<basalt::LogBoxSurfaceDelegate>(
+              [](const std::string &appKey) { showLogBoxSurface(appKey); },
+              []() { hideLogBoxSurface(); }),
+          // `useNativeDriver: true`. ReactCommon has a C++ implementation of
+          // the whole animated graph, and ReactCxxPlatform provides the module
+          // for it -- but only when a host asks, by handing over a provider.
+          // Without it every native-driven Animated call throws "Native
+          // animated module is not available", which is also what kept
+          // LogBox's own spinner from rendering.
+          std::make_shared<facebook::react::NativeAnimatedNodesManagerProvider>(),
           installBindings,
           gHost.choreographer);
     } catch (const std::exception &error) {

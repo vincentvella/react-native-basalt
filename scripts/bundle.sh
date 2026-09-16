@@ -82,4 +82,10 @@ RN_DIR="$RN_DIR" "$RN_DIR/node_modules/.bin/metro" build "$ENTRY" \
   --out "$OUT" \
   --config "$REPO_ROOT/js/metro.config.js"
 
+# The images the bundle `require()`s. Metro's `build` has no --assets-dest, so
+# without this an <Image> from a require() lays out at the right size and draws
+# nothing -- which is what kept LogBox's own icons off the screen. See the
+# script's header for how the paths are worked out.
+node "$REPO_ROOT/scripts/copy_assets.js" "$OUT.js" "$REPO_ROOT/js" "$REPO_ROOT/$BUILD_DIR"
+
 echo "==> wrote $OUT.js"
