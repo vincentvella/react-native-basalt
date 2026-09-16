@@ -109,6 +109,8 @@ if(TARGET basalt_core)
     gtk/GtkImageLoader.cpp
     gtk/GtkScrollView.cpp
     gtk/GtkTextInput.cpp
+    gtk/GtkTitleBar.cpp
+    gtk/GtkWindowModule.cpp
     # Linux's implementation of core/FontRegistry.h.
     gtk/FontRegistryFontconfig.cpp
     # ...and of core/ColorScheme.h.
@@ -215,6 +217,7 @@ if(TARGET basalt_core)
     tests/test_accessibility.cpp
     tests/test_viewprops.cpp
     tests/test_textinput.cpp
+    tests/test_titlebar.cpp
     tests/test_version.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.

@@ -44,6 +44,8 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+#include "GtkTitleBar.h"
+#include "GtkWindowModule.h"
 #include "ExpoModules.h"
 #include "GestureHandlerModule.h"
 #include "ReanimatedModule.h"
@@ -447,6 +449,12 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopStatusBarModule::kModuleName) {
           return std::make_shared<basalt::DesktopStatusBarModule>(jsInvoker);
         }
+        // The title bar. Reaches the window through the one GtkTitleBar, which
+        // the host attached at startup -- a module cannot be handed a window it
+        // is created before.
+        if (name == basalt::GtkWindowModule::kModuleName) {
+          return std::make_shared<basalt::GtkWindowModule>(jsInvoker);
+        }
         // Only outside dev mode, for the same reason DevSettings is above.
         //
         // This module's scriptURL is what HMRClient registers with Metro as its
@@ -504,7 +512,25 @@ void onActivate(GtkApplication *app, gpointer data) {
   // Fabric emits no Create for a surface root -- the root shadow node is the
   // base of every diff, so it has to exist before the surface starts.
   host->root = host->mountingManager->createSurfaceRoot(kSurfaceId);
-  gtk_window_set_child(host->window, GTK_WIDGET(host->root));
+
+  // The surface root, with room above it for the window controls the host
+  // draws when the title bar is hidden. GTK takes the whole titlebar away with
+  // the decorations -- buttons included -- where Windows and macOS keep
+  // drawing theirs over the app's content, so on this desktop the host has to
+  // put them back. An overlay is how: the root fills the window and the
+  // controls sit over its top corner.
+  GtkWidget *overlay = gtk_overlay_new();
+  gtk_overlay_set_child(GTK_OVERLAY(overlay), GTK_WIDGET(host->root));
+
+  GtkWidget *controls = gtk_window_controls_new(GTK_PACK_END);
+  gtk_widget_set_halign(controls, GTK_ALIGN_END);
+  gtk_widget_set_valign(controls, GTK_ALIGN_START);
+  // Hidden until an app asks for the hidden style; see GtkTitleBar.h.
+  gtk_widget_set_visible(controls, FALSE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), controls);
+
+  gtk_window_set_child(host->window, overlay);
+  basalt::titleBar().attach(host->window, controls);
   rn_view_set_resize_callback(host->root, onRootResized, host);
   g_signal_connect(host->root, "map", G_CALLBACK(onRootMapped), host);
 
