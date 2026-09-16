@@ -21,6 +21,7 @@
 
 #include <react/renderer/components/view/ViewProps.h>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -298,6 +299,61 @@ TEST(win32_an_activated_gesture_takes_the_pointer) {
   EXPECT(!dispatcher.isDown());
 
   dispatcher.dispatchTouchEnd(50, 50);
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// Hover runs only for views that asked for it, and the ask arrives as props on
+// every Create and Update. Recorded by the mutation walk, so a cursor crossing
+// an app that uses no hover costs a hit test and nothing else.
+TEST(win32_a_hover_listener_is_remembered_from_the_props) {
+  Win32MountingManager manager;
+  manager.createSurfaceRoot(kSurfaceId);
+
+  ShadowView listening = makeView(10, 40, 50, 120, 60);
+  auto props = std::make_shared<ViewProps>();
+  props->events[facebook::react::ViewEvents::Offset::PointerEnter] = true;
+  listening.props = props;
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(listening));
+  mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, listening, 0));
+  apply(manager, std::move(mutations));
+
+  EXPECT_EQ(manager.hoverListenersForTag(10),
+            static_cast<std::uint16_t>(basalt::HoverListenerEnter));
+  // A view that never asked is not stored at all.
+  EXPECT_EQ(manager.hoverListenersForTag(kSurfaceId),
+            static_cast<std::uint16_t>(basalt::HoverListenerNone));
+
+  // An update can take the listener away again, and leaving the old mask behind
+  // would mean dispatching to a view that stopped listening.
+  ShadowViewMutationList updates;
+  updates.push_back(ShadowViewMutation::UpdateMutation(
+      listening, makeView(10, 40, 50, 120, 60), kSurfaceId));
+  apply(manager, std::move(updates));
+  EXPECT_EQ(manager.hoverListenersForTag(10),
+            static_cast<std::uint16_t>(basalt::HoverListenerNone));
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// The same shape as the synthesised tap: no emitter is attached to these
+// hand-built shadow views, so every hover has nowhere to deliver and must not
+// crash -- which is also what a cursor moving during a surface teardown looks
+// like from here.
+TEST(win32_a_synthesised_hover_walks_the_tree_without_an_emitter) {
+  Win32MountingManager manager;
+  RnWin32View *root = manager.createSurfaceRoot(kSurfaceId);
+  root->setFrame(0, 0, 400, 300);
+  mount(manager, kSurfaceId, 10, 40, 50, 120, 60);
+
+  Win32TouchDispatcher dispatcher(&manager, root);
+  dispatcher.synthesiseHover(50, 60);
+  dispatcher.synthesiseHover(5, 5);
+  // Outside the surface entirely, and then the cursor leaving the window.
+  dispatcher.synthesiseHover(5000, 5000);
+  dispatcher.synthesiseHover(-1, -1);
 
   manager.destroySurfaceRoot(kSurfaceId);
 }

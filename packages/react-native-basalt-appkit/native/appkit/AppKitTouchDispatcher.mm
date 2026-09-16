@@ -2,7 +2,10 @@
 
 #include "Gestures.h"
 
+#include <react/renderer/components/view/PointerEvent.h>
 #include <react/renderer/components/view/TouchEvent.h>
+
+#include <cstdint>
 
 // The bridge between AppKit's protocol and the C++ dispatcher. A C++ object
 // cannot conform to an Objective-C protocol, and the root holds its handler
@@ -31,12 +34,25 @@
   }
 }
 
+- (void)rnMouseMovedTo:(NSPoint)point {
+  if (_dispatcher != nullptr) {
+    _dispatcher->dispatchHover(point.x, point.y);
+  }
+}
+
+- (void)rnMouseExited {
+  if (_dispatcher != nullptr) {
+    _dispatcher->dispatchHoverLeave();
+  }
+}
+
 @end
 
 namespace basalt {
 
 using facebook::react::HighResTimeStamp;
 using facebook::react::Point;
+using facebook::react::PointerEvent;
 using facebook::react::Tag;
 using facebook::react::Touch;
 using facebook::react::TouchEvent;
@@ -46,8 +62,32 @@ using facebook::react::Touches;
 namespace {
 
 // A desktop pointer is one touch point, and React Native identifies touches by
-// number. Zero is the first (and here only) finger.
+// number. Zero is the first (and here only) finger. The same number identifies
+// the pointer in pointer events, where React Native keys its hover tracking by
+// it -- and where zero is what React Native's own iOS host uses for a mouse.
 constexpr int kPointerIdentifier = 0;
+
+// The payload for a hovering pointer, at a point in root coordinates with the
+// target's origin in the same space.
+PointerEvent hoverEvent(double x, double y, double originX, double originY) {
+  PointerEvent event{};
+  event.pointerId = kPointerIdentifier;
+  event.pointerType = "mouse";
+  event.clientPoint = Point{.x = static_cast<facebook::react::Float>(x),
+                            .y = static_cast<facebook::react::Float>(y)};
+  event.screenPoint = event.clientPoint;
+  event.offsetPoint = Point{.x = static_cast<facebook::react::Float>(x - originX),
+                            .y = static_cast<facebook::react::Float>(y - originY)};
+  event.width = 1;
+  event.height = 1;
+  // A hovering mouse presses nothing. `button` is -1 rather than 0 because 0 is
+  // the left button; -1 is W3C's "no button changed state".
+  event.button = -1;
+  event.buttons = 0;
+  event.isPrimary = true;
+  event.timeStamp = HighResTimeStamp::now();
+  return event;
+}
 
 } // namespace
 
@@ -58,6 +98,9 @@ AppKitTouchDispatcher::AppKitTouchDispatcher(AppKitMountingManager *mountingMana
   target.dispatcher = this;
   inputTarget_ = target;
   surfaceRoot_.rnInputHandler = target;
+  // The root's tracking area is only wanted once there is somewhere to send
+  // hover, and AppKit will not ask again just because a property changed.
+  [surfaceRoot_ updateTrackingAreas];
 }
 
 AppKitTouchDispatcher::~AppKitTouchDispatcher() {
@@ -70,6 +113,14 @@ AppKitTouchDispatcher::~AppKitTouchDispatcher() {
 void AppKitTouchDispatcher::synthesiseTap(double x, double y) {
   dispatchTouchStart(x, y);
   dispatchTouchEnd(x, y);
+}
+
+void AppKitTouchDispatcher::synthesiseHover(double x, double y) {
+  if (x < 0 || y < 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  dispatchHover(x, y);
 }
 
 void AppKitTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps) {
@@ -189,6 +240,69 @@ void AppKitTouchDispatcher::dispatchTouchCancel() {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::Cancel, target, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Hover
+// ---------------------------------------------------------------------------
+
+void AppKitTouchDispatcher::dispatchHover(double x, double y) {
+  // Only the innermost view is reported against -- React Native's
+  // PointerEventsProcessor walks up from it itself -- but the whole chain is
+  // still needed, because a listener on any ancestor is reason to dispatch.
+  Tag target = 0;
+  NSPoint origin = NSZeroPoint;
+  std::uint16_t listeners = HoverListenerNone;
+  RnAppKitView *hit = RnAppKitHitTest(surfaceRoot_, x, y);
+  for (NSView *view = hit; view != nil; view = view.superview) {
+    if ([view isKindOfClass:[RnAppKitView class]]) {
+      const auto tag = static_cast<Tag>(((RnAppKitView *)view).rnTag);
+      if (target == 0) {
+        target = tag;
+        origin = [view convertPoint:NSZeroPoint toView:surfaceRoot_];
+      }
+      listeners |= mountingManager_->hoverListenersForTag(tag);
+    }
+    if (view == surfaceRoot_) {
+      break;
+    }
+  }
+
+  if (target == 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  if (!hover_.admitMove(static_cast<int>(target), listeners)) {
+    return;
+  }
+  emitPointerMove(target, origin.x, origin.y, x, y);
+}
+
+void AppKitTouchDispatcher::dispatchHoverLeave() {
+  const int target = hover_.admitLeave();
+  if (target == 0) {
+    return;
+  }
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(static_cast<Tag>(target)));
+  if (emitter == nullptr) {
+    return;
+  }
+  // A leave from a platform is not forwarded: the processor reads it as the
+  // pointer being gone and unwinds the path it is holding. So the coordinates
+  // on it are never seen by an app, and zero is the honest answer for a
+  // position that no longer exists.
+  emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void AppKitTouchDispatcher::emitPointerMove(
+    Tag target, double originX, double originY, double x, double y) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  emitter->onPointerMove(hoverEvent(x, y, originX, originY));
 }
 
 // A gesture recogniser that has activated owns the pointer, and React Native's

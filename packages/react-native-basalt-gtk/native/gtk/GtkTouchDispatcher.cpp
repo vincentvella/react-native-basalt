@@ -2,14 +2,17 @@
 
 #include "Gestures.h"
 
+#include <react/renderer/components/view/PointerEvent.h>
 #include <react/renderer/components/view/TouchEvent.h>
 
 #include <chrono>
+#include <cstdint>
 
 namespace basalt {
 
 using facebook::react::HighResTimeStamp;
 using facebook::react::Point;
+using facebook::react::PointerEvent;
 using facebook::react::Tag;
 using facebook::react::TouchEventEmitter;
 using facebook::react::Touch;
@@ -19,8 +22,33 @@ using facebook::react::Touches;
 namespace {
 
 // A desktop pointer is one touch point, and React Native identifies touches by
-// number. Zero is the first (and here only) finger.
+// number. Zero is the first (and here only) finger. The same number identifies
+// the pointer in pointer events, where React Native keys its hover tracking by
+// it -- and where zero is also what React Native's own macOS host uses for a
+// mouse.
 constexpr int kPointerIdentifier = 0;
+
+// The payload for a hovering pointer, at a point in root coordinates with the
+// target's origin in the same space.
+PointerEvent hoverEvent(double x, double y, double originX, double originY) {
+  PointerEvent event{};
+  event.pointerId = kPointerIdentifier;
+  event.pointerType = "mouse";
+  event.clientPoint = Point{.x = static_cast<facebook::react::Float>(x),
+                            .y = static_cast<facebook::react::Float>(y)};
+  event.screenPoint = event.clientPoint;
+  event.offsetPoint = Point{.x = static_cast<facebook::react::Float>(x - originX),
+                            .y = static_cast<facebook::react::Float>(y - originY)};
+  event.width = 1;
+  event.height = 1;
+  // A hovering mouse presses nothing. `button` is -1 rather than 0 because 0 is
+  // the left button; -1 is W3C's "no button changed state".
+  event.button = -1;
+  event.buttons = 0;
+  event.isPrimary = true;
+  event.timeStamp = HighResTimeStamp::now();
+  return event;
+}
 
 } // namespace
 
@@ -38,6 +66,9 @@ GtkTouchDispatcher::GtkTouchDispatcher(GtkMountingManager *mountingManager, RnVi
 
   motionController_ = gtk_event_controller_motion_new();
   g_signal_connect(motionController_, "motion", G_CALLBACK(onMotion), this);
+  // The cursor leaving the window is not a motion event, and without it a view
+  // that was hovered when the pointer left the window stays hovered forever.
+  g_signal_connect(motionController_, "leave", G_CALLBACK(onPointerLeft), this);
   gtk_widget_add_controller(GTK_WIDGET(surfaceRoot_), motionController_);
 }
 
@@ -77,12 +108,26 @@ void GtkTouchDispatcher::onMotion(GtkEventControllerMotion * /*controller*/,
                                   double x,
                                   double y,
                                   gpointer userData) {
-  static_cast<GtkTouchDispatcher *>(userData)->dispatchTouchMove(x, y);
+  auto *self = static_cast<GtkTouchDispatcher *>(userData);
+  self->dispatchTouchMove(x, y);
+  self->dispatchHover(x, y);
+}
+
+void GtkTouchDispatcher::onPointerLeft(GtkEventControllerMotion * /*controller*/, gpointer userData) {
+  static_cast<GtkTouchDispatcher *>(userData)->dispatchHoverLeave();
 }
 
 void GtkTouchDispatcher::synthesiseTap(double x, double y) {
   dispatchTouchStart(x, y);
   dispatchTouchEnd(x, y);
+}
+
+void GtkTouchDispatcher::synthesiseHover(double x, double y) {
+  if (x < 0 || y < 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  dispatchHover(x, y);
 }
 
 void GtkTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps) {
@@ -120,15 +165,16 @@ Tag hitTestTag(RnView *root, double x, double y) {
 namespace {
 
 // The React Native views under a point, innermost first, each with its origin
-// in the root's coordinates. That is what a gesture recogniser needs and a
-// touch does not: a touch is reported against one target, while a gesture may
-// be attached to any ancestor of the view that was hit.
+// in the root's coordinates, handed one at a time to `visit`.
 //
-// Built only when something is attached; see core/Gestures.h.
-std::vector<basalt::HitView> hitChain(RnView *root, double x, double y) {
-  std::vector<basalt::HitView> chain;
+// Two callers want this walk and want different things out of it -- a gesture
+// recogniser wants a HitView, hover wants a HoverView carrying the view's
+// listener mask -- so the walk is written once and the shape of the answer is
+// the caller's business.
+template <typename Visit>
+void walkHitChain(RnView *root, double x, double y, Visit &&visit) {
   if (root == nullptr) {
-    return chain;
+    return;
   }
 
   GtkWidget *picked = gtk_widget_pick(GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
@@ -143,15 +189,26 @@ std::vector<basalt::HitView> hitChain(RnView *root, double x, double y) {
       zero.x = 0;
       zero.y = 0;
       if (gtk_widget_compute_point(widget, GTK_WIDGET(root), &zero, &origin)) {
-        chain.push_back(basalt::HitView{.tag = static_cast<int>(rn_view_get_tag(RN_VIEW(widget))),
-                                        .originX = origin.x,
-                                        .originY = origin.y});
+        visit(static_cast<int>(rn_view_get_tag(RN_VIEW(widget))), static_cast<double>(origin.x),
+              static_cast<double>(origin.y));
       }
     }
     if (widget == GTK_WIDGET(root)) {
       break;
     }
   }
+}
+
+// What a gesture recogniser needs and a touch does not: a touch is reported
+// against one target, while a gesture may be attached to any ancestor of the
+// view that was hit.
+//
+// Built only when something is attached; see core/Gestures.h.
+std::vector<basalt::HitView> hitChain(RnView *root, double x, double y) {
+  std::vector<basalt::HitView> chain;
+  walkHitChain(root, x, y, [&](int tag, double originX, double originY) {
+    chain.push_back(basalt::HitView{.tag = tag, .originX = originX, .originY = originY});
+  });
   return chain;
 }
 
@@ -228,6 +285,64 @@ void GtkTouchDispatcher::dispatchTouchCancel() {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::Cancel, target, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Hover
+// ---------------------------------------------------------------------------
+
+void GtkTouchDispatcher::dispatchHover(double x, double y) {
+  // Only the innermost view is reported against -- React Native's
+  // PointerEventsProcessor walks up from it itself -- but the whole chain is
+  // still needed, because a listener on any ancestor is reason to dispatch.
+  int target = 0;
+  double originX = 0;
+  double originY = 0;
+  std::uint16_t listeners = HoverListenerNone;
+  walkHitChain(surfaceRoot_, x, y, [&](int tag, double viewX, double viewY) {
+    if (target == 0) {
+      target = tag;
+      originX = viewX;
+      originY = viewY;
+    }
+    listeners |= mountingManager_->hoverListenersForTag(static_cast<Tag>(tag));
+  });
+
+  if (target == 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  if (!hover_.admitMove(target, listeners)) {
+    return;
+  }
+  emitPointerMove(target, originX, originY, x, y);
+}
+
+void GtkTouchDispatcher::dispatchHoverLeave() {
+  const int target = hover_.admitLeave();
+  if (target == 0) {
+    return;
+  }
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(static_cast<Tag>(target)));
+  if (emitter == nullptr) {
+    return;
+  }
+  // A leave from a platform is not forwarded: the processor reads it as the
+  // pointer being gone and unwinds the path it is holding. So the coordinates
+  // on it are never seen by an app, and zero is the honest answer for a
+  // position that no longer exists.
+  emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void GtkTouchDispatcher::emitPointerMove(
+    facebook::react::Tag target, double originX, double originY, double x, double y) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  emitter->onPointerMove(hoverEvent(x, y, originX, originY));
 }
 
 // A gesture recogniser that has activated owns the pointer, and React Native's

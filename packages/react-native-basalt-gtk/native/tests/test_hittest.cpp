@@ -8,6 +8,7 @@
 
 #include "TestHarness.h"
 
+#include "GtkMountingManager.h"
 #include "GtkTouchDispatcher.h"
 #include "RnView.h"
 
@@ -137,4 +138,30 @@ TEST(hit_test_follows_a_scroll_offset) {
 
 TEST(hit_test_on_a_null_root_is_a_miss) {
   EXPECT_EQ(static_cast<int>(basalt::hitTestTag(nullptr, 0.0, 0.0)), 0);
+}
+
+// Hover walks the same widget tree from the same pick, and has to survive
+// everything the touch path does: a point that hits nothing, a view with no
+// emitter, and the cursor leaving the surface. No emitter is attached to
+// anything here, so nothing is delivered -- which is also what a cursor moving
+// during a surface teardown looks like from inside the dispatcher.
+TEST(a_synthesised_hover_walks_the_tree_without_an_emitter) {
+  basalt::GtkMountingManager manager;
+  RnView *root = manager.createSurfaceRoot(1);
+
+  GtkWidget *window = gtk_window_new();
+  gtk_window_set_default_size(GTK_WINDOW(window), 400, 400);
+  gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(root));
+  addChild(root, 30, 10.0F, 10.0F, 100.0F, 100.0F);
+  gtk_widget_set_visible(window, TRUE);
+  Scene::pump();
+
+  basalt::GtkTouchDispatcher dispatcher(&manager, root);
+  dispatcher.synthesiseHover(50.0, 50.0);
+  dispatcher.synthesiseHover(300.0, 300.0);
+  // Negative means the cursor left the surface.
+  dispatcher.synthesiseHover(-1.0, -1.0);
+
+  gtk_window_destroy(GTK_WINDOW(window));
+  manager.destroySurfaceRoot(1);
 }

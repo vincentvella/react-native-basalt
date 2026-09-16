@@ -260,6 +260,40 @@ guint scheduleTestTaps(Host *host, const char *spec) {
   return delayMs;
 }
 
+// BASALT_TEST_HOVER: "x,y" points separated by ';', each fired a second apart.
+// The pointer moving with no button down, which is the only way to reach the
+// hover path from automation: a real cursor move needs a seat with input
+// devices, and the whole point of these instruments is a run that has none. A
+// negative point means the pointer left the surface.
+//
+// Reuses PendingTap: the payload is the same, and a second struct with the same
+// three fields would be two things to keep in step.
+gboolean fireTestHover(gpointer data) {
+  std::unique_ptr<PendingTap> hover{static_cast<PendingTap *>(data)};
+  g_message("BASALT_TEST_HOVER: hovering (%.0f, %.0f)", hover->x, hover->y);
+  if (hover->host->touchDispatcher != nullptr) {
+    hover->host->touchDispatcher->synthesiseHover(hover->x, hover->y);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+// Returns the delay after the last point.
+guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
+  char **points = g_strsplit(spec, ";", -1);
+  for (char **point = points; *point != nullptr; ++point) {
+    char **parts = g_strsplit(*point, ",", 2);
+    if (parts[0] != nullptr && parts[1] != nullptr) {
+      g_timeout_add(delayMs,
+                    fireTestHover,
+                    new PendingTap{host, g_ascii_strtod(parts[0], nullptr), g_ascii_strtod(parts[1], nullptr)});
+      delayMs += 1000;
+    }
+    g_strfreev(parts);
+  }
+  g_strfreev(points);
+  return delayMs;
+}
+
 // BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release, for
 // the gestures a tap cannot reach. See GtkTouchDispatcher::synthesiseDrag.
 struct PendingDrag {
@@ -693,6 +727,9 @@ void onActivate(GtkApplication *app, gpointer data) {
   guint scriptedDelayMs = 1500;
   if (const char *taps = g_getenv("BASALT_TEST_TAP")) {
     scriptedDelayMs = scheduleTestTaps(host, taps);
+  }
+  if (const char *hovers = g_getenv("BASALT_TEST_HOVER")) {
+    scriptedDelayMs = scheduleTestHovers(host, hovers, scriptedDelayMs);
   }
   if (const char *drag = g_getenv("BASALT_TEST_DRAG")) {
     scheduleTestDrag(host, drag, scriptedDelayMs);

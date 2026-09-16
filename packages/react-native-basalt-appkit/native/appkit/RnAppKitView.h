@@ -44,6 +44,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)rnMouseDownAt:(NSPoint)point;
 - (void)rnMouseDraggedTo:(NSPoint)point;
 - (void)rnMouseUpAt:(NSPoint)point;
+// The pointer moving with no button down, and the pointer leaving the surface.
+// Not part of React Native's touch model -- a finger that is not touching does
+// not exist -- but it is what W3C pointer events call hover, and what
+// `onPointerEnter` and friends are fed from. See core/HoverTracker.h.
+- (void)rnMouseMovedTo:(NSPoint)point;
+- (void)rnMouseExited;
 @end
 
 // Where a scrolling view sends the wheel.

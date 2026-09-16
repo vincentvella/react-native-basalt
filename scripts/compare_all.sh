@@ -35,6 +35,13 @@ APPS=(
   "blob:BasaltBlob"
   "modules:BasaltModules"
   "probe:BasaltProbe"
+  # js/hover.js is deliberately absent. Its tree depends on where the cursor
+  # is: a box under the pointer takes a different background, and a window that
+  # opens under someone's mouse is hovered before either host has drawn
+  # anything. That is a property of the machine rather than of the platform, so
+  # it makes a bad parity fixture -- what checks hover is the end-to-end suite,
+  # which drives the pointer itself and runs on both hosts.
+  #
   # The real demo, last: the richest app there is, and the one whose tree
   # agreeing means the most.
   "index:BasaltDemo"

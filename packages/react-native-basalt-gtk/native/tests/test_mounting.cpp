@@ -12,6 +12,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
 
+#include <cstdint>
 #include <sstream>
 
 using facebook::react::ColorComponents;
@@ -259,4 +260,39 @@ TEST(has_component_matches_the_registered_descriptors) {
   // the registry would build shadow nodes nothing can mount.
   EXPECT(!manager.hasComponent("Switch"));
   EXPECT(!manager.hasComponent("Slider"));
+}
+
+// Hover runs only for views that asked for it, and the ask arrives as props on
+// every Create and Update. Recorded by the mutation walk, so a cursor crossing
+// an app that uses no hover costs a hit test and nothing else.
+TEST(a_hover_listener_is_remembered_from_the_props) {
+  basalt::GtkMountingManager manager;
+  manager.createSurfaceRoot(kSurfaceId);
+
+  ShadowView listening = makeView(10, 0, 0, 100, 50);
+  auto props = std::make_shared<ViewProps>();
+  props->events[facebook::react::ViewEvents::Offset::PointerEnter] = true;
+  listening.props = props;
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(listening));
+  mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, listening, 0));
+  apply(manager, std::move(mutations));
+
+  EXPECT_EQ(manager.hoverListenersForTag(10),
+            static_cast<std::uint16_t>(basalt::HoverListenerEnter));
+  // A view that never asked is not stored at all.
+  EXPECT_EQ(manager.hoverListenersForTag(kSurfaceId),
+            static_cast<std::uint16_t>(basalt::HoverListenerNone));
+
+  // An update can take the listener away again, and leaving the old mask behind
+  // would mean dispatching to a view that stopped listening.
+  ShadowViewMutationList updates;
+  updates.push_back(
+      ShadowViewMutation::UpdateMutation(listening, makeView(10, 0, 0, 100, 50), kSurfaceId));
+  apply(manager, std::move(updates));
+  EXPECT_EQ(manager.hoverListenersForTag(10),
+            static_cast<std::uint16_t>(basalt::HoverListenerNone));
+
+  manager.destroySurfaceRoot(kSurfaceId);
 }

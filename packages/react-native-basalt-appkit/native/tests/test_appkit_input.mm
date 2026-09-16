@@ -19,6 +19,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
 
+#include <cstdint>
 #include <sstream>
 
 using facebook::react::LayoutMetrics;
@@ -299,6 +300,68 @@ TEST(a_child_forwards_the_mouse_to_the_root_handler) {
     // The dispatcher is gone; the root's reference is weak, so it went with it
     // rather than leaving a dangling handler behind.
     EXPECT(root.rnInputHandler == nil);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// Hover is fed from the same hit test as touches, and differs in one place
+// that matters: it only runs for views that asked for it. The mask comes off
+// the props ReactCommon parsed, on every Create and Update, which is what makes
+// a cursor crossing an app that uses no hover cost nothing.
+TEST(a_hover_listener_is_remembered_from_the_props) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:300];
+
+    ShadowView listening = makeView(10, 40, 50, 120, 60);
+    auto props = std::make_shared<ViewProps>();
+    props->events[facebook::react::ViewEvents::Offset::PointerEnter] = true;
+    listening.props = props;
+
+    ShadowViewMutationList mutations;
+    mutations.push_back(ShadowViewMutation::CreateMutation(listening));
+    mutations.push_back(ShadowViewMutation::InsertMutation(kSurfaceId, listening, 0));
+    apply(manager, std::move(mutations));
+
+    EXPECT_EQ(manager.hoverListenersForTag(10), (std::uint16_t)basalt::HoverListenerEnter);
+    // A view that never asked is not stored at all.
+    EXPECT_EQ(manager.hoverListenersForTag(kSurfaceId), (std::uint16_t)basalt::HoverListenerNone);
+
+    // An update can take the listener away again, and leaving the old mask
+    // behind would mean dispatching to a view that stopped listening.
+    ShadowViewMutationList updates;
+    updates.push_back(ShadowViewMutation::UpdateMutation(
+        listening, makeView(10, 40, 50, 120, 60), kSurfaceId));
+    apply(manager, std::move(updates));
+    EXPECT_EQ(manager.hoverListenersForTag(10), (std::uint16_t)basalt::HoverListenerNone);
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// The same shape as the synthesised tap: no emitter is attached to these
+// hand-built shadow views, so every hover has nowhere to deliver and must not
+// crash -- which is also what a cursor moving during a surface teardown looks
+// like from here.
+TEST(a_synthesised_hover_walks_the_tree_without_an_emitter) {
+  @autoreleasepool {
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
+    [root setRnFrameX:0 y:0 width:400 height:300];
+
+    ShadowViewMutationList mutations;
+    mutations.push_back(ShadowViewMutation::CreateMutation(makeView(10, 40, 50, 120, 60)));
+    mutations.push_back(
+        ShadowViewMutation::InsertMutation(kSurfaceId, makeView(10, 40, 50, 120, 60), 0));
+    apply(manager, std::move(mutations));
+
+    basalt::AppKitTouchDispatcher dispatcher(&manager, root);
+    dispatcher.synthesiseHover(50, 60);
+    dispatcher.synthesiseHover(5, 5);
+    // Negative means the cursor left the surface.
+    dispatcher.synthesiseHover(-1, -1);
 
     manager.destroySurfaceRoot(kSurfaceId);
   }

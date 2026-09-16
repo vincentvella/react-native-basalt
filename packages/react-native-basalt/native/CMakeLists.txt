@@ -52,6 +52,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_devbundle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hover.cpp
     CACHE INTERNAL "core's own tests")
 
 # ---------------------------------------------------------------------------
@@ -145,6 +146,8 @@ if(DEFINED RN_DIR)
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp
     core/Gestures.cpp
+    # Hover: the pointer-event path React Native only has on Android.
+    core/HoverTracker.cpp
     core/ExpoModules.cpp
     core/ExpoRuntime.cpp
     core/HttpClient.cpp

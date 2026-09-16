@@ -662,6 +662,33 @@ int main(int argc, const char *argv[]) {
       }
     }
 
+    // BASALT_TEST_HOVER: "x,y;x,y" -- the pointer moving with no button down,
+    // a second apart, in surface-root coordinates. The only way to reach the
+    // hover path from automation: a real cursor move is CGEvent again, and a
+    // posted NSEventTypeMouseMoved does not drive a tracking area. A negative
+    // point means the pointer left the surface.
+    if (const char *hovers = getenv("BASALT_TEST_HOVER")) {
+      NSString *spec = [NSString stringWithUTF8String:hovers];
+      int64_t delayMs = 1500;
+      for (NSString *point in [spec componentsSeparatedByString:@";"]) {
+        NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
+        if (parts.count != 2) {
+          continue;
+        }
+        const double x = parts[0].doubleValue;
+        const double y = parts[1].doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_HOVER: hovering (%.0f, %.0f)", x, y);
+                         if (gHost.touchDispatcher != nullptr) {
+                           gHost.touchDispatcher->synthesiseHover(x, y);
+                         }
+                       });
+        delayMs += 1000;
+      }
+    }
+
     // BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release,
     // for the gestures a tap cannot reach. See synthesiseDrag.
     if (const char *drag = getenv("BASALT_TEST_DRAG")) {

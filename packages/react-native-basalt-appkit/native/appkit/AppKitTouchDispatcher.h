@@ -19,6 +19,7 @@
 #import "RnAppKitView.h"
 
 #include "AppKitMountingManager.h"
+#include "HoverTracker.h"
 
 #include <react/renderer/components/view/TouchEventEmitter.h>
 #include <react/renderer/graphics/Point.h>
@@ -56,12 +57,24 @@ class AppKitTouchDispatcher {
   // injectable for anything about it to be provable outside a person's hand.
   void synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps);
 
+  // Moves the pointer without pressing it, which is what produces hover. Same
+  // reason as the two above, and the same entry point the tracking area uses. A
+  // negative coordinate means the pointer left the surface.
+  void synthesiseHover(double x, double y);
+
   // The main-thread half, called by the view that received the mouse event.
   // Public because the Objective-C trampoline has to reach them.
   void dispatchTouchStart(double x, double y);
   void dispatchTouchMove(double x, double y);
   void dispatchTouchEnd(double x, double y);
   void dispatchTouchCancel();
+
+  // The hover half. Separate from dispatchTouchMove because the two answer
+  // different questions about the same motion: the touch model asks which view
+  // the finger went down on, and hover asks which views the cursor is inside
+  // right now.
+  void dispatchHover(double x, double y);
+  void dispatchHoverLeave();
 
  private:
   enum class TouchKind { Start, Move, End, Cancel };
@@ -77,6 +90,11 @@ class AppKitTouchDispatcher {
   // touchend where nothing is touching any more.
   void emit(TouchKind kind, facebook::react::Tag target, double x, double y);
 
+  // A pointerMove at the view under the cursor. The only pointer event a host
+  // emits for hover; see core/HoverTracker.h.
+  void emitPointerMove(
+      facebook::react::Tag target, double originX, double originY, double x, double y);
+
   AppKitMountingManager *mountingManager_;
   RnAppKitView *surfaceRoot_;
   // The Objective-C object the root forwards mouse events to. Held so it
@@ -88,6 +106,10 @@ class AppKitTouchDispatcher {
   // view, because that is what the responder system expects.
   facebook::react::Tag activeTarget_{0};
   bool isDown_{false};
+
+  // Where the cursor was, so that enter and leave can be told from over and
+  // out. See core/HoverTracker.h.
+  HoverTracker hover_;
 };
 
 } // namespace basalt

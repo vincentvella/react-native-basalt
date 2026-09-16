@@ -35,6 +35,9 @@
 
 #pragma once
 
+#include "HoverTracker.h"
+
+#include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
@@ -71,6 +74,17 @@ class MountingWalk {
   facebook::react::EventEmitter::Shared eventEmitterForTag(Tag tag) const {
     const auto it = eventEmitters_.find(tag);
     return it == eventEmitters_.end() ? nullptr : it->second;
+  }
+
+  // Which hover events this view listens for, as a HoverListener mask.
+  //
+  // Recorded here, next to the emitter, for the same reason: it comes off the
+  // props on every Create and Update, and a touch dispatcher asking per motion
+  // event must not have to reach into the shadow tree to find it. Views that
+  // listen for none -- nearly all of them -- are not stored at all.
+  std::uint16_t hoverListenersForTag(Tag tag) const {
+    const auto it = hoverListeners_.find(tag);
+    return it == hoverListeners_.end() ? HoverListenerNone : it->second;
   }
 
   // Fabric emits no Create for a surface's root: the root shadow node is the
@@ -139,11 +153,26 @@ class MountingWalk {
     }
     registry_.clear();
     eventEmitters_.clear();
+    hoverListeners_.clear();
   }
 
   void rememberEventEmitter(const ShadowView &shadowView) {
     if (shadowView.eventEmitter != nullptr) {
       eventEmitters_[shadowView.tag] = shadowView.eventEmitter;
+    }
+    rememberHoverListeners(shadowView);
+  }
+
+  // An Update can take listeners away as well as add them, so a view that stops
+  // listening is erased rather than left with its old mask.
+  void rememberHoverListeners(const ShadowView &shadowView) {
+    const auto *viewProps = dynamic_cast<const facebook::react::ViewProps *>(shadowView.props.get());
+    const std::uint16_t mask =
+        viewProps == nullptr ? HoverListenerNone : hoverListenersFrom(viewProps->events);
+    if (mask == HoverListenerNone) {
+      hoverListeners_.erase(shadowView.tag);
+    } else {
+      hoverListeners_[shadowView.tag] = mask;
     }
   }
 
@@ -174,6 +203,7 @@ class MountingWalk {
     platform().destroyView(it->second);
     registry_.erase(it);
     eventEmitters_.erase(tag);
+    hoverListeners_.erase(tag);
     platform().forgetTag(tag);
   }
 
@@ -232,6 +262,10 @@ class MountingWalk {
 
   // Parallel to registry_, and torn down with it on Delete.
   std::unordered_map<Tag, facebook::react::EventEmitter::Shared> eventEmitters_;
+
+  // Sparse, unlike the two above: only views that listen for a hover event
+  // appear, so an app that uses none carries an empty map.
+  std::unordered_map<Tag, std::uint16_t> hoverListeners_;
 
   // The main thread, recorded at construction. `executeMount` arrives on the JS
   // thread and marshals here; `applyMutations` asserts it got there.

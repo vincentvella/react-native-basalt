@@ -75,9 +75,8 @@ and none of it is a missing half.
 - ~~**No input at all.**~~ Phase 44. `Win32TouchDispatcher` turns
   `WM_LBUTTONDOWN`/`WM_MOUSEMOVE`/`WM_LBUTTONUP` into React Native touches, and
   `js/press.js` counts presses on Windows. What is still missing is what a mouse
-  has and a finger does not: **no hover**, so `onMouseEnter` and `:hover`-style
-  props never fire; **no right button**; **no keyboard**, which arrives with
-  `<TextInput>` because there is nothing yet that focus could belong to. The
+  has and a finger does not: **no right button**; **no keyboard**, which arrives
+  with `<TextInput>` because there is nothing yet that focus could belong to. The
   wheel is not among them any more -- phase 45 took it, and routed it through
   the mounting manager rather than the touch dispatcher, because what it needs
   is the list of tags that are ScrollViews.
@@ -512,9 +511,18 @@ has gone unrecorded until now.
 
 ## Input
 
-- No hover: W3C pointer events are not emitted, so `onMouseEnter` and friends
-  never fire. They are a separate emitter path from touch, not a translation of
-  it.
+- ~~No hover.~~ Done on all three hosts. `onPointerEnter`, `onPointerLeave`,
+  `onPointerOver`, `onPointerOut` and `onPointerMove` fire, and `js/hover.js`
+  plus a scenario in the end-to-end suite prove it. Worth recording what the
+  work turned out to be, because the obvious implementation is wrong: a host
+  emits `pointerMove` and nothing else. `PointerEventsProcessor` in ReactCommon
+  already keeps the hover path and derives enter, leave, over and out from a
+  single move, with the listener filtering and the capture rules. Emitting them
+  from a platform as well produces each one two or three times over -- see
+  core/HoverTracker.h, which is now only the gate that keeps an app with no
+  hover listeners from paying for a JavaScript round trip per motion event.
+  What is still missing is `onMouseEnter`/`onMouseLeave`, which are not React
+  Native core props at all: they exist only in the macOS and Windows forks.
 - `setIsJSResponder` is a no-op. It matters once something scrolls natively, so
   it lands with `ScrollView`.
 - `Touch::offsetPoint` carries page coordinates rather than coordinates relative

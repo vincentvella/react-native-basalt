@@ -2,12 +2,16 @@
 
 #include "Gestures.h"
 
+#include <react/renderer/components/view/PointerEvent.h>
 #include <react/renderer/components/view/TouchEvent.h>
+
+#include <cstdint>
 
 namespace basalt {
 
 using facebook::react::HighResTimeStamp;
 using facebook::react::Point;
+using facebook::react::PointerEvent;
 using facebook::react::Tag;
 using facebook::react::Touch;
 using facebook::react::TouchEvent;
@@ -18,8 +22,32 @@ using win32::RnWin32View;
 namespace {
 
 // A desktop pointer is one touch point, and React Native identifies touches by
-// number. Zero is the first (and here only) finger.
+// number. Zero is the first (and here only) finger. The same number identifies
+// the pointer in pointer events, where React Native keys its hover tracking by
+// it.
 constexpr int kPointerIdentifier = 0;
+
+// The payload for a hovering pointer, at a point in root coordinates with the
+// target's origin in the same space.
+PointerEvent hoverEvent(double x, double y, double originX, double originY) {
+  PointerEvent event{};
+  event.pointerId = kPointerIdentifier;
+  event.pointerType = "mouse";
+  event.clientPoint = Point{.x = static_cast<facebook::react::Float>(x),
+                            .y = static_cast<facebook::react::Float>(y)};
+  event.screenPoint = event.clientPoint;
+  event.offsetPoint = Point{.x = static_cast<facebook::react::Float>(x - originX),
+                            .y = static_cast<facebook::react::Float>(y - originY)};
+  event.width = 1;
+  event.height = 1;
+  // A hovering mouse presses nothing. `button` is -1 rather than 0 because 0 is
+  // the left button; -1 is W3C's "no button changed state".
+  event.button = -1;
+  event.buttons = 0;
+  event.isPrimary = true;
+  event.timeStamp = HighResTimeStamp::now();
+  return event;
+}
 
 // A point through a 2D affine matrix in Direct2D's Matrix3x2F order and its
 // row-vector convention, which is the order `localToParent` writes.
@@ -82,6 +110,14 @@ Win32TouchDispatcher::Win32TouchDispatcher(
 void Win32TouchDispatcher::synthesiseTap(double x, double y) {
   dispatchTouchStart(x, y);
   dispatchTouchEnd(x, y);
+}
+
+void Win32TouchDispatcher::synthesiseHover(double x, double y) {
+  if (x < 0 || y < 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  dispatchHover(x, y);
 }
 
 void Win32TouchDispatcher::synthesiseDrag(
@@ -173,6 +209,68 @@ void Win32TouchDispatcher::dispatchTouchCancel() {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::Cancel, target, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Hover
+// ---------------------------------------------------------------------------
+
+void Win32TouchDispatcher::dispatchHover(double x, double y) {
+  // The same chain the gesture path uses -- this is the one place where the
+  // absence of a toolkit pays off, because `hitChain` already composes the
+  // transforms and scroll offsets that GTK and AppKit answer for themselves.
+  //
+  // Only the innermost view is reported against -- React Native's
+  // PointerEventsProcessor walks up from it itself -- but the whole chain is
+  // still needed, because a listener on any ancestor is reason to dispatch.
+  Tag target = 0;
+  double originX = 0;
+  double originY = 0;
+  std::uint16_t listeners = HoverListenerNone;
+  for (const auto &view : hitChain(surfaceRoot_, x, y)) {
+    if (target == 0) {
+      target = static_cast<Tag>(view.tag);
+      originX = view.originX;
+      originY = view.originY;
+    }
+    listeners |= mountingManager_->hoverListenersForTag(static_cast<Tag>(view.tag));
+  }
+
+  if (target == 0) {
+    dispatchHoverLeave();
+    return;
+  }
+  if (!hover_.admitMove(static_cast<int>(target), listeners)) {
+    return;
+  }
+  emitPointerMove(target, originX, originY, x, y);
+}
+
+void Win32TouchDispatcher::dispatchHoverLeave() {
+  const int target = hover_.admitLeave();
+  if (target == 0) {
+    return;
+  }
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(static_cast<Tag>(target)));
+  if (emitter == nullptr) {
+    return;
+  }
+  // A leave from a platform is not forwarded: the processor reads it as the
+  // pointer being gone and unwinds the path it is holding. So the coordinates
+  // on it are never seen by an app, which is just as well -- WM_MOUSELEAVE
+  // reports no position at all.
+  emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void Win32TouchDispatcher::emitPointerMove(
+    Tag target, double originX, double originY, double x, double y) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  emitter->onPointerMove(hoverEvent(x, y, originX, originY));
 }
 
 // A gesture recogniser that has activated owns the pointer, and React Native's

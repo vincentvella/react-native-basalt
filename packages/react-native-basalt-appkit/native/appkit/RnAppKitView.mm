@@ -159,6 +159,8 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   CATransform3D _transform;
   BOOL _hasTransform;
   NSInteger _zIndex;
+  // Only the surface root has one; see -updateTrackingAreas.
+  NSTrackingArea *_rnHoverTrackingArea;
 }
 
 + (instancetype)viewWithTag:(NSInteger)tag {
@@ -940,8 +942,54 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     case 'd': [handler rnMouseDownAt:point]; break;
     case 'm': [handler rnMouseDraggedTo:point]; break;
     case 'u': [handler rnMouseUpAt:point]; break;
+    case 'h': [handler rnMouseMovedTo:point]; break;
     default: break;
   }
+}
+
+// Hover.
+//
+// A view gets `mouseMoved:` only if something asked for it, and the tracking
+// area is that ask. Only the surface root has an input handler, and the area
+// covers its whole visible rect, so one area serves every view in the tree --
+// which is the same arrangement the GTK side gets by attaching its motion
+// controller to the root rather than to each widget.
+//
+// NSTrackingInVisibleRect leaves the area's geometry to AppKit, so a window
+// resize does not need this recomputed; `updateTrackingAreas` still has to
+// exist, because that is where AppKit expects an area to be re-added.
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (self.rnInputHandler == nil) {
+    if (_rnHoverTrackingArea != nil) {
+      [self removeTrackingArea:_rnHoverTrackingArea];
+      _rnHoverTrackingArea = nil;
+    }
+    return;
+  }
+  if (_rnHoverTrackingArea != nil) {
+    return;
+  }
+  _rnHoverTrackingArea = [[NSTrackingArea alloc]
+      initWithRect:NSZeroRect
+           options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect |
+                   NSTrackingActiveInKeyWindow
+             owner:self
+          userInfo:nil];
+  [self addTrackingArea:_rnHoverTrackingArea];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+  [self forwardMouse:event kind:'h'];
+}
+
+- (void)mouseExited:(NSEvent *)event {
+  NSView *root = nil;
+  id<RnAppKitInputHandler> handler = [self rnHandler:&root];
+  if (handler != nil) {
+    [handler rnMouseExited];
+  }
+  [super mouseExited:event];
 }
 
 // Wheel and touchpad. Unhandled scrolls go to super, which walks the responder

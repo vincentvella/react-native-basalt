@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include "HoverTracker.h"
 #include "RnWin32View.h"
 #include "Win32MountingManager.h"
 
@@ -49,7 +50,14 @@ class Win32TouchDispatcher {
 
   // The surface root can be replaced after a surface restart; the dispatcher
   // outlives it because the host owns both and tears them down together.
-  void setSurfaceRoot(win32::RnWin32View *surfaceRoot) { surfaceRoot_ = surfaceRoot; }
+  //
+  // The hover state goes with it. Every tag in the old tree is about to stop
+  // existing, and a leave dispatched at one of them would be a lookup of an
+  // emitter that is gone.
+  void setSurfaceRoot(win32::RnWin32View *surfaceRoot) {
+    surfaceRoot_ = surfaceRoot;
+    hover_.forget();
+  }
 
   // Synthesises a press and release at a point in surface-root coordinates,
   // entering at the same place the window procedure does.
@@ -68,6 +76,11 @@ class Win32TouchDispatcher {
   // injectable for anything about it to be provable outside a person's hand.
   void synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps);
 
+  // Moves the pointer without pressing it, which is what produces hover. Same
+  // reason as the two above, and the same entry point WM_MOUSEMOVE uses. A
+  // negative coordinate means the pointer left the window.
+  void synthesiseHover(double x, double y);
+
   // The UI-thread half, called by the host's window procedure. Coordinates are
   // client-area pixels, which are the surface root's own coordinates: the host
   // sizes the root to the client rectangle, so the two spaces are the same one.
@@ -75,6 +88,13 @@ class Win32TouchDispatcher {
   void dispatchTouchMove(double x, double y);
   void dispatchTouchEnd(double x, double y);
   void dispatchTouchCancel();
+
+  // The hover half. Separate from dispatchTouchMove because the two answer
+  // different questions about the same WM_MOUSEMOVE: the touch model asks which
+  // view the finger went down on, and hover asks which views the cursor is
+  // inside right now.
+  void dispatchHover(double x, double y);
+  void dispatchHoverLeave();
 
   // Whether a press is outstanding. The host reads this to decide whether a
   // WM_MOUSEMOVE is a drag worth reporting and whether to release capture.
@@ -94,6 +114,11 @@ class Win32TouchDispatcher {
   // touchend where nothing is touching any more.
   void emit(TouchKind kind, facebook::react::Tag target, double x, double y);
 
+  // A pointerMove at the view under the cursor. The only pointer event a host
+  // emits for hover; see core/HoverTracker.h.
+  void emitPointerMove(
+      facebook::react::Tag target, double originX, double originY, double x, double y);
+
   Win32MountingManager *mountingManager_;
   win32::RnWin32View *surfaceRoot_;
 
@@ -102,6 +127,10 @@ class Win32TouchDispatcher {
   // view, because that is what the responder system expects.
   facebook::react::Tag activeTarget_{0};
   bool isDown_{false};
+
+  // Where the cursor was, so that enter and leave can be told from over and
+  // out. See core/HoverTracker.h.
+  HoverTracker hover_;
 };
 
 } // namespace basalt

@@ -94,6 +94,14 @@ FOCUS_THE_FIELD = (728, BUTTON_Y)
 # The middle of the text field itself, for a tap that focuses it directly.
 TEXT_FIELD = (184, 207)
 
+# js/hover.js, which the hover scenario runs instead of the demo: a card at
+# y=24..244 holding two 140pt boxes, at x=44..184 and x=204..344. The third
+# point is inside the card and outside both boxes, which is the one that
+# distinguishes enter from over.
+HOVER_LEFT_BOX = (100, 130)
+HOVER_RIGHT_BOX = (270, 130)
+HOVER_CARD_ONLY = (700, 130)
+
 # The string the Fast Refresh scenario swaps in the demo's heading, and puts
 # back. Chosen to be unmistakable in a widget tree and unique in the file.
 BEFORE = "React Native on the desktop"
@@ -560,6 +568,21 @@ def tail(log: Path, lines: int = 25) -> str:
     return "\n".join(log.read_text().splitlines()[-lines:])
 
 
+def tail_text(text: str, lines: int = 25) -> str:
+    return "\n".join(text.splitlines()[-lines:])
+
+
+def is_subsequence(wanted: list, got: list) -> bool:
+    """Whether `wanted` appears in `got` in order, with anything in between.
+
+    Not equality: a run on a real display can pick up a motion event of its own
+    -- a window mapping under the cursor is one -- and what is being asserted is
+    the order these arrive in, not that nothing else ever happens.
+    """
+    iterator = iter(got)
+    return all(item in iterator for item in wanted)
+
+
 def wait_for_log(log: Path, needle: str, count: int, timeout: float) -> bool:
     """Waits until `needle` has appeared in `log` at least `count` times."""
     deadline = time.time() + timeout
@@ -817,12 +840,105 @@ def test_click_focuses_a_field(bundle: Path) -> None:
         )
 
 
+def test_hover(bundle: Path) -> None:
+    """A cursor that presses nothing still reaches JavaScript.
+
+    Runs js/hover.js rather than the demo, because hover is the one part of the
+    input path with no equivalent in React Native's touch model and the demo has
+    nothing listening for it.
+
+    What this actually proves is a division of labour. A host emits one
+    `pointerMove` per motion and nothing else; React Native's own
+    PointerEventsProcessor turns that into enter, leave, over and out. So the
+    assertion that matters is the third move, from one box to the other: `over`
+    and `out` fire at the boxes, and the card -- which contains both -- hears
+    neither a leave nor an enter, because the cursor never left it. A host that
+    emitted enter and leave itself would get that wrong, and would also see
+    every event twice. See core/HoverTracker.h.
+
+    Injected on every platform, unlike the tap scenarios. A real hover means
+    moving the machine's actual cursor over the window and leaving it there,
+    which no automated run can do without taking the pointer away from whoever
+    is using the machine.
+    """
+    hover_bundle = bundle.parent / f"hover.{PLATFORM}.jsbundle.js"
+    if not hover_bundle.exists():
+        build = subprocess.run(
+            [
+                str(REPO / "scripts" / "bundle.sh"),
+                "--prod",
+                "--platform", PLATFORM,
+                "--entry", "hover.js",
+                "--out", f"hover.{PLATFORM}.jsbundle",
+                "--build-dir", bundle.parent.name,
+            ],
+            cwd=REPO, capture_output=True, text=True, timeout=600,
+        )
+        if build.returncode != 0 or not hover_bundle.exists():
+            raise Failure(f"could not bundle js/hover.js:\n{tail_text(build.stderr, 40)}")
+
+    points = ";".join(
+        f"{x},{y}" for x, y in (HOVER_LEFT_BOX, HOVER_RIGHT_BOX, HOVER_CARD_ONLY)
+    )
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "9000"
+    # A negative point is the cursor leaving the surface, which no move can
+    # express and which the host reports as a pointerLeave.
+    env["BASALT_TEST_HOVER"] = f"{points};-1,-1"
+    env.pop("BASALT_TEST_TAP", None)
+    env.pop("BASALT_TEST_TYPE", None)
+
+    result = subprocess.run(
+        [str(HOST), str(hover_bundle), "BasaltHover"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+
+    # Both streams: GLib sends g_message to stdout and only warnings to stderr,
+    # so on the GTK host the app's own logging is not where the other scenarios
+    # look for it.
+    events = [
+        line.split("hover: ", 1)[1].strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if "hover: " in line
+    ]
+
+    expected = [
+        # Into the left box: it is hovered, and so is the card around it.
+        "over left", "enter card", "enter left",
+        # Across to the right box.
+        "out left", "leave left", "over right", "enter right",
+        # Into the card, outside both boxes.
+        "out right", "leave right",
+        # Off the surface entirely.
+        "leave card",
+    ]
+    if not is_subsequence(expected, events):
+        raise Failure(
+            "hover did not reach JavaScript in the expected order.\n"
+            f"expected, in order: {expected}\n"
+            f"got:                {events}"
+        )
+
+    # The claim the order alone does not make: crossing from one box to the
+    # other must not leave the card, because the cursor stayed inside it.
+    crossing = events[events.index("leave left"):events.index("enter right")]
+    if "leave card" in crossing:
+        raise Failure(
+            "the card was left while the cursor moved between its own children; "
+            "enter and leave are being treated as if they bubbled.\n"
+            f"got: {events}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
     ("scroll away and back", test_scroll_round_trip),
     ("focus a TextInput, type, and see it round-trip through React", test_text_input),
     ("click a TextInput with a real mouse and see it focus", test_click_focuses_a_field),
+    ("hover across nested views and see enter, leave, over and out", test_hover),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

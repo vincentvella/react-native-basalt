@@ -362,6 +362,19 @@ peer is a child window and USER32 routes the click to it; so `BASALT_TEST_TAP`
 focuses the field under the point as well as dispatching the touch. That step
 exists only for the injected path.
 
+Hover has no `real` mode on any of the three. `BASALT_TEST_HOVER` takes the same
+`"x,y;x,y"` as `BASALT_TEST_TAP` and moves the pointer without pressing it; a
+negative point is the pointer leaving the surface. There is no real-event
+equivalent because a real hover means moving the machine's actual cursor onto
+the window and leaving it there, which takes the pointer away from whoever is
+using the machine -- `xdotool mousemove` included.
+
+That cuts the other way too, and it is worth knowing before a tree looks wrong:
+a window that opens under someone's cursor *is* hovered, before either host has
+drawn anything. `js/hover.js` is left out of `scripts/compare_all.sh` for that
+reason, and the end-to-end suite asserts the order events arrive in rather than
+that nothing else happens.
+
 ## Running on Linux
 
 The project targets Linux and is developed on a Mac, so everything here should

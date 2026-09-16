@@ -140,6 +140,10 @@ struct Host {
   std::string sourcePath;
   bool surfaceStarted{false};
   int scaleFactor{1};
+  // Whether TrackMouseEvent is armed. Windows sends WM_MOUSELEAVE once and then
+  // forgets, so it has to be re-armed on every move; the flag keeps that to one
+  // call per entry rather than one per motion message.
+  bool trackingMouseLeave{false};
 };
 
 Host gHost;
@@ -454,7 +458,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Drag, Wheel, Type };
+  enum class Kind { Tap, Hover, Drag, Wheel, Type };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -516,6 +520,16 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
       if (gHost.mountingManager != nullptr &&
           gHost.mountingManager->focusTextInputAt(gHost.root, action.fromX, action.fromY)) {
         std::fprintf(stderr, "BASALT_TEST_TAP: focused the field there\n");
+      }
+      break;
+
+    case ScriptedInput::Kind::Hover:
+      std::fprintf(stderr,
+                   "BASALT_TEST_HOVER: hovering (%.0f, %.0f)\n",
+                   action.fromX,
+                   action.fromY);
+      if (gHost.touchDispatcher != nullptr) {
+        gHost.touchDispatcher->synthesiseHover(action.fromX, action.fromY);
       }
       break;
 
@@ -592,8 +606,9 @@ UINT scheduleScriptedInput(const ScriptedInput &action, UINT delayMs) {
   return delayMs + 1000;
 }
 
-// BASALT_TEST_TAP: "x,y" pairs separated by ';'.
-UINT scheduleTestTaps(const char *spec, UINT delayMs) {
+// "x,y" pairs separated by ';' -- the spelling BASALT_TEST_TAP and
+// BASALT_TEST_HOVER share, since a press and a hover are both just a point.
+UINT scheduleTestPoints(const char *spec, UINT delayMs, ScriptedInput::Kind kind) {
   const std::string all(spec);
   size_t start = 0;
   while (start <= all.size()) {
@@ -603,8 +618,7 @@ UINT scheduleTestTaps(const char *spec, UINT delayMs) {
     const std::vector<double> numbers = parseNumbers(point);
     if (numbers.size() == 2) {
       delayMs = scheduleScriptedInput(
-          ScriptedInput{.kind = ScriptedInput::Kind::Tap, .fromX = numbers[0], .fromY = numbers[1]},
-          delayMs);
+          ScriptedInput{.kind = kind, .fromX = numbers[0], .fromY = numbers[1]}, delayMs);
     }
     if (semicolon == std::string::npos) {
       break;
@@ -817,11 +831,37 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
     case WM_MOUSEMOVE:
       basalt::titleBar().clearHover();
-      // Motion with no button down is hover, and the dispatcher drops it; the
-      // check here is only to keep an idle mouse from walking the view tree
-      // sixty times a second.
-      if (gHost.touchDispatcher != nullptr && gHost.touchDispatcher->isDown()) {
-        gHost.touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      if (gHost.touchDispatcher != nullptr) {
+        // The touch model has no place for motion with no button down, and the
+        // dispatcher drops it; the check here is only to keep an idle mouse
+        // from walking the view tree sixty times a second.
+        if (gHost.touchDispatcher->isDown()) {
+          gHost.touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        } else {
+          // Hover, which is a different question about the same message. Views
+          // that listen for none of it cost a hit test and nothing more; see
+          // core/HoverTracker.h.
+          gHost.touchDispatcher->dispatchHover(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        }
+      }
+      // Without this the cursor leaving the window is silent, and whatever it
+      // was over stays hovered for good. GTK's motion controller and AppKit's
+      // tracking area both report an exit on their own; Windows has to be asked,
+      // once per entry, and disarms itself when it fires.
+      if (!gHost.trackingMouseLeave) {
+        TRACKMOUSEEVENT tracking{};
+        tracking.cbSize = sizeof(tracking);
+        tracking.dwFlags = TME_LEAVE;
+        tracking.hwndTrack = hwnd;
+        gHost.trackingMouseLeave = TrackMouseEvent(&tracking) != FALSE;
+      }
+      return 0;
+
+    case WM_MOUSELEAVE:
+      gHost.trackingMouseLeave = false;
+      basalt::titleBar().clearHover();
+      if (gHost.touchDispatcher != nullptr) {
+        gHost.touchDispatcher->dispatchHoverLeave();
       }
       return 0;
 
@@ -1220,7 +1260,12 @@ int main(int argc, char **argv) {
 
   UINT scriptedDelayMs = 1500;
   if (const char *taps = std::getenv("BASALT_TEST_TAP")) {
-    scriptedDelayMs = scheduleTestTaps(taps, scriptedDelayMs);
+    scriptedDelayMs = scheduleTestPoints(taps, scriptedDelayMs, ScriptedInput::Kind::Tap);
+  }
+  // BASALT_TEST_HOVER: the pointer moving with no button down. A negative point
+  // means it left the window, which is what WM_MOUSELEAVE reports.
+  if (const char *hovers = std::getenv("BASALT_TEST_HOVER")) {
+    scriptedDelayMs = scheduleTestPoints(hovers, scriptedDelayMs, ScriptedInput::Kind::Hover);
   }
   if (const char *drag = std::getenv("BASALT_TEST_DRAG")) {
     scriptedDelayMs = scheduleTestDrag(drag, scriptedDelayMs);
