@@ -33,14 +33,12 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
     return nil;
   }
 
-  for (NSView *child in root.subviews.reverseObjectEnumerator) {
-    if (![child isKindOfClass:[RnAppKitView class]]) {
-      continue;
-    }
+  // Back to front, so reversed is topmost first -- and "topmost" has to mean
+  // what was painted last, which zIndex can change. Win32's hitTest walks its
+  // own childrenInPaintOrder the same way round.
+  for (RnAppKitView *child in [root rnChildrenInPaintOrder].reverseObjectEnumerator) {
     const NSRect frame = child.frame;
-    RnAppKitView *hit = RnAppKitHitTest((RnAppKitView *)child,
-                                        bx - frame.origin.x,
-                                        by - frame.origin.y);
+    RnAppKitView *hit = RnAppKitHitTest(child, bx - frame.origin.x, by - frame.origin.y);
     if (hit != nil) {
       return hit;
     }
@@ -158,6 +156,7 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   BOOL _hasBorders;
   CATransform3D _transform;
   BOOL _hasTransform;
+  NSInteger _zIndex;
 }
 
 + (instancetype)viewWithTag:(NSInteger)tag {
@@ -622,6 +621,48 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 - (void)setRnClipsChildren:(BOOL)clips {
   _clipsChildren = clips;
   self.layer.masksToBounds = clips;
+}
+
+- (void)setRnZIndex:(NSInteger)zIndex {
+  _zIndex = zIndex;
+  // Core Animation composites sibling layers by zPosition, so painting reorders
+  // without the subviews array moving -- and the subviews array is the child
+  // list Fabric indexes into. Reordering it to paint would corrupt the next
+  // Insert.
+  self.layer.zPosition = (CGFloat)zIndex;
+}
+
+- (NSInteger)rnZIndex {
+  return _zIndex;
+}
+
+- (NSArray<RnAppKitView *> *)rnChildrenInPaintOrder {
+  NSMutableArray<RnAppKitView *> *ordered = [NSMutableArray array];
+  for (NSView *child in self.subviews) {
+    if ([child isKindOfClass:[RnAppKitView class]]) {
+      [ordered addObject:(RnAppKitView *)child];
+    }
+  }
+  // Only when something asked for it. The overwhelmingly common view has no
+  // zIndex anywhere among its children, and sorting every tree on every hit
+  // test to discover that would be paid on every press.
+  BOOL any = NO;
+  for (RnAppKitView *child in ordered) {
+    if (child.rnZIndex != 0) {
+      any = YES;
+      break;
+    }
+  }
+  if (!any) {
+    return ordered;
+  }
+  // Stable, so equal zIndex keeps document order.
+  return [ordered sortedArrayWithOptions:NSSortStable
+                         usingComparator:^NSComparisonResult(RnAppKitView *a, RnAppKitView *b) {
+                           if (a.rnZIndex < b.rnZIndex) return NSOrderedAscending;
+                           if (a.rnZIndex > b.rnZIndex) return NSOrderedDescending;
+                           return NSOrderedSame;
+                         }];
 }
 
 - (void)setRnCornerRadius:(CGFloat)radius {

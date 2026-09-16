@@ -133,6 +133,18 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // size a view draws at is the size Yoga was told.
 - (void)setRnTextLayout:(nullable id)layout;
 - (void)setRnClipsChildren:(BOOL)clips;
+
+// `zIndex`. Reorders painting and hit testing, and never the child list --
+// Fabric's Insert and Remove carry an index into that list, so it has to stay
+// in mutation order. Equal values keep document order, which is what CSS and
+// React Native both promise.
+- (void)setRnZIndex:(NSInteger)zIndex;
+@property(nonatomic, readonly) NSInteger rnZIndex;
+
+// This view's children in the order they paint: back to front, stably sorted
+// by zIndex. The same list hit testing walks in reverse, so what is on top is
+// what is hit -- the Win32 host pairs them the same way.
+- (NSArray<RnAppKitView *> *)rnChildrenInPaintOrder;
 - (void)setRnCornerRadius:(CGFloat)radius;
 
 // Per-corner radii, as four (horizontal, vertical) pairs -- eight floats -- in

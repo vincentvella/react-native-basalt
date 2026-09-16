@@ -126,6 +126,62 @@ TEST(hit_test_prefers_the_topmost_sibling) {
   }
 }
 
+// The same question test_win32_hittest.cpp asks, in the same order and with the
+// same tags: a press has to follow the paint order rather than the child list,
+// or a view drawn behind another still swallows its clicks.
+TEST(hit_test_follows_z_index) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    RnAppKitView *under = box(2, 0, 0, 200, 200);
+    RnAppKitView *over = box(3, 0, 0, 200, 200);
+    [root insertRnChild:under atIndex:0];
+    [root insertRnChild:over atIndex:1];
+
+    [over setRnZIndex:-1];
+    EXPECT_EQ((long)hit(root, 100, 100), 2L);
+  }
+}
+
+TEST(z_index_reorders_painting_and_not_the_child_list) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *first = box(30, 0, 0, 10, 10);
+    RnAppKitView *second = box(31, 0, 0, 10, 10);
+    [root insertRnChild:first atIndex:0];
+    [root insertRnChild:second atIndex:1];
+
+    [first setRnZIndex:10];
+    [second setRnZIndex:1];
+
+    // Fabric indexes into the child list on every Insert and Remove, so that
+    // list must not be resorted -- only what paints on top of what.
+    EXPECT_EQ((long)((RnAppKitView *)root.subviews.firstObject).rnTag, 30L);
+    EXPECT_EQ((long)((RnAppKitView *)root.subviews.lastObject).rnTag, 31L);
+
+    NSArray<RnAppKitView *> *painted = [root rnChildrenInPaintOrder];
+    EXPECT_EQ((long)painted.firstObject.rnTag, 31L);
+    EXPECT_EQ((long)painted.lastObject.rnTag, 30L);
+  }
+}
+
+// Equal values keep document order, which is what CSS and React Native both
+// promise and what a non-stable sort would quietly break.
+TEST(z_index_ties_keep_document_order) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    for (NSInteger tag = 40; tag < 44; tag++) {
+      RnAppKitView *child = box(tag, 0, 0, 10, 10);
+      [child setRnZIndex:(tag == 43 ? 5 : 2)];
+      [root insertRnChild:child atIndex:tag - 40];
+    }
+    NSArray<RnAppKitView *> *painted = [root rnChildrenInPaintOrder];
+    EXPECT_EQ((long)painted[0].rnTag, 40L);
+    EXPECT_EQ((long)painted[1].rnTag, 41L);
+    EXPECT_EQ((long)painted[2].rnTag, 42L);
+    EXPECT_EQ((long)painted[3].rnTag, 43L);
+  }
+}
+
 // display: 'none' takes a view out of layout and painting, and it has to come
 // out of hit testing too -- otherwise an invisible view swallows presses meant
 // for whatever is behind it.

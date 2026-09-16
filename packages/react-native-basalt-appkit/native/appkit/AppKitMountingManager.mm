@@ -512,7 +512,10 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
     [view setRnTransform:transform.matrix.data()];
   }
 
-  // TODO(props): zIndex, pointerEvents.
+  // Painting and hit testing only; see setRnZIndex:.
+  [view setRnZIndex:(NSInteger)props->zIndex.value_or(0)];
+
+  // TODO(props): pointerEvents.
   // The GTK side has all of these; none is hard, and each needs a test that
   // compares the result against what Linux produces rather than against what
   // looks plausible on a Mac.
