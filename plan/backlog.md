@@ -582,33 +582,6 @@ has gone unrecorded until now.
 
 ## TextInput
 
-- **Clicking a `<TextInput>` does not focus it.** On both hosts. The field only
-  takes focus when something calls `focus()` -- through the ref, through
-  `TextInput.State.focusTextInput`, or through the `focus` command -- which is
-  how every existing test and the demo happen to do it, and why this went
-  unnoticed. A user clicking into a field, which is how a field is normally
-  focused, gets nothing.
-
-  Verified with a control rather than inferred: a probe with a `<TextInput>`
-  above a `<Pressable>`, tapped in turn. The Pressable's `onPress` fires on both
-  hosts and the field's `onFocus` never does, so the taps land and the
-  dispatcher works -- focus is what is missing. It is not an artifact of
-  `BASALT_TEST_TAP` injecting past the window system either: a real click
-  through System Events, which reported hitting `text field 1 of window
-  react-native-basalt`, produced no `onFocus` on AppKit, and a keystroke after
-  it produced no `onChange`.
-
-  What is untested is a real click on a real Linux session, since the GTK half
-  of this was measured over quartz. Worth confirming there before deciding the
-  fix is shared.
-
-  The likely shape: the peer is a real `GtkText`/`NSTextField` and would take
-  focus from a click that reached *it*, but a touch is dispatched to the
-  `RnView` and stops there. Whatever the cause, `scripts/integration_test.py`
-  cannot see it -- its focus scenario taps a *button* that calls `focus()`, so a
-  tap-to-focus regression is invisible to the suite that looks like it covers
-  focus.
-
 - ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
   in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
   sends `text={value ?? defaultValue}`, so an uncontrolled field with no default
@@ -725,6 +698,27 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
 - Packaging: Arch PKGBUILD, Flatpak.
 
 ## Testing
+
+- **Nothing tests tap-to-focus.** Clicking a `<TextInput>` focuses it on both
+  hosts -- verified with a real `CGEvent` mouse click, after which a keystroke
+  round-trips -- but no automated test can check that, and two obvious ways of
+  trying give a false negative.
+
+  `BASALT_TEST_TAP` enters at the touch dispatcher, below the window system, so
+  it moves React Native's responder but never reaches the peer widget that
+  actually takes focus. That is the same deliberate limitation `BASALT_TEST_TYPE`
+  has with the key controller, and it looks exactly like a broken feature: the
+  `<Pressable>` beside the field responds to an injected tap and the field does
+  not. System Events' `click at` is no better -- it performs an accessibility
+  press, which is why it answers with the name of the element it found, and a
+  text field does nothing with one.
+
+  So a tap-to-focus regression would be invisible: `integration_test.py`'s focus
+  scenario taps a *button* that calls `focus()`, and every `<TextInput>` feature
+  added in phases 51 and 52 was probed by focusing programmatically. Testing it
+  needs a real click, which on macOS means `CGEventPost` and the accessibility
+  permission that goes with it, and on Linux means xdotool -- which CI already
+  has, and which is where this is worth adding.
 
 - **No unit test can observe an event.** Neither suite attaches an
   `EventEmitter` to the shadow views it builds, and `test_appkit_textinput.mm`
