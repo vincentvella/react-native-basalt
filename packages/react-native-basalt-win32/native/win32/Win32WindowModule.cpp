@@ -1,5 +1,7 @@
 #include "Win32WindowModule.h"
 
+#include "WindowControl.h"
+#include "WindowMethods.h"
 #include "PlatformServices.h"
 #include "Win32TitleBar.h"
 
@@ -53,6 +55,14 @@ Win32WindowModule::Win32WindowModule(std::shared_ptr<facebook::react::CallInvoke
   methodMap_["setTitleBarColors"] = MethodMetadata{3, setTitleBarColors};
   methodMap_["setTitleBarStyle"] = MethodMetadata{1, setTitleBarStyle};
   methodMap_["getTitleBarMetrics"] = MethodMetadata{0, getTitleBarMetrics};
+  // A window's geometry. The bodies are in core/WindowMethods.h, written once:
+  // nothing about reading two numbers or shaping the answer differs per
+  // desktop, and three copies would be three chances to drift.
+  methodMap_["setSize"] = MethodMetadata{2, windowSetSize};
+  methodMap_["setPosition"] = MethodMetadata{2, windowSetPosition};
+  methodMap_["center"] = MethodMetadata{0, windowCenter};
+  methodMap_["setFullScreen"] = MethodMetadata{1, windowSetFullScreen};
+  methodMap_["getBounds"] = MethodMetadata{0, windowGetBounds};
   // What a NativeEventEmitter over this module calls; the events go out as
   // device events either way.
   methodMap_["addListener"] = MethodMetadata{1, noop};
@@ -65,10 +75,33 @@ Win32WindowModule::Win32WindowModule(std::shared_ptr<facebook::react::CallInvoke
       args.emplace_back(metricsValue(runtime, metrics));
     });
   });
+
+  // The window's geometry, the same way the title bar's metrics go out: a
+  // device event, so `useWindow()` can hand an app live bounds rather than a
+  // snapshot it has to remember to refresh.
+  setWindowBoundsListener([this](const WindowBounds &bounds) {
+    emitDeviceEvent(kWindowBoundsEvent, [bounds](Runtime &runtime, std::vector<Value> &args) {
+      Object object(runtime);
+      object.setProperty(runtime, "x", bounds.x);
+      object.setProperty(runtime, "y", bounds.y);
+      object.setProperty(runtime, "width", bounds.width);
+      object.setProperty(runtime, "height", bounds.height);
+      object.setProperty(runtime, "fullScreen", bounds.fullScreen);
+      object.setProperty(runtime, "maximized", bounds.maximized);
+      args.emplace_back(Value(runtime, object));
+    });
+  });
+
+  // And ask for the bounds once, now that something is listening. The host
+  // primes the cache when its window appears, but this module is built lazily
+  // -- the first time JavaScript asks for it -- so an app that mounts before
+  // then would read a window of no size and never be told otherwise.
+  postToUiThread([] { notifyWindowBoundsChanged(); });
 }
 
 Win32WindowModule::~Win32WindowModule() {
   titleBar().setMetricsListener(nullptr);
+  setWindowBoundsListener(nullptr);
 }
 
 Value Win32WindowModule::setTitle(Runtime &runtime,

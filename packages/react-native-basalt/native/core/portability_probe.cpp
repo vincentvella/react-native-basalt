@@ -23,6 +23,7 @@
 #include "SourceCodeModule.h"
 #include "PlatformServices.h"
 #include "Notifications.h"
+#include "WindowControl.h"
 #include "StatusBarModule.h"
 #include "WorkletsModule.h"
 
@@ -99,6 +100,17 @@ void dismissAllNotifications() {}
 std::vector<std::string> presentedNotifications() {
   return {};
 }
+
+// The window seam, stubbed the same way. A real platform answers from a
+// GtkWindow, an NSWindow or an HWND; one that has not yet reports a window of
+// no size, which is what an app reading bounds before there is one sees.
+WindowBounds windowBounds() {
+  return {};
+}
+void setWindowSize(double, double) {}
+void setWindowPosition(double, double) {}
+void centerWindow() {}
+void setWindowFullScreen(bool) {}
 
 void postDelayed(double, std::function<void()>) {}
 void postToUiThread(std::function<void()>) {}

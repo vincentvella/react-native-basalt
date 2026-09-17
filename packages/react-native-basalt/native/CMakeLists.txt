@@ -185,6 +185,11 @@ if(DEFINED RN_DIR)
     core/StatusBarModule.cpp
     core/ReanimatedModule.cpp
     core/UIManagerAccess.cpp
+    # A window's size, position and full-screen state: the JavaScript boundary
+    # written once, over a four-function per-platform seam.
+    core/WindowMethods.cpp
+    # The bounds cache behind getBounds(), which cannot ask the toolkit.
+    core/WindowBoundsCache.cpp
     core/WorkletsModule.cpp)
   target_compile_options(basalt_core PRIVATE -Wall -Wextra)
   # The React Native version, for the version guards and PlatformConstants.

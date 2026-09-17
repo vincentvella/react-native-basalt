@@ -598,8 +598,15 @@ has gone unrecorded until now.
   Windows writes a per-user Start Menu shortcut carrying an AppUserModelID, at
   startup rather than from the CLI, and has no installer, no `.msi` and no code
   signature.
-- **Window size, position, fullscreen and close behaviour**, none of which an
-  app can influence. The title can be, on Windows, with the title bar's colours
+- **Window size, position and full screen** are done: `useWindow()` gives an app
+  `setSize`, `setPosition`, `center`, `setFullScreen`, `minimize`,
+  `toggleMaximize`, `close`, and live `bounds`. What is left is the part GTK4
+  will not do at all -- `setPosition` and `center` are no-ops on Linux and
+  `bounds.x` is always zero there, because `gtk_window_move` is gone and Wayland
+  has no equivalent -- plus the window's own lifecycle: nothing reports a close
+  attempt, so an app cannot ask "are you sure", and there is no minimum or
+  maximum size, no resizable flag, and no always-on-top.
+- **Window close behaviour**, which an app cannot influence. The title can be, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,
   `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
   react-native-basalt. Linux and macOS ignore those calls until their hosts

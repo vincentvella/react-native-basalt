@@ -42,6 +42,7 @@
 #include "DialogModule.h"
 #include "Win32MountingManager.h"
 #include "Win32Packaging.h"
+#include "WindowControl.h"
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
@@ -960,6 +961,14 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       }
       break;
 
+    // A move changes the bounds `useWindow()` reports and nothing else, so
+    // unlike WM_SIZE there is no surface to reconstrain -- which is exactly why
+    // it needs its own case: WM_SIZE would never arrive, and `center()` would
+    // look like it had done nothing.
+    case WM_MOVE:
+      basalt::notifyWindowBoundsChanged();
+      return 0;
+
     case WM_SIZE: {
       const int width = LOWORD(lparam);
       const int height = HIWORD(lparam);
@@ -977,6 +986,10 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         // screen" with zero. Told here, where the window's size is already
         // being handed to Fabric.
         gHost.mountingManager->setSurfaceSize(static_cast<float>(width), static_cast<float>(height));
+        // The window moved or was resized, which `useWindow()` hands an app as live
+        // bounds. Here rather than in a watcher of its own: this is already the one
+        // place that learns it.
+        basalt::notifyWindowBoundsChanged();
         // The inspector covers the window, so it resizes with it.
         if (gHost.logBoxRoot != nullptr) {
           gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
@@ -1390,6 +1403,11 @@ int main(int argc, char **argv) {
   // demand, so this is the difference between mutations arriving and anything
   // being visible.
   gHost.mountingManager->setOnDidMount(syncPeersAndRepaint);
+
+  // Prime the bounds cache, which `getBounds()` answers from: without this an
+  // app's first render sees a window of no size, and only a later resize
+  // corrects it. See core/WindowBoundsCache.cpp.
+  basalt::notifyWindowBoundsChanged();
 
   // Every <TextInput>'s EDIT peer is a child of this window. Set before the
   // first transaction, because a field that mounts without one gets no control

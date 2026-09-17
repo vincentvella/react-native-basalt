@@ -129,6 +129,8 @@ if(TARGET basalt_core)
     gtk/GtkScrollView.cpp
     gtk/GtkTextInput.cpp
     gtk/GtkTitleBar.cpp
+    # A window's size and full-screen state; see core/WindowControl.h.
+    gtk/GtkWindowControl.cpp
     gtk/GtkWindowModule.cpp
     # Linux's implementation of core/FontRegistry.h.
     gtk/FontRegistryFontconfig.cpp

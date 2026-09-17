@@ -1914,6 +1914,76 @@ def test_file_dialogs(bundle: Path) -> None:
         raise Failure(f"expected all three to report a cancel, got {sorted(cancelled)}")
 
 
+def test_window(bundle: Path) -> None:
+    """The window an app is in, which React Native has no API for.
+
+    Runs js/window.js, which logs its own bounds every time they change. Two
+    presses, and what each one proves is different:
+
+      setSize      that a request reaches the window manager and comes back as
+                   the size the app actually got. The app never reads what it
+                   asked for -- `bounds` is what happened, which is the only
+                   honest answer when a tiling window manager may refuse.
+
+      setFullScreen  that a state change is reported as well as a size change.
+                   It is the case most likely to be missed, because on two of
+                   the three hosts going full screen is *not* a resize: GTK
+                   changes a window property and Windows changes a style, and a
+                   host watching only for resizes would report neither.
+
+    Position is deliberately not asserted. GTK4 removed `gtk_window_move` and
+    Wayland has no equivalent, so `setPosition` and `center` do nothing on Linux
+    and `bounds.x` is always zero there -- a cross-platform assertion on it
+    would be asserting a lie. See native/gtk/GtkWindowControl.cpp.
+    """
+    app = bundle_app(bundle.parent, "window")
+
+    # The app's own layout: 24 of padding, a 22-tall label, then 48-tall rows 12
+    # apart. Row one's middle is y=70 and row two's is y=130; the buttons are
+    # 150 wide from x=24, so their middles are x=99 and x=261.
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "12000"
+    env["BASALT_TEST_TAP"] = "99,70;261,130"
+    for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                 "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltWindow"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=150,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+
+    # Both streams: GLib sends g_message to stdout and only warnings to stderr.
+    reported = [
+        line.split("window bounds: ", 1)[1].strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if "window bounds: " in line
+    ]
+    if not reported:
+        raise Failure(
+            "the app never learned its own bounds.\n"
+            f"{tail_text(result.stdout + result.stderr)}"
+        )
+
+    # A window of some size, before anything was asked of it. The first line is
+    # zeroes on purpose -- it is the render before the module exists -- so what
+    # matters is that a real one followed.
+    if all(line.startswith("0x0 ") for line in reported):
+        raise Failure(f"the bounds never became real: {reported}")
+
+    if not any(line.startswith("700x500 ") for line in reported):
+        raise Failure(f"setSize(700, 500) was not reported back: {reported}")
+
+    if not any("fullScreen=true" in line for line in reported):
+        raise Failure(
+            "setFullScreen(true) was never reported. On two of the three hosts "
+            "this is not a resize, so a host watching only for resizes misses "
+            f"it entirely.\n{reported}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1933,6 +2003,8 @@ SCENARIOS = [
      test_controls),
     ("the native file dialogs answer with a path, or with a cancel",
      test_file_dialogs),
+    ("a window reports its own size, and the state changes that are not resizes",
+     test_window),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]

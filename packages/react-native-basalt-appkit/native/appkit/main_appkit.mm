@@ -32,6 +32,7 @@
 
 #include "AppIdentity.h"
 #include "DevMenu.h"
+#include "WindowControl.h"
 #include "DialogModule.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
@@ -494,6 +495,15 @@ void shutdown() {
 
 @implementation RnAppKitHostDelegate
 
+// A move changes the bounds `useWindow()` reports and nothing else, so unlike a
+// resize there is no surface to reconstrain -- which is exactly why it needs
+// its own handler: the resize one would never run, and `center()` would look
+// like it had done nothing.
+- (void)windowDidMove:(NSNotification *)notification {
+  (void)notification;
+  basalt::notifyWindowBoundsChanged();
+}
+
 - (void)windowDidResize:(NSNotification *)notification {
   (void)notification;
   if (!gHost.surfaceStarted) {
@@ -513,6 +523,10 @@ void shutdown() {
   // and React Native's C++ platform answers "what size is the screen" with
   // zero. Told here, where the window's size is already being handed to Fabric.
   gHost.mountingManager->setSurfaceSize((float)width, (float)height);
+  // The window moved or was resized, which `useWindow()` hands an app as live
+  // bounds. Here rather than in a watcher of its own: this is already the one
+  // place that learns it.
+  basalt::notifyWindowBoundsChanged();
 
   // The inspector covers the window, so it resizes with it.
   if (gHost.logBoxRoot != nil) {
@@ -778,6 +792,10 @@ int main(int argc, const char *argv[]) {
 
     [gHost.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    // Prime the bounds cache, which `getBounds()` answers from: without this an
+    // app's first render sees a window of no size, and only a later resize
+    // corrects it. See core/WindowBoundsCache.cpp.
+    basalt::notifyWindowBoundsChanged();
 
     // The two keys this host answers before anything else sees them.
     //

@@ -212,6 +212,8 @@ if(TARGET basalt_core)
     # host draws when an app hides the system's. And BasaltWindow, the module
     # JavaScript reaches it through.
     win32/Win32TitleBar.cpp
+    # A window's size, position and full-screen state; see core/WindowControl.h.
+    win32/Win32WindowControl.cpp
     win32/Win32WindowModule.cpp)
   target_compile_options(basalt_win32_mounting PRIVATE ${BASALT_WIN32_WARNINGS})
   target_include_directories(basalt_win32_mounting PUBLIC win32)

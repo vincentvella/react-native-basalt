@@ -29,6 +29,9 @@ export {default as Platform} from './overrides/Platform';
 // The native file dialogs, which React Native has no API for: a phone has none.
 // See useDialog.js.
 export {useDialog, dialog} from './useDialog';
+// The window itself: its size, its position, whether it fills the screen, and
+// live bounds. See useWindow.js.
+export {useWindow, windowControl} from './useWindow';
 // The window's title bar: its title and colours, and a hidden style that lets
 // the app draw its own header. See TitleBar.js.
 export {TitleBar, useTitleBar, useTitleBarMetrics} from './TitleBar';

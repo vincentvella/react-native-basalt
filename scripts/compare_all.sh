@@ -39,6 +39,10 @@ APPS=(
   "modules:BasaltModules"
   "controls:BasaltControls"
   "dialogs:BasaltDialogs"
+  # js/window.js is deliberately absent: its tree prints the window's own
+  # size, which differs between a host that was given one and a host whose
+  # window manager had an opinion. That is a property of the machine rather
+  # than of the platform, the same reason js/hover.js is not here.
   "probe:BasaltProbe"
   # js/hover.js is deliberately absent. Its tree depends on where the cursor
   # is: a box under the pointer takes a different background, and a window that

@@ -20,6 +20,7 @@
 #include "GtkAnimationChoreographer.h"
 #include "AppIdentity.h"
 #include "DevMenu.h"
+#include "WindowControl.h"
 #include "DialogModule.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
@@ -538,6 +539,10 @@ void onRootResized(RnView * /*view*/, int width, int height, gpointer data) {
   // and React Native's C++ platform answers "what size is the screen" with
   // zero. Told here, where the window's size is already being handed to Fabric.
   host->mountingManager->setSurfaceSize(static_cast<float>(width), static_cast<float>(height));
+  // The window moved or was resized, which `useWindow()` hands an app as live
+  // bounds. Here rather than in a watcher of its own: this is already the one
+  // place that learns it.
+  basalt::notifyWindowBoundsChanged();
 
   // The inspector covers the window, so it resizes with it.
   if (host->logBoxRoot != nullptr) {
@@ -781,6 +786,20 @@ void onActivate(GtkApplication *app, gpointer data) {
   gtk_window_set_child(host->window, overlay);
   basalt::titleBar().attach(host->window, controls);
   rn_view_set_resize_callback(host->root, onRootResized, host);
+
+  // Maximised and full screen, which change the bounds and not the size of the
+  // surface -- so the resize callback above never runs for them. GTK has no
+  // move notification and no position to report; see GtkWindowControl.cpp.
+  const auto onWindowState = +[](GObject * /*window*/, GParamSpec * /*spec*/, gpointer /*data*/) {
+    basalt::notifyWindowBoundsChanged();
+  };
+  g_signal_connect(host->window, "notify::maximized", G_CALLBACK(onWindowState), nullptr);
+  g_signal_connect(host->window, "notify::fullscreened", G_CALLBACK(onWindowState), nullptr);
+
+  // Prime the bounds cache, which `getBounds()` answers from: without this an
+  // app's first render sees a window of no size, and only a later resize
+  // corrects it. See core/WindowBoundsCache.cpp.
+  basalt::notifyWindowBoundsChanged();
   g_signal_connect(host->root, "map", G_CALLBACK(onRootMapped), host);
 
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
