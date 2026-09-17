@@ -264,20 +264,51 @@ function packageLinux(hostBinary, outputDir, config) {
  * binary it was given, because neither makes the application out of where the
  * executable sits; on macOS it is the copy inside the bundle.
  */
-function packageApp({platform, hostBinary, outputDir, projectRoot}) {
+/**
+ * Writes what the app calls itself beside the bundle, for the host to read.
+ *
+ * Beside the bundle rather than beside the executable, because the executable
+ * is shared by every app on the machine; and written rather than passed as an
+ * argument, because a Start Menu shortcut clicked in a month carries no
+ * environment. See native/core/AppIdentity.h.
+ */
+function writeIdentity(bundlePath, config) {
+  if (bundlePath == null) {
+    return null;
+  }
+  const destination = path.join(path.dirname(bundlePath), 'app.identity.json');
+  fs.mkdirSync(path.dirname(destination), {recursive: true});
+  fs.writeFileSync(
+    destination,
+    JSON.stringify(
+      {
+        name: config.name,
+        identifier: config.identifier,
+        schemes: config.schemes,
+        version: config.version,
+      },
+      null,
+      2,
+    ),
+  );
+  return destination;
+}
+
+function packageApp({platform, hostBinary, outputDir, projectRoot, bundlePath}) {
   const config = readAppConfig(projectRoot);
   fs.mkdirSync(outputDir, {recursive: true});
+  const identityPath = writeIdentity(bundlePath, config);
 
   if (platform === 'macos') {
-    return {config, ...packageMacos(hostBinary, outputDir, config)};
+    return {config, identityPath, ...packageMacos(hostBinary, outputDir, config)};
   }
   if (platform === 'linux') {
-    return {config, ...packageLinux(hostBinary, outputDir, config)};
+    return {config, identityPath, ...packageLinux(hostBinary, outputDir, config)};
   }
   // Windows does its own, in the host: a Start Menu shortcut carrying an
   // AppUserModelID needs IPropertyStore, and doing that in C++ at startup beats
   // doing it in PowerShell from here. See win32/Win32Packaging.h.
-  return {config, launchPath: hostBinary};
+  return {config, identityPath, launchPath: hostBinary};
 }
 
-module.exports = {packageApp, readAppConfig, infoPlist};
+module.exports = {packageApp, readAppConfig, infoPlist, writeIdentity};

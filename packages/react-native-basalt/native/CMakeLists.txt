@@ -48,6 +48,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 # seam they sit on top of -- what the system is actually set to -- is never
 # asked about, because it differs by machine.
 set(BASALT_CORE_TESTS
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_identity.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_controls.cpp
@@ -137,6 +138,8 @@ if(DEFINED RN_DIR)
   # build rather than quietly making core unshareable.
   # ---------------------------------------------------------------------------
   add_library(basalt_core STATIC
+    # What the app calls itself, which a generic host binary cannot know.
+    core/AppIdentity.cpp
     # `Appearance`, and the portable half of light-vs-dark.
     core/AppearanceModule.cpp
     # Blob, File and FileReader -- portable in full.

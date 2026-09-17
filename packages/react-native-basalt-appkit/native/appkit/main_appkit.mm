@@ -30,6 +30,7 @@
 #import "AppKitAnimationChoreographer.h"
 #import "AppKitMountingManager.h"
 
+#include "AppIdentity.h"
 #include "DevMenu.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
@@ -656,6 +657,12 @@ int main(int argc, const char *argv[]) {
     // which ReactCxxTurboModuleProvider serves the DevSettings module a __DEV__
     // bundle requires; and ReactHost opens a packager connection whose reload
     // message reloads the instance.
+    // What this app calls itself. Nothing on macOS reads it yet -- the bundle's
+    // Info.plist is what the system goes by there, and cli/packageApp.js writes
+    // that -- but reading it here keeps `basalt::appIdentity()` answering on all
+    // three hosts rather than on one. See core/AppIdentity.h.
+    basalt::appIdentity(gHost.bundlePath);
+
     config.enableDevMode = getenv("BASALT_DEV") != nullptr;
     gHost.devMode = config.enableDevMode;
     config.enableInspector = config.enableDevMode;

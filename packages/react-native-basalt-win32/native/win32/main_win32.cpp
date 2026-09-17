@@ -37,8 +37,10 @@
 // win32/Win32TextInput.h.
 
 #include "Win32AnimationChoreographer.h"
+#include "AppIdentity.h"
 #include "DevMenu.h"
 #include "Win32MountingManager.h"
+#include "Win32Packaging.h"
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
@@ -1328,6 +1330,13 @@ int main(int argc, char **argv) {
   // than run inline, and the mounting manager depends on it. See
   // win32/Win32UiThread.h.
   basalt::installUiThread();
+
+  // Before any window exists, which is the part that matters: the shell reads
+  // a process's AppUserModelID when its first window is shown and does not
+  // notice a later change. What the id buys is a notification Windows will
+  // attribute to this application rather than refuse. Needs COM, which is
+  // already initialised above. See win32/Win32Packaging.h.
+  basalt::win32::applyPackaging(basalt::appIdentity(gHost.bundlePath));
 
   if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
                                gHost.d2dFactory.GetAddressOf()))) {

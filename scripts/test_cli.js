@@ -559,7 +559,14 @@ test('packaging for Linux writes a desktop entry and launches the binary itself'
   assert.strictEqual(result.launchPath, binary);
   const entry = fs.readFileSync(result.desktopPath, 'utf8');
   assert.match(entry, /^Name=demo$/m);
-  assert.match(entry, new RegExp('^Exec=' + binary + ' %U$', 'm'));
+  // Compared as a string rather than as a pattern: a temporary directory's path
+  // is full of backslashes on Windows, and a RegExp built from one is a regex
+  // full of escapes. This test runs in the Windows job too, because the CLI is
+  // one command with three names.
+  assert.ok(
+    entry.split('\n').includes(`Exec=${binary} %U`),
+    `no Exec line for ${binary} in:\n${entry}`,
+  );
   // The scheme, which is what makes a link open the app.
   assert.match(entry, /^MimeType=x-scheme-handler\/demo;$/m);
 });

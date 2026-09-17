@@ -595,8 +595,9 @@ has gone unrecorded until now.
   `.desktop` file and does not install it -- putting a file in
   `~/.local/share/applications` is a change to the session that a build command
   should not make on its own -- and there is no `.deb`, `.rpm` or Flatpak.
-  Windows has neither a Start Menu shortcut nor an AppUserModelID yet, which is
-  what its notifications are waiting on.
+  Windows writes a per-user Start Menu shortcut carrying an AppUserModelID, at
+  startup rather than from the CLI, and has no installer, no `.msi` and no code
+  signature.
 - **Window size, position, fullscreen and close behaviour**, none of which an
   app can influence. The title can be, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,
@@ -608,10 +609,18 @@ has gone unrecorded until now.
   kino's own macOS module ships a folder picker, so this is what a real app
   reaches for early.
 - **Drag and drop**, in and out of the application.
-- **A system tray icon.** Its own feature, and the natural partner for
-  notifications on Windows: `Shell_NotifyIcon` with `NIF_INFO` shows a balloon
-  from a tray icon and works for an unpackaged executable, which the toast API
-  does not.
+- **A system tray icon.** Half done, and not as a feature: `Win32Notifications.cpp`
+  owns a hidden one because `Shell_NotifyIcon` needs an icon to notify from.
+  What an app cannot do is put its own icon there, give it a tooltip, a menu or
+  a click handler, which is what the feature would be. Nothing equivalent exists
+  on GTK or AppKit.
+- **Windows notifications carry no identity of their own.** `Shell_NotifyIcon`
+  shows one at a time per icon and replaces whatever was there, so
+  `dismissNotification` can only take down the current one and
+  `presentedNotifications` answers what this process last asked for. A person
+  who has already dismissed one still sees it counted as presented. The fix is
+  `ToastNotificationManager`, which means WinRT, a manifest and a registered
+  activator COM class.
 - **Cursor control** beyond what the `cursor` style property covers.
 
 ## Input

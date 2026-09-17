@@ -664,6 +664,14 @@ async function runDesktop(_argv, context, options, target) {
   }
   const moduleName = resolveModuleName(projectRoot, options);
 
+  // Named relative to the project so that the message is readable, but passed
+  // to the host as an absolute path, since it runs with the project as its
+  // working directory and a relative bundle would resolve differently.
+  const bundlePath = path.resolve(
+    projectRoot,
+    options.bundle ?? path.join('build', 'main.jsbundle.js'),
+  );
+
   // The binary becomes an application before it is run, on every run rather
   // than only for a release.
   //
@@ -678,6 +686,7 @@ async function runDesktop(_argv, context, options, target) {
     hostBinary,
     outputDir: path.resolve(projectRoot, 'build'),
     projectRoot,
+    bundlePath,
   });
   hostBinary = packaged.launchPath;
   if (packaged.appPath != null) {
@@ -692,13 +701,6 @@ async function runDesktop(_argv, context, options, target) {
     );
   }
 
-  // Named relative to the project so that the message is readable, but passed
-  // to the host as an absolute path, since it runs with the project as its
-  // working directory and a relative bundle would resolve differently.
-  const bundlePath = path.resolve(
-    projectRoot,
-    options.bundle ?? path.join('build', 'main.jsbundle.js'),
-  );
 
   if (dev) {
     if (options.packager === false) {

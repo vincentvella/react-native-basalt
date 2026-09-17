@@ -177,6 +177,9 @@ if(TARGET basalt_core)
     win32/Win32Focus.cpp
     # Why Windows cannot show a notification; see the file.
     win32/Win32Notifications.cpp
+    # The AppUserModelID and the Start Menu shortcut behind it, which is what
+    # makes a notification say which application it came from.
+    win32/Win32Packaging.cpp
     win32/Win32TouchDispatcher.cpp
     # <ScrollView>: the offset, the unthrottled state write-back, the wheel and
     # the commands. Routing the wheel is this platform's alone -- there is no
@@ -216,7 +219,10 @@ if(TARGET basalt_core)
   # shell32 for ShellExecute; comctl32 for SetWindowSubclass, which is how a
   # <TextInput>'s EDIT peer is subclassed without breaking anything else that
   # subclasses it later.
-  target_link_libraries(basalt_win32_mounting PUBLIC shell32 comctl32)
+  # shell32 for Shell_NotifyIcon and SHGetKnownFolderPath, ole32 for the
+  # IShellLink that writes the Start Menu shortcut, propsys for the property
+  # store that puts the AppUserModelID on it.
+  target_link_libraries(basalt_win32_mounting PUBLIC shell32 comctl32 ole32 propsys)
   # dwmapi for the title bar's colours and dark mode.
   target_link_libraries(basalt_win32_mounting PUBLIC dwmapi)
 

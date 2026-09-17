@@ -18,6 +18,7 @@
 // touches a widget off the main thread.
 
 #include "GtkAnimationChoreographer.h"
+#include "AppIdentity.h"
 #include "DevMenu.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
@@ -1089,10 +1090,25 @@ int main(int argc, char **argv) {
   // Before anything installs the runtime. See core/ExpoModules.h.
   basalt::loadExpoAppConfigBeside(host.bundlePath);
 
+  // What this app calls itself, which a generic host binary cannot know. Read
+  // before the GtkApplication, because the application id is construct-only and
+  // is what a desktop matches a running window to its `.desktop` file with --
+  // and therefore what puts the app's own name and icon on its notifications.
+  // See core/AppIdentity.h and cli/packageApp.js.
+  const basalt::AppIdentity &identity = basalt::appIdentity(host.bundlePath);
+
   // GTK would try to interpret argv as files to open. The bundle path is ours,
   // so the application never sees it.
-  GtkApplication *app =
-      gtk_application_new("dev.basalt.host", G_APPLICATION_NON_UNIQUE);
+  //
+  // `dev.basalt.host` is the fallback rather than the rule: an app that was
+  // started through `react-native run-linux` has an identity file and gets its
+  // own id. GTK requires a valid D-Bus name, and an identifier that is not one
+  // would make gtk_application_new fail outright, so it is checked first.
+  const char *applicationId =
+      (!identity.identifier.empty() && g_application_id_is_valid(identity.identifier.c_str()))
+      ? identity.identifier.c_str()
+      : "dev.basalt.host";
+  GtkApplication *app = gtk_application_new(applicationId, G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(onActivate), &host);
   g_signal_connect(app, "shutdown", G_CALLBACK(onShutdown), &host);
 
