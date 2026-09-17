@@ -195,6 +195,14 @@ void Win32TouchDispatcher::dispatchTouchEnd(double x, double y) {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::End, target, x, y);
+
+  // A <Switch> on this host is painted rather than mounted, so nothing
+  // underneath it turns a click into a toggle -- GTK's GtkSwitch and AppKit's
+  // NSSwitch both do that for themselves. This is the one line that makes up
+  // the difference; it is a no-op for every view that is not a switch.
+  if (mountingManager_ != nullptr) {
+    mountingManager_->pressedView(target);
+  }
 }
 
 void Win32TouchDispatcher::dispatchTouchCancel() {

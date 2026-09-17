@@ -50,6 +50,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_controls.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_devbundle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hover.cpp
@@ -145,6 +146,10 @@ if(DEFINED RN_DIR)
     # Clipboard, Vibration, Alert, Linking, I18nManager, AccessibilityInfo --
     # the core modules ReactCxxPlatform does not provide.
     core/CoreModules.cpp
+    # <ActivityIndicator>, <Switch>, <RefreshControl> and <Modal>: the props
+    # three view layers have to read identically, plus the two shadow-node
+    # obligations React Native leaves to Objective-C. See the header.
+    core/DesktopControls.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp
@@ -160,6 +165,8 @@ if(DEFINED RN_DIR)
     # the same on every desktop.
     core/ImageBytes.cpp
     core/PlatformConstantsModule.cpp
+    # The wheel past the top of a list, which is this platform's pull.
+    core/PullToRefresh.cpp
     # The fling GTK hands over half-finished; see the header.
     core/ScrollMomentum.cpp
     # A share sheet for the desktops that have none; see the header.
@@ -189,7 +196,12 @@ if(DEFINED RN_DIR)
     ${FOLLY_DIR}
     ${CODEGEN_DIR}
     ${CODEGEN_DIR}/react/renderer/components/FBReactNativeSpec
-    ${CODEGEN_DIR}/react/renderer/components)
+    ${CODEGEN_DIR}/react/renderer/components
+    # <Switch>'s shadow node and descriptor, which React Native files under
+    # "iosswitch" and which are ordinary portable C++ apart from the one
+    # measurement core/DesktopControls.cpp supplies. Android's needs fbjni;
+    # this one needs nothing.
+    ${RN_DIR}/ReactCommon/react/renderer/components/switch/iosswitch)
   # libcurl, because core/HttpClient.cpp is here. It used to be named only on
   # basalt_gtk_mounting, which worked for exactly as long as the GTK host was the only
   # thing linking core: the archive member goes unreferenced until something

@@ -43,7 +43,7 @@
 // calls `DialogManagerAndroid`, a module this platform does not have, and
 // returns having done nothing. It is the second break in the same chain and the
 // reason the first fix alone changed nothing.
-import NativeAlertManager from 'react-native/Libraries/Alert/NativeAlertManager';
+import NativeAlertManager from 'react-native-basalt/upstream/Libraries/Alert/NativeAlertManager';
 
 export type AlertType = 'default' | 'plain-text' | 'secure-text' | 'login-password';
 export type AlertButtonStyle = 'default' | 'cancel' | 'destructive';

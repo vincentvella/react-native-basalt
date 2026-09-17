@@ -66,8 +66,23 @@ class GtkMountingManager final : public facebook::react::IMountingManager,
                     const std::string &commandName,
                     const folly::dynamic &args);
 
+  // A press ended on this view. A <Switch> is toggled from React Native's own
+  // touch path rather than by the GtkSwitch's own input, so that a press means
+  // the same thing on three desktops -- and so that the same synthesised tap
+  // the rest of the suite uses can reach it. See applyControlPeer.
+  //
+  // A no-op for every view that is not a switch.
+  void pressedView(facebook::react::Tag tag);
+
   void applyTransaction(facebook::react::SurfaceId surfaceId,
                         facebook::react::MountingTransaction &&transaction);
+
+  // The scroll views, for the host's BASALT_TEST_SCROLL instrument. Nothing
+  // else reaches in here: a real wheel arrives at the GtkEventControllerScroll
+  // the manager attached itself.
+  GtkScrollViewManager &scrollViews() {
+    return scrollViews_;
+  }
 
  private:
   // --- What MountingWalk asks of a platform ---------------------------------
@@ -81,6 +96,12 @@ class GtkMountingManager final : public facebook::react::IMountingManager,
   void updateView(RnView *view, const facebook::react::ShadowView &shadowView);
   void forgetTag(facebook::react::Tag tag);
 
+  // The GTK half of a control: a GtkSpinner for <ActivityIndicator> and
+  // <RefreshControl>, a GtkSwitch for <Switch>. Everything that is not a
+  // widget -- which props mean what, which scroll view a refresh control
+  // belongs to, when `onShow` fires -- is in MountingWalk.
+  void applyControlPeer(RnView *view, const basalt::ControlState &state);
+
   // --- The GTK half of updateView -------------------------------------------
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnView *view, const facebook::react::ShadowView &shadowView);
@@ -93,6 +114,17 @@ class GtkMountingManager final : public facebook::react::IMountingManager,
   GtkImageLoader imageLoader_;
   GtkScrollViewManager scrollViews_;
   GtkTextInputManager textInputs_;
+
+  // A <Switch> is a controlled component: the widget is not allowed to decide
+  // its own state, so the value React last sent is kept here and put straight
+  // back after the toggle that told JavaScript about it. React Native's iOS
+  // switch does exactly this.
+  std::unordered_map<facebook::react::Tag, bool> switchValues_;
+
+  // The CSS class each tinted control is currently carrying, so the next tint
+  // can take it off again. Interned strings owned by the table in the .cpp,
+  // never freed here.
+  std::unordered_map<facebook::react::Tag, const char *> controlClasses_;
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load.

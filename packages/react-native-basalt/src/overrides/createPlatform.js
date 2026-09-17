@@ -30,7 +30,7 @@
 
 'use strict';
 
-import NativePlatformConstants from 'react-native/Libraries/Utilities/NativePlatformConstantsAndroid';
+import NativePlatformConstants from 'react-native-basalt/upstream/Libraries/Utilities/NativePlatformConstantsAndroid';
 
 export default function createPlatform(os) {
   return {

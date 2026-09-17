@@ -13,6 +13,7 @@
 #include <react/renderer/graphics/Color.h>
 #include <react/renderer/uimanager/UIManager.h>
 
+#include <algorithm>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -32,7 +33,20 @@ using win32::RnWin32View;
 
 Win32MountingManager::Win32MountingManager()
     : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
-      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {
+  // The pull past the top of a list, counted in core/PullToRefresh.h and fired
+  // at whichever <RefreshControl> that scroll view has. Identical on all three
+  // desktops, which is the point of the two of them being portable.
+  scrollViews_.setOverscrollTopHandler([this](Tag tag, double amount) {
+    if (amount <= 0.0) {
+      pullToRefresh().release(tag);
+      return;
+    }
+    if (pullToRefresh().pull(tag, amount)) {
+      fireRefresh(tag);
+    }
+  });
+}
 
 Win32MountingManager::~Win32MountingManager() noexcept {
   // MountingWalk cannot do this from its own destructor: by the time a base
@@ -151,7 +165,10 @@ bool Win32MountingManager::hasComponent(const std::string &name) {
   // This list and ComponentRegistryWin32.cpp are two statements of one fact and
   // must agree.
   return name == "View" || name == "RootView" || name == "Paragraph" ||
-      name == "ScrollView" || name == "Image" || name == "TextInput";
+      name == "ScrollView" || name == "Image" || name == "TextInput" ||
+      name == "ActivityIndicatorView" || name == "Switch" || name == "ModalHostView" ||
+      name == "PullToRefreshView" || name == "UnimplementedNativeView" ||
+      name == "DebuggingOverlay";
 }
 
 void Win32MountingManager::setUIManager(
@@ -196,6 +213,7 @@ void Win32MountingManager::forgetTag(Tag tag) {
   scrollViews_.remove(tag);
   textInputs_.remove(tag);
   imageUris_.erase(tag);
+  switchValues_.erase(tag);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +230,9 @@ void Win32MountingManager::updateView(RnWin32View *view, const ShadowView &shado
   // applied, and forces the clip that applyProps may have read as `visible`.
   applyScrollView(view, shadowView);
   applyTextInput(view, shadowView);
+  // After layout: a control is drawn centred in the frame it was just given,
+  // and a <Modal> commits that frame's size back into its own state.
+  applyControls(view, shadowView);
 }
 
 void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shadowView) {
@@ -515,6 +536,56 @@ bool Win32MountingManager::scrollAt(
 // ---------------------------------------------------------------------------
 // <TextInput>
 // ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+void Win32MountingManager::applyControlPeer(RnWin32View *view, const basalt::ControlState &state) {
+  RnWin32View::ControlStyle style;
+  style.on = state.on;
+  style.disabled = state.disabled;
+  style.large = state.large;
+  style.hidesWhenStopped = state.hidesWhenStopped;
+  style.hasThumb = state.hasForeground;
+  style.hasTrackOn = state.hasTrackOn;
+  style.hasTrackOff = state.hasTrackOff;
+  std::copy(std::begin(state.foreground), std::end(state.foreground), std::begin(style.thumb));
+  std::copy(std::begin(state.trackOn), std::end(state.trackOn), std::begin(style.trackOn));
+  std::copy(std::begin(state.trackOff), std::end(state.trackOff), std::begin(style.trackOff));
+
+  if (state.kind == basalt::ControlKind::Switch) {
+    switchValues_[static_cast<Tag>(view->tag())] = state.on;
+  }
+
+  view->setControl(state.kind == basalt::ControlKind::Switch ? RnWin32View::Control::Switch
+                                                            : RnWin32View::Control::Spinner,
+                   style,
+                   basalt::describeControl(state));
+}
+
+void Win32MountingManager::pressedView(Tag tag) {
+  RnWin32View *view = viewForTag(tag);
+  if (view == nullptr || view->control() != RnWin32View::Control::Switch) {
+    return;
+  }
+  if (view->controlStyle().disabled) {
+    return;
+  }
+  const auto known = switchValues_.find(tag);
+  if (known == switchValues_.end()) {
+    return;
+  }
+
+  // Told, and then left alone. React Native's <Switch> is a controlled
+  // component: the app's `value` prop is the only thing that moves it, and a
+  // switch that flipped itself would show a state its props do not agree with
+  // -- which is exactly what an app that ignores onValueChange is supposed to
+  // look like. The other two hosts have to put their real widget back for the
+  // same reason; here there is nothing to put back, because nothing moved.
+  basalt::emitSwitchChange(eventEmitterForTag(tag), tag, !known->second);
+}
 
 void Win32MountingManager::applyTextInput(RnWin32View *view, const ShadowView &shadowView) {
   if (std::string_view(shadowView.componentName) != "TextInput") {

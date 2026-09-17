@@ -16,6 +16,9 @@
 #include <react/renderer/graphics/Color.h>
 
 #include <cassert>
+#include <cstdio>
+#include <map>
+#include <string>
 #include <type_traits>
 
 namespace basalt {
@@ -101,7 +104,20 @@ GdkRGBA toRgba(const ColorComponents &components) {
 
 GtkMountingManager::GtkMountingManager()
     : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
-      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {
+  // The pull past the top of a list, counted in core/PullToRefresh.h and fired
+  // at whichever <RefreshControl> that scroll view has. Identical on all three
+  // desktops, which is the point of the two of them being portable.
+  scrollViews_.setOverscrollTopHandler([this](Tag tag, double amount) {
+    if (amount <= 0.0) {
+      pullToRefresh().release(tag);
+      return;
+    }
+    if (pullToRefresh().pull(tag, amount)) {
+      fireRefresh(tag);
+    }
+  });
+}
 
 GtkMountingManager::~GtkMountingManager() noexcept {
   // MountingWalk cannot do this itself: by the time a base destructor runs, the
@@ -259,6 +275,8 @@ void GtkMountingManager::forgetTag(Tag tag) {
   imageUris_.erase(tag);
   scrollViews_.remove(tag);
   textInputs_.remove(tag);
+  switchValues_.erase(tag);
+  controlClasses_.erase(tag);
 }
 
 void GtkMountingManager::dispatchCommand(const ShadowView &shadowView,
@@ -557,6 +575,167 @@ void GtkMountingManager::applyTextInput(RnView *view, const ShadowView &shadowVi
   textInputs_.update(view, shadowView);
 }
 
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A colour as CSS, because that is the only way to reach the inside of a GTK
+// control. A GtkSpinner's arc is its `color` and a GtkSwitch's track is its
+// `background-color`; neither is a property, and neither is reachable through
+// the widget API at all.
+std::string cssColor(const float rgba[4]) {
+  char buffer[64];
+  std::snprintf(buffer,
+                sizeof(buffer),
+                "rgba(%d,%d,%d,%g)",
+                static_cast<int>(rgba[0] * 255.0F + 0.5F),
+                static_cast<int>(rgba[1] * 255.0F + 0.5F),
+                static_cast<int>(rgba[2] * 255.0F + 0.5F),
+                static_cast<double>(rgba[3]));
+  return buffer;
+}
+
+// The CSS class for a control with these colours, installing a display-wide
+// rule for it the first time that combination is seen.
+//
+// Display-wide rather than per-widget because the per-widget route is
+// `gtk_widget_get_style_context`, deprecated since GTK 4.10 and gone in 5. One
+// provider holding a rule per distinct colour combination costs an app that
+// uses two tinted spinners exactly two rules, and an app that tints nothing
+// costs nothing: the empty state returns no class at all.
+const char *controlCssClass(const basalt::ControlState &state) {
+  if (!state.hasForeground && !state.hasTrackOn && !state.hasTrackOff) {
+    return nullptr;
+  }
+
+  // Keyed on the rule text, which is the only thing that actually has to be
+  // distinct. Never emptied: an app has a handful of tints, not a stream of
+  // them, and a rule removed while a widget still carries its class would
+  // silently lose the colour.
+  static std::map<std::string, std::string> classes;
+  static GtkCssProvider *provider = nullptr;
+
+  std::string body;
+  if (state.kind == basalt::ControlKind::Switch) {
+    // GtkSwitch draws the track on its own node and the thumb on a child
+    // "slider" node. `:checked` is how GTK spells "on", which is what makes
+    // React Native's two track colours expressible at all.
+    if (state.hasTrackOff) {
+      body += " { background-image: none; background-color: " + cssColor(state.trackOff) + "; }";
+    }
+    if (state.hasTrackOn) {
+      body += ":checked { background-image: none; background-color: " + cssColor(state.trackOn) + "; }";
+    }
+    if (state.hasForeground) {
+      body += " > slider { background-color: " + cssColor(state.foreground) + "; }";
+    }
+  } else if (state.hasForeground) {
+    body += " { color: " + cssColor(state.foreground) + "; }";
+  }
+  if (body.empty()) {
+    return nullptr;
+  }
+
+  const auto found = classes.find(body);
+  if (found != classes.end()) {
+    return found->second.c_str();
+  }
+
+  const std::string name = "rn-control-" + std::to_string(classes.size());
+  classes.emplace(body, name);
+
+  GdkDisplay *display = gdk_display_get_default();
+  if (display == nullptr) {
+    // No display yet, so nothing is being drawn either. The class is still
+    // handed back, and the rule for it arrives with the next one.
+    return classes.find(body)->second.c_str();
+  }
+  if (provider == nullptr) {
+    provider = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_display(
+        display, GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  }
+  std::string css;
+  for (const auto &[rule, className] : classes) {
+    css += "." + className + rule + "\n";
+  }
+  gtk_css_provider_load_from_string(provider, css.c_str());
+  return classes.find(body)->second.c_str();
+}
+
+} // namespace
+
+void GtkMountingManager::pressedView(Tag tag) {
+  RnView *view = viewForTag(tag);
+  if (view == nullptr || rn_view_get_control_kind(view) != RN_CONTROL_SWITCH) {
+    return;
+  }
+  const auto known = switchValues_.find(tag);
+  if (known == switchValues_.end() || rn_view_get_control_disabled(view)) {
+    return;
+  }
+
+  // Told, and then left alone. React Native's <Switch> is a controlled
+  // component: the app's `value` prop is the only thing that moves it, and a
+  // switch that flipped itself would show a state its props do not agree with
+  // -- which is exactly what an app that ignores onValueChange is supposed to
+  // look like. The GtkSwitch never moved, because it never saw the click.
+  basalt::emitSwitchChange(eventEmitterForTag(tag), tag, !known->second);
+}
+
+void GtkMountingManager::applyControlPeer(RnView *view, const basalt::ControlState &state) {
+  const RnControlKind kind =
+      state.kind == basalt::ControlKind::Switch ? RN_CONTROL_SWITCH : RN_CONTROL_SPINNER;
+  GtkWidget *control = rn_view_set_control(view, kind);
+  if (control == nullptr) {
+    return;
+  }
+
+  const Tag tag = static_cast<Tag>(rn_view_get_tag(view));
+
+  if (state.kind == basalt::ControlKind::Switch) {
+    switchValues_[tag] = state.on;
+    gtk_switch_set_active(GTK_SWITCH(control), state.on ? TRUE : FALSE);
+    // Drawn, not driven. The GtkSwitch is taken out of hit testing so that a
+    // press lands on the RnView behind it and reaches React Native's touch
+    // path, which is what `pressedView` picks up -- and what makes a press on
+    // a switch mean the same thing on three desktops, since the Win32 one is
+    // painted and has no widget to click at all. It also means the synthesised
+    // taps the test suite uses reach it, which a GtkSwitch handling its own
+    // input would not.
+    //
+    // `sensitive` would do this too and would also grey the widget out, which
+    // is what `disabled` is for and must stay distinguishable from it.
+    gtk_widget_set_can_target(control, FALSE);
+    gtk_widget_set_sensitive(control, state.disabled ? FALSE : TRUE);
+  } else {
+    gtk_spinner_set_spinning(GTK_SPINNER(control), state.on ? TRUE : FALSE);
+    // `hidesWhenStopped` defaults to true, and a <RefreshControl> that is not
+    // refreshing shows nothing at all -- which is the same rule.
+    gtk_widget_set_visible(control, (state.on || !state.hidesWhenStopped) ? TRUE : FALSE);
+  }
+
+  // The tint, if the app asked for one. Removing the previous class matters:
+  // an app animating a colour would otherwise accumulate every class it has
+  // ever had, and the first one would keep winning.
+  if (const auto previous = controlClasses_.find(tag); previous != controlClasses_.end()) {
+    gtk_widget_remove_css_class(control, previous->second);
+  }
+  const char *className = controlCssClass(state);
+  if (className != nullptr) {
+    gtk_widget_add_css_class(control, className);
+    controlClasses_[tag] = className;
+  } else {
+    controlClasses_.erase(tag);
+  }
+
+  rn_view_set_control_disabled(view, state.disabled ? TRUE : FALSE);
+  const std::string described = basalt::describeControl(state);
+  rn_view_set_control_description(view, described.c_str());
+}
+
 void GtkMountingManager::applyScrollView(RnView *view, const ShadowView &shadowView) {
   if (shadowView.componentName == nullptr || std::string_view(shadowView.componentName) != "ScrollView") {
     return;
@@ -571,7 +750,9 @@ bool GtkMountingManager::hasComponent(const std::string &name) {
   // ScrollView's content child arrives as "ScrollContentView", which the
   // registry rewrites to "View" before it reaches here, so it needs no entry.
   return name == "View" || name == "RootView" || name == "Paragraph" || name == "Image" ||
-      name == "ScrollView" || name == "TextInput";
+      name == "ScrollView" || name == "TextInput" || name == "ActivityIndicatorView" ||
+      name == "Switch" || name == "ModalHostView" || name == "PullToRefreshView" ||
+      name == "UnimplementedNativeView" || name == "DebuggingOverlay";
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +773,10 @@ void GtkMountingManager::updateView(RnView *view, const ShadowView &shadowView) 
   // given, and iOS documents the same ordering requirement -- layout before
   // state, or the offset is clamped against a stale size.
   applyScrollView(view, shadowView);
+  // After layout for the same reason the scroll view is: a control is centred
+  // in the frame it was just given, and a <Modal> commits that frame's size
+  // back into its own state.
+  applyControls(view, shadowView);
 }
 
 // A <Paragraph> carries its text in state, not props: ParagraphShadowNode

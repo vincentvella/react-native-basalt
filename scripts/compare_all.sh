@@ -37,6 +37,7 @@ APPS=(
   "appearance:BasaltAppearance"
   "blob:BasaltBlob"
   "modules:BasaltModules"
+  "controls:BasaltControls"
   "probe:BasaltProbe"
   # js/hover.js is deliberately absent. Its tree depends on where the cursor
   # is: a box under the pointer takes a different background, and a window that

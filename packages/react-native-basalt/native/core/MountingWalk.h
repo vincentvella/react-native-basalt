@@ -29,13 +29,16 @@
 //   void    removeChild(ViewRef parent, ViewRef child);
 //   void    updateView(ViewRef, const ShadowView &);  // props, layout, state
 //   void    forgetTag(Tag);                   // per-tag side tables, if any
+//   void    applyControlPeer(ViewRef, const ControlState &);  // spinner/switch
 //
 // and must call `releaseAllViews()` from its own destructor: this base cannot,
 // because by the time a base destructor runs the platform half is already gone.
 
 #pragma once
 
+#include "DesktopControls.h"
 #include "HoverTracker.h"
+#include "PullToRefresh.h"
 
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/EventEmitter.h>
@@ -43,9 +46,13 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cassert>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace basalt {
 
@@ -82,6 +89,65 @@ class MountingWalk {
   // props on every Create and Update, and a touch dispatcher asking per motion
   // event must not have to reach into the shadow tree to find it. Views that
   // listen for none -- nearly all of them -- are not stored at all.
+  // --- Controls -------------------------------------------------------------
+  //
+  // <Switch>, <ActivityIndicator>, <RefreshControl> and <Modal> are the four
+  // components that are more than a box, and every part of them that is not
+  // pixels is here rather than in three view layers: which views are controls,
+  // which scroll view a refresh control belongs to, which modals are open, and
+  // what size a modal thinks the window is. Only `applyControlPeer` -- making a
+  // GtkSwitch or drawing one -- is left to the platform.
+
+  // The pull past the top of a list. The platform's scroll view feeds it and
+  // calls `fireRefresh` when it says so; see core/PullToRefresh.h.
+  PullToRefreshTracker &pullToRefresh() {
+    return pullToRefresh_;
+  }
+
+  // Tells the <RefreshControl> belonging to `scrollTag` that it was pulled.
+  // Safe on a scroll view that has none.
+  void fireRefresh(Tag scrollTag) {
+    const Tag control = pullToRefresh_.controlFor(scrollTag);
+    if (control != 0) {
+      emitRefresh(eventEmitterForTag(control));
+    }
+  }
+
+  // The user asked to close the topmost <Modal> -- Escape, on all three
+  // desktops. Returns false when no modal is open, so the host can let the key
+  // do whatever it did before.
+  bool requestCloseTopModal() {
+    if (modalStack_.empty()) {
+      return false;
+    }
+    emitModalRequestClose(eventEmitterForTag(modalStack_.back()));
+    return true;
+  }
+
+  bool hasOpenModal() const {
+    return !modalStack_.empty();
+  }
+
+  // The size of the window a surface is in, which a <Modal> lays out against.
+  //
+  // React Native's own cxx platform answers `ModalHostViewScreenSize()` with
+  // zero, so a modal that is never told otherwise lays out 0x0 and the app
+  // renders nothing at all -- no error, no warning, an empty window. The host
+  // calls this wherever it already updates its layout constraints.
+  void setSurfaceSize(float width, float height) {
+    if (width == surfaceWidth_ && height == surfaceHeight_) {
+      return;
+    }
+    surfaceWidth_ = width;
+    surfaceHeight_ = height;
+    for (const auto &[tag, shadowView] : modalViews_) {
+      (void)tag;
+      if (modalScreenSizeNeedsUpdate(shadowView, surfaceWidth_, surfaceHeight_)) {
+        updateModalScreenSize(shadowView, surfaceWidth_, surfaceHeight_);
+      }
+    }
+  }
+
   std::uint16_t hoverListenersForTag(Tag tag) const {
     const auto it = hoverListeners_.find(tag);
     return it == hoverListeners_.end() ? HoverListenerNone : it->second;
@@ -139,6 +205,15 @@ class MountingWalk {
           break;
       }
     }
+
+    // After the whole transaction rather than at each Insert.
+    //
+    // Fabric inserts a subtree from the bottom up: a <RefreshControl> is put
+    // inside the scroll view's content view before that content view is put
+    // inside the scroll view, so at the moment the control arrives its
+    // grandparent is not known yet and walking up finds nothing. The tree is
+    // whole here.
+    resolveRefreshControls();
   }
 
  protected:
@@ -153,12 +228,20 @@ class MountingWalk {
     }
     registry_.clear();
     eventEmitters_.clear();
+    componentNames_.clear();
     hoverListeners_.clear();
+    parentOf_.clear();
+    scrollTags_.clear();
+    modalViews_.clear();
+    modalStack_.clear();
   }
 
   void rememberEventEmitter(const ShadowView &shadowView) {
     if (shadowView.eventEmitter != nullptr) {
       eventEmitters_[shadowView.tag] = shadowView.eventEmitter;
+    }
+    if (shadowView.componentName != nullptr) {
+      componentNames_[shadowView.tag] = shadowView.componentName;
     }
     rememberHoverListeners(shadowView);
   }
@@ -178,6 +261,47 @@ class MountingWalk {
 
   bool onMainThread() const {
     return std::this_thread::get_id() == mainThreadId_;
+  }
+
+  // The portable half of mounting a control, called from the platform's
+  // `updateView`. Reads the props once, hands the platform the result, and
+  // keeps the bookkeeping the events need.
+  //
+  // Called from `updateView` rather than from the walk so that a platform
+  // applies it in its own order -- after layout on every host, because a
+  // spinner is centred in a frame that has to exist first.
+  void applyControls(ViewRef view, const ShadowView &shadowView) {
+    const ControlState state = controlStateOf(shadowView);
+    if (state.kind != ControlKind::None) {
+      platform().applyControlPeer(view, state);
+      return;
+    }
+
+    if (shadowView.componentName == nullptr) {
+      return;
+    }
+    const std::string_view name(shadowView.componentName);
+    if (name == "ScrollView") {
+      scrollTags_.insert(shadowView.tag);
+      return;
+    }
+    if (name != "ModalHostView") {
+      return;
+    }
+
+    // A modal, which is where the screen size has to be corrected. The first
+    // sighting is also where `onShow` belongs: React Native fires it once, when
+    // the modal appears, and a modal appears by being mounted -- `visible` is
+    // false by not rendering the component at all.
+    const bool firstSighting = modalViews_.find(shadowView.tag) == modalViews_.end();
+    modalViews_[shadowView.tag] = shadowView;
+    if (firstSighting) {
+      modalStack_.push_back(shadowView.tag);
+      emitModalShow(shadowView.eventEmitter);
+    }
+    if (modalScreenSizeNeedsUpdate(shadowView, surfaceWidth_, surfaceHeight_)) {
+      updateModalScreenSize(shadowView, surfaceWidth_, surfaceHeight_);
+    }
   }
 
  private:
@@ -203,7 +327,13 @@ class MountingWalk {
     platform().destroyView(it->second);
     registry_.erase(it);
     eventEmitters_.erase(tag);
+    componentNames_.erase(tag);
     hoverListeners_.erase(tag);
+    parentOf_.erase(tag);
+    scrollTags_.erase(tag);
+    pullToRefresh_.forget(tag);
+    modalViews_.erase(tag);
+    modalStack_.erase(std::remove(modalStack_.begin(), modalStack_.end(), tag), modalStack_.end());
     platform().forgetTag(tag);
   }
 
@@ -225,6 +355,10 @@ class MountingWalk {
     // Props can change in the same transaction that inserts the view.
     platform().updateView(child, mutation.newChildShadowView);
     platform().insertChild(parent, child, static_cast<int>(mutation.index));
+    parentOf_[mutation.newChildShadowView.tag] = mutation.parentTag;
+    if (controlKindFor(mutation.newChildShadowView.componentName) == ControlKind::PullToRefresh) {
+      unresolvedRefreshControls_.push_back(mutation.newChildShadowView.tag);
+    }
   }
 
   void remove(const facebook::react::ShadowViewMutation &mutation) {
@@ -255,6 +389,33 @@ class MountingWalk {
     rememberEventEmitter(shadowView);
   }
 
+  // Ties each <RefreshControl> mounted in this transaction to the scroll view
+  // it refreshes.
+  //
+  // Not its parent: React Native's ScrollView puts the control inside the
+  // content container, so the scroll view is an ancestor. Walking up is also
+  // what makes this survive somebody wrapping the control in a <View>.
+  //
+  // A control whose scroll view is still not found is dropped rather than
+  // carried: it is a <RefreshControl> outside any list, which is an app bug
+  // and not something to keep retrying on every frame.
+  void resolveRefreshControls() {
+    for (const Tag tag : unresolvedRefreshControls_) {
+      for (Tag walk = tag; walk != 0;) {
+        const auto parent = parentOf_.find(walk);
+        if (parent == parentOf_.end()) {
+          break;
+        }
+        walk = parent->second;
+        if (scrollTags_.count(walk) != 0) {
+          pullToRefresh_.attach(walk, tag);
+          break;
+        }
+      }
+    }
+    unresolvedRefreshControls_.clear();
+  }
+
   // Views are held with a strong reference from Create until Delete. Between a
   // Remove and its Delete a view has no parent, so this is the only thing
   // keeping it alive.
@@ -263,9 +424,34 @@ class MountingWalk {
   // Parallel to registry_, and torn down with it on Delete.
   std::unordered_map<Tag, facebook::react::EventEmitter::Shared> eventEmitters_;
 
+  // Every view's component name, as the static string Fabric holds. Needed
+  // because a Remove and an Insert carry a ShadowView and the walk's own
+  // bookkeeping does not.
+  std::unordered_map<Tag, const char *> componentNames_;
+
   // Sparse, unlike the two above: only views that listen for a hover event
   // appear, so an app that uses none carries an empty map.
   std::unordered_map<Tag, std::uint16_t> hoverListeners_;
+
+  // --- Controls ---------------------------------------------------------------
+
+  // Who each view's parent is, so a <RefreshControl> can find the scroll view
+  // it is nested inside. Fabric's mutations carry it and nothing else here
+  // needed it until now.
+  std::unordered_map<Tag, Tag> parentOf_;
+  std::unordered_set<Tag> scrollTags_;
+  PullToRefreshTracker pullToRefresh_;
+  // Controls mounted in the transaction being applied, resolved at the end of
+  // it; see resolveRefreshControls.
+  std::vector<Tag> unresolvedRefreshControls_;
+
+  // Modals, and the order they opened in. A vector rather than a set: Escape
+  // closes the topmost one, which needs an order.
+  std::unordered_map<Tag, ShadowView> modalViews_;
+  std::vector<Tag> modalStack_;
+
+  float surfaceWidth_{0.0F};
+  float surfaceHeight_{0.0F};
 
   // The main thread, recorded at construction. `executeMount` arrives on the JS
   // thread and marshals here; `applyMutations` asserts it got there.

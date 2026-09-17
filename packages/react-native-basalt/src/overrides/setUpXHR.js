@@ -45,12 +45,12 @@
 
 'use strict';
 
-const {polyfillGlobal} = require('react-native/Libraries/Utilities/PolyfillFunctions');
+const {polyfillGlobal} = require('react-native-basalt/upstream/Libraries/Utilities/PolyfillFunctions');
 const base64 = require('base64-js');
 
-const BaseXMLHttpRequest = require('react-native/Libraries/Network/XMLHttpRequest').default;
-const BlobManager = require('react-native/Libraries/Blob/BlobManager').default;
-const NativeBlobModule = require('react-native/Libraries/Blob/NativeBlobModule').default;
+const BaseXMLHttpRequest = require('react-native-basalt/upstream/Libraries/Network/XMLHttpRequest').default;
+const BlobManager = require('react-native-basalt/upstream/Libraries/Blob/BlobManager').default;
+const NativeBlobModule = require('react-native-basalt/upstream/Libraries/Blob/NativeBlobModule').default;
 
 // Same shape as the one inside BlobManager, which is not exported.
 function uuidv4() {
@@ -125,25 +125,25 @@ Object.defineProperty(proto, 'response', {
 });
 
 polyfillGlobal('XMLHttpRequest', () => BaseXMLHttpRequest);
-polyfillGlobal('FormData', () => require('react-native/Libraries/Network/FormData').default);
+polyfillGlobal('FormData', () => require('react-native-basalt/upstream/Libraries/Network/FormData').default);
 
-polyfillGlobal('fetch', () => require('react-native/Libraries/Network/fetch').fetch);
-polyfillGlobal('Headers', () => require('react-native/Libraries/Network/fetch').Headers);
-polyfillGlobal('Request', () => require('react-native/Libraries/Network/fetch').Request);
-polyfillGlobal('Response', () => require('react-native/Libraries/Network/fetch').Response);
-polyfillGlobal('WebSocket', () => require('react-native/Libraries/WebSocket/WebSocket').default);
-polyfillGlobal('Blob', () => require('react-native/Libraries/Blob/Blob').default);
-polyfillGlobal('File', () => require('react-native/Libraries/Blob/File').default);
-polyfillGlobal('FileReader', () => require('react-native/Libraries/Blob/FileReader').default);
-polyfillGlobal('URL', () => require('react-native/Libraries/Blob/URL').URL);
-polyfillGlobal('URLSearchParams', () => require('react-native/Libraries/Blob/URL').URLSearchParams);
+polyfillGlobal('fetch', () => require('react-native-basalt/upstream/Libraries/Network/fetch').fetch);
+polyfillGlobal('Headers', () => require('react-native-basalt/upstream/Libraries/Network/fetch').Headers);
+polyfillGlobal('Request', () => require('react-native-basalt/upstream/Libraries/Network/fetch').Request);
+polyfillGlobal('Response', () => require('react-native-basalt/upstream/Libraries/Network/fetch').Response);
+polyfillGlobal('WebSocket', () => require('react-native-basalt/upstream/Libraries/WebSocket/WebSocket').default);
+polyfillGlobal('Blob', () => require('react-native-basalt/upstream/Libraries/Blob/Blob').default);
+polyfillGlobal('File', () => require('react-native-basalt/upstream/Libraries/Blob/File').default);
+polyfillGlobal('FileReader', () => require('react-native-basalt/upstream/Libraries/Blob/FileReader').default);
+polyfillGlobal('URL', () => require('react-native-basalt/upstream/Libraries/Blob/URL').URL);
+polyfillGlobal('URLSearchParams', () => require('react-native-basalt/upstream/Libraries/Blob/URL').URLSearchParams);
 polyfillGlobal(
   'AbortController',
   () =>
-    require('react-native/src/private/webapis/dom/abort-api/AbortController')
+    require('react-native-basalt/upstream/src/private/webapis/dom/abort-api/AbortController')
       .AbortController,
 );
 polyfillGlobal(
   'AbortSignal',
-  () => require('react-native/src/private/webapis/dom/abort-api/AbortSignal').AbortSignal_public,
+  () => require('react-native-basalt/upstream/src/private/webapis/dom/abort-api/AbortSignal').AbortSignal_public,
 );

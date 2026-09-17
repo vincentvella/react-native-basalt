@@ -496,6 +496,11 @@ void shutdown() {
   gHost.reactHost->setSurfaceConstraints(
       kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
 
+  // A <Modal> is sized from its own shadow-node state rather than from a style,
+  // and React Native's C++ platform answers "what size is the screen" with
+  // zero. Told here, where the window's size is already being handed to Fabric.
+  gHost.mountingManager->setSurfaceSize((float)width, (float)height);
+
   // The inspector covers the window, so it resizes with it.
   if (gHost.logBoxRoot != nil) {
     [gHost.logBoxRoot setRnFrameX:0 y:0 width:width height:height];
@@ -744,6 +749,7 @@ int main(int argc, const char *argv[]) {
                                   folly::dynamic::object(),
                                   constraintsFor(kInitialWidth, kInitialHeight),
                                   layoutContextFor(gHost.scaleFactor));
+    gHost.mountingManager->setSurfaceSize((float)kInitialWidth, (float)kInitialHeight);
     gHost.surfaceStarted = true;
     NSLog(@"started surface %d%s%s",
           (int)kSurfaceId,
@@ -752,6 +758,29 @@ int main(int argc, const char *argv[]) {
 
     [gHost.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+
+    // Escape closes the topmost <Modal> -- or rather, asks the app to. React
+    // Native's `onRequestClose` is the hardware back button on Android and the
+    // swipe-down on iOS; on a desktop it is Escape.
+    //
+    // A local event monitor rather than `keyDown:` on a view, because a modal
+    // is a surface-wide thing and nothing in it need have focus. The monitor
+    // swallows the key only when a modal was actually open, so Escape still
+    // does whatever it did before everywhere else.
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                          handler:^NSEvent *(NSEvent *event) {
+                                            const unichar first =
+                                                event.charactersIgnoringModifiers.length > 0
+                                                ? [event.charactersIgnoringModifiers
+                                                      characterAtIndex:0]
+                                                : 0;
+                                            if (first != 0x1B || gHost.mountingManager == nullptr) {
+                                              return event;
+                                            }
+                                            return gHost.mountingManager->requestCloseTopModal()
+                                                ? nil
+                                                : event;
+                                          }];
 
     // The display link needs a window, which the root now has.
     gHost.choreographer->attachToView(gHost.root);
@@ -767,6 +796,15 @@ int main(int argc, const char *argv[]) {
                      });
     }
 
+    // One clock for every instrument below, rather than one each.
+    //
+    // They used to start at 1500ms independently, which was invisible for as
+    // long as no scenario used two at once -- and wrong the moment one did: a
+    // run with both BASALT_TEST_TAP and BASALT_TEST_FOCUS interleaved them
+    // instead of running the taps and then the keys. The GTK and Win32 hosts
+    // have always threaded a single delay through; this is the third.
+    __block int64_t scriptedDelayMs = 1500;
+
     // BASALT_TEST_TAP: "x,y;x,y" -- synthesise taps a second apart, in
     // surface-root coordinates. Enters where AppKit's mouse handler would, so
     // it exercises hit testing and event delivery but not AppKit itself.
@@ -777,7 +815,7 @@ int main(int argc, const char *argv[]) {
     // xdotool instead where it can.
     if (const char *taps = getenv("BASALT_TEST_TAP")) {
       NSString *spec = [NSString stringWithUTF8String:taps];
-      int64_t delayMs = 1500;
+      int64_t delayMs = scriptedDelayMs;
       for (NSString *point in [spec componentsSeparatedByString:@";"]) {
         NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
         if (parts.count != 2) {
@@ -795,6 +833,7 @@ int main(int argc, const char *argv[]) {
                        });
         delayMs += 1000;
       }
+      scriptedDelayMs = delayMs;
     }
 
     // BASALT_TEST_HOVER: "x,y;x,y" -- the pointer moving with no button down,
@@ -804,7 +843,7 @@ int main(int argc, const char *argv[]) {
     // point means the pointer left the surface.
     if (const char *hovers = getenv("BASALT_TEST_HOVER")) {
       NSString *spec = [NSString stringWithUTF8String:hovers];
-      int64_t delayMs = 1500;
+      int64_t delayMs = scriptedDelayMs;
       for (NSString *point in [spec componentsSeparatedByString:@";"]) {
         NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
         if (parts.count != 2) {
@@ -822,10 +861,11 @@ int main(int argc, const char *argv[]) {
                        });
         delayMs += 1000;
       }
+      scriptedDelayMs = delayMs;
     }
 
-    // BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
-    // `shift-tab` and `activate`, each fired a second apart.
+    // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`,
+    // `shift-tab`, `activate` and `escape`, each fired a second apart.
     //
     // The same reason the other instruments exist, one step further out. A real
     // Tab needs a window the window server considers key, which an automated
@@ -834,7 +874,7 @@ int main(int argc, const char *argv[]) {
     // click dispatch, and skips only the delivery of the keystroke itself.
     if (const char *focus = getenv("BASALT_TEST_FOCUS")) {
       NSString *spec = [NSString stringWithUTF8String:focus];
-      int64_t delayMs = 1500;
+      int64_t delayMs = scriptedDelayMs;
       for (NSString *raw in [spec componentsSeparatedByString:@";"]) {
         NSString *action = [raw stringByTrimmingCharactersInSet:
                                     [NSCharacterSet whitespaceCharacterSet]];
@@ -845,7 +885,8 @@ int main(int argc, const char *argv[]) {
                        dispatch_get_main_queue(),
                        ^{
                          NSLog(@"BASALT_TEST_FOCUS: %@", action);
-                         if (gHost.focusManager == nullptr) {
+                         if (gHost.focusManager == nullptr &&
+                             ![action isEqualToString:@"escape"]) {
                            return;
                          }
                          if ([action isEqualToString:@"tab"]) {
@@ -854,12 +895,19 @@ int main(int argc, const char *argv[]) {
                            gHost.focusManager->moveFocus(false);
                          } else if ([action isEqualToString:@"activate"]) {
                            gHost.focusManager->activateFocused();
+                         } else if ([action isEqualToString:@"escape"]) {
+                           // Not a focus action, and here anyway: this is the
+                           // instrument for "a key was pressed and nothing on
+                           // the window has to be focused for it to arrive",
+                           // which is exactly what Escape closing a <Modal> is.
+                           gHost.mountingManager->requestCloseTopModal();
                          } else {
                            NSLog(@"BASALT_TEST_FOCUS: unknown action \"%@\"", action);
                          }
                        });
         delayMs += 1000;
       }
+      scriptedDelayMs = delayMs;
     }
 
     // BASALT_TEST_DRAG: "x1,y1,x2,y2" -- one press, twenty moves and a release,
@@ -901,7 +949,7 @@ int main(int argc, const char *argv[]) {
     // is not.
     if (const char *clicks = getenv("BASALT_TEST_CLICK")) {
       NSString *spec = [NSString stringWithUTF8String:clicks];
-      int64_t delayMs = 1500;
+      int64_t delayMs = scriptedDelayMs;
       for (NSString *point in [spec componentsSeparatedByString:@";"]) {
         NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
         if (parts.count != 2) {
@@ -935,6 +983,7 @@ int main(int argc, const char *argv[]) {
                        });
         delayMs += 1000;
       }
+      scriptedDelayMs = delayMs;
     }
 
     // BASALT_TEST_SCROLL: "x,y,lines;x,y,lines" -- scroll wheel notches over a
@@ -949,7 +998,7 @@ int main(int argc, const char *argv[]) {
     // that `[super scrollWheel:]` takes part in.
     if (const char *scrolls = getenv("BASALT_TEST_SCROLL")) {
       NSString *spec = [NSString stringWithUTF8String:scrolls];
-      int64_t delayMs = 1500;
+      int64_t delayMs = scriptedDelayMs;
       for (NSString *step in [spec componentsSeparatedByString:@";"]) {
         NSArray<NSString *> *parts = [step componentsSeparatedByString:@","];
         if (parts.count != 3) {
@@ -983,6 +1032,7 @@ int main(int argc, const char *argv[]) {
                        });
         delayMs += 1000;
       }
+      scriptedDelayMs = delayMs;
     }
 
     // BASALT_TEST_TYPE: text to insert into whatever field has focus, for the

@@ -43,9 +43,9 @@ import {
 } from 'react';
 import RCTSinglelineTextInputNativeComponent, {
   Commands,
-} from 'react-native/Libraries/Components/TextInput/RCTSingelineTextInputNativeComponent';
-import TextInputState from 'react-native/Libraries/Components/TextInput/TextInputState';
-import StyleSheet from 'react-native/Libraries/StyleSheet/StyleSheet';
+} from 'react-native-basalt/upstream/Libraries/Components/TextInput/RCTSingelineTextInputNativeComponent';
+import TextInputState from 'react-native-basalt/upstream/Libraries/Components/TextInput/TextInputState';
+import StyleSheet from 'react-native-basalt/upstream/Libraries/StyleSheet/StyleSheet';
 
 /**
  * React Native's text fields are controlled: JavaScript owns the value and

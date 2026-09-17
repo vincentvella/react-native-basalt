@@ -37,7 +37,7 @@
 
 'use strict';
 
-import NativeShareModule from 'react-native/Libraries/Share/NativeShareModule';
+import NativeShareModule from 'react-native-basalt/upstream/Libraries/Share/NativeShareModule';
 
 const invariant = require('invariant');
 

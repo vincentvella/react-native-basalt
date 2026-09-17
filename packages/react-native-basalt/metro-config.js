@@ -92,6 +92,31 @@ const SELF_IMPORTING_SHIMS = [
 ];
 
 /**
+ * How this package's own overrides reach React Native's internals.
+ *
+ * A platform implementation has to import things React Native does not export:
+ * `NativeAlertManager`, `PolyfillFunctions`, the upstream `ScrollView` an
+ * override wraps. Written as `react-native/Libraries/...` that costs two
+ * warnings in every app that uses this package, in every bundle, for every
+ * import -- one from `@react-native/babel-preset`'s warn-on-deep-imports
+ * plugin, and one from Metro when the subpath is not in React Native's
+ * `exports`. Neither says anything a reader can act on: the deep import is
+ * deliberate, and there is no shallower path to the same file.
+ *
+ * So the overrides spell it this way instead, and the resolver below turns the
+ * prefix into an absolute path inside the React Native package. Babel's plugin
+ * looks at the literal specifier and this one does not begin with
+ * `react-native/`; Metro resolves an absolute path without consulting
+ * `exports`, and with its usual extension and platform machinery still
+ * applying. What is imported is exactly the same file.
+ *
+ * It is not a way of pretending the imports are not deep. `docs/` and the
+ * override headers say which internals this platform depends on; this only
+ * stops the tooling from saying it once per import per bundle.
+ */
+const UPSTREAM_PREFIX = 'react-native-basalt/upstream/';
+
+/**
  * Kind 3: modules this project implements itself. Checked before the shim list,
  * so `Platform` gets ours rather than Android's.
  *
@@ -128,6 +153,22 @@ const PLATFORM_OVERRIDES = [
     // changes nothing. See the header of the replacement.
     path.join('Libraries', 'Share', 'Share.js'),
     path.join(OVERRIDE_DIR, 'Share.js'),
+  ],
+  [
+    // Also not a shim: `RefreshControl.js` branches on `Platform.OS === 'ios'`
+    // with an `else` that renders Android's AndroidSwipeRefreshLayout, whose
+    // shadow node needs fbjni and which no desktop registers.
+    path.join('Libraries', 'Components', 'RefreshControl', 'RefreshControl.js'),
+    path.join(OVERRIDE_DIR, 'RefreshControl.js'),
+  ],
+  [
+    // The one wrapper in this table rather than a rewrite. `ScrollView.render`
+    // places `refreshControl` in an `if (ios) ... else if (android)` with no
+    // `else`, so on a desktop the prop is dropped and the control never
+    // mounts. The replacement is React Native's own ScrollView with the child
+    // put back; see its header.
+    path.join('Libraries', 'Components', 'ScrollView', 'ScrollView.js'),
+    path.join(OVERRIDE_DIR, 'ScrollView.js'),
   ],
   [
     // Also not a shim. `fetch` is broken on this platform without it: every
@@ -223,6 +264,25 @@ function matchTail(filePath, table, platform) {
     }
   }
   return null;
+}
+
+/**
+ * Where React Native is, as an absolute path.
+ *
+ * Asked of Metro rather than of Node. `require.resolve` answers from this
+ * file's own node_modules, which in this repository -- and in any monorepo or
+ * linked checkout -- is not where the copy being bundled lives; Metro already
+ * knows, because it has `extraNodeModules` and `nodeModulesPaths` and the
+ * app's root. Resolving the package's own entry point rather than a file
+ * inside it also keeps this out of the `exports` check, which is half of what
+ * UPSTREAM_PREFIX exists to avoid.
+ */
+let reactNativeRootCache = null;
+function reactNativeRoot(resolve) {
+  if (reactNativeRootCache == null) {
+    reactNativeRootCache = path.dirname(resolve().filePath);
+  }
+  return reactNativeRootCache;
 }
 
 function replacementFor(filePath, platform) {
@@ -350,13 +410,29 @@ function withDesktopPlatforms(config = {}, options = {}) {
       resolveRequest: (context, moduleName, platform) => {
         const ours = enabled.includes(platform);
 
+        // This package's own overrides reaching React Native's internals. See
+        // UPSTREAM_PREFIX: the specifier becomes an absolute path so that
+        // neither Babel's deep-import plugin nor Metro's package-exports check
+        // has anything to warn about, and resolution is otherwise Metro's.
         // Resolve first, then decide. Rewriting the request instead would mean
         // reimplementing Metro's resolution to know what './Platform' meant
         // from any given file.
-        const resolveAs = target =>
+        const resolveName = (name, target) =>
           existingResolveRequest
-            ? existingResolveRequest(context, moduleName, target)
-            : context.resolveRequest(context, moduleName, target);
+            ? existingResolveRequest(context, name, target)
+            : context.resolveRequest(context, name, target);
+
+        // This package's own overrides reaching React Native's internals. See
+        // UPSTREAM_PREFIX: the specifier becomes an absolute path so that
+        // neither Babel's deep-import plugin nor Metro's package-exports check
+        // has anything to warn about, and resolution is otherwise Metro's.
+        let request = moduleName;
+        if (request.startsWith(UPSTREAM_PREFIX)) {
+          const root = reactNativeRoot(() => resolveName('react-native', platform));
+          request = path.join(root, request.slice(UPSTREAM_PREFIX.length));
+        }
+
+        const resolveAs = target => resolveName(request, target);
 
         let resolution;
         try {

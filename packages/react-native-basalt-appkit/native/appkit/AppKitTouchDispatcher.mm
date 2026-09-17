@@ -226,6 +226,14 @@ void AppKitTouchDispatcher::dispatchTouchEnd(double x, double y) {
   isDown_ = false;
   activeTarget_ = 0;
   emit(TouchKind::End, target, x, y);
+
+  // A <Switch> is toggled from here rather than by the toolkit control, so
+  // that a press means the same thing on three desktops -- the Windows one is
+  // painted and has no widget to click at all. A no-op for every view that is
+  // not a switch.
+  if (mountingManager_ != nullptr) {
+    mountingManager_->pressedView(target);
+  }
 }
 
 void AppKitTouchDispatcher::dispatchTouchCancel() {

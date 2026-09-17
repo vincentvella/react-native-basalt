@@ -310,8 +310,8 @@ guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
   return delayMs;
 }
 
-// BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
-// `shift-tab` and `activate`, each fired a second apart.
+// BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
+// `activate` and `escape`, each fired a second apart.
 //
 // The same reason the other instruments exist, one step further out. A real Tab
 // needs a window the display server considers focused, and an automated run on
@@ -336,6 +336,11 @@ gboolean fireTestFocus(gpointer data) {
     pending->host->focusManager->moveFocus(false);
   } else if (pending->action == "activate") {
     pending->host->focusManager->activateFocused();
+  } else if (pending->action == "escape") {
+    // Not a focus action, and here anyway: this is the instrument for "a key
+    // was pressed and nothing on the window has to be focused for it to
+    // arrive", which is exactly what Escape closing a <Modal> is.
+    pending->host->mountingManager->requestCloseTopModal();
   } else {
     g_warning("BASALT_TEST_FOCUS: unknown action \"%s\"", pending->action.c_str());
   }
@@ -352,6 +357,53 @@ guint scheduleTestFocus(Host *host, const char *spec, guint delayMs) {
     delayMs += 1000;
   }
   g_strfreev(actions);
+  return delayMs;
+}
+
+// BASALT_TEST_SCROLL: "x,y,lines" triples separated by ';' -- a wheel over a
+// point, a second apart, in surface-root coordinates. Positive lines scroll
+// down, which is the direction `contentOffset` reads.
+//
+// The AppKit and Win32 hosts have had this since their scroll views did; this
+// is the third, and it arrived with <RefreshControl>, whose gesture is a wheel
+// that keeps asking to go up after the list has already reached its top.
+struct PendingScroll {
+  Host *host;
+  double x;
+  double y;
+  double lines;
+};
+
+gboolean fireTestScroll(gpointer data) {
+  std::unique_ptr<PendingScroll> pending{static_cast<PendingScroll *>(data)};
+  Host *host = pending->host;
+  if (host->mountingManager == nullptr || host->root == nullptr) {
+    return G_SOURCE_REMOVE;
+  }
+  g_message("BASALT_TEST_SCROLL: %g lines at (%g, %g)", pending->lines, pending->x, pending->y);
+  // Notches into pixels with the same constant a real wheel uses, so the
+  // instrument and the hardware move a list by the same distance.
+  host->mountingManager->scrollViews().scrollAt(
+      host->root, pending->x, pending->y, 0.0, pending->lines * basalt::GtkScrollViewManager::kWheelStepPixels);
+  return G_SOURCE_REMOVE;
+}
+
+guint scheduleTestScrolls(Host *host, const char *spec, guint delayMs) {
+  char **steps = g_strsplit(spec, ";", -1);
+  for (char **step = steps; *step != nullptr; ++step) {
+    char **parts = g_strsplit(*step, ",", -1);
+    if (g_strv_length(parts) == 3) {
+      g_timeout_add(delayMs,
+                    fireTestScroll,
+                    new PendingScroll{host,
+                                      g_ascii_strtod(parts[0], nullptr),
+                                      g_ascii_strtod(parts[1], nullptr),
+                                      g_ascii_strtod(parts[2], nullptr)});
+      delayMs += 1000;
+    }
+    g_strfreev(parts);
+  }
+  g_strfreev(steps);
   return delayMs;
 }
 
@@ -446,6 +498,11 @@ void onRootResized(RnView * /*view*/, int width, int height, gpointer data) {
   g_debug("surface constraints -> %dx%d", width, height);
   host->reactHost->setSurfaceConstraints(
       kSurfaceId, constraintsFor(width, height), layoutContextFor(host->scaleFactor));
+
+  // A <Modal> is sized from its own shadow-node state rather than from a style,
+  // and React Native's C++ platform answers "what size is the screen" with
+  // zero. Told here, where the window's size is already being handed to Fabric.
+  host->mountingManager->setSurfaceSize(static_cast<float>(width), static_cast<float>(height));
 
   // The inspector covers the window, so it resizes with it.
   if (host->logBoxRoot != nullptr) {
@@ -879,6 +936,9 @@ void onActivate(GtkApplication *app, gpointer data) {
   }
   if (const char *hovers = g_getenv("BASALT_TEST_HOVER")) {
     scriptedDelayMs = scheduleTestHovers(host, hovers, scriptedDelayMs);
+  }
+  if (const char *scrolls = g_getenv("BASALT_TEST_SCROLL")) {
+    scriptedDelayMs = scheduleTestScrolls(host, scrolls, scriptedDelayMs);
   }
   if (const char *focus = g_getenv("BASALT_TEST_FOCUS")) {
     scriptedDelayMs = scheduleTestFocus(host, focus, scriptedDelayMs);

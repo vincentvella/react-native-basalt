@@ -22,11 +22,13 @@
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
 #include "PlatformServices.h"
+#include "Notifications.h"
 #include "StatusBarModule.h"
 #include "WorkletsModule.h"
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 // The seam, stubbed, so that the link answers the question fully rather than
 // stopping at the first thing missing. A real platform implements these against
@@ -73,6 +75,24 @@ void showAlert(const AlertRequest &, AlertCallback) {}
 // Added when the gesture recognisers arrived: "run this on the UI thread", now
 // and later. A platform with a run loop has both already; this one has neither
 // and says so.
+// The notification seam, stubbed the same way. A real platform answers through
+// org.freedesktop.Notifications, UNUserNotificationCenter or the Windows
+// toast API; one that has not yet says so and goes no further. Added when the
+// expo-notifications proxy arrived, which is what put these symbols in core.
+NotificationSupport notificationSupport() {
+  return {false, "no platform in this build"};
+}
+bool showNotification(const std::string &, const NotificationContent &) {
+  return false;
+}
+bool dismissNotification(const std::string &) {
+  return false;
+}
+void dismissAllNotifications() {}
+std::vector<std::string> presentedNotifications() {
+  return {};
+}
+
 void postDelayed(double, std::function<void()>) {}
 void postToUiThread(std::function<void()>) {}
 bool isUiThread() {

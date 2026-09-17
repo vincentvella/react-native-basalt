@@ -73,7 +73,38 @@ class GtkScrollViewManager {
   // the command is not one this handles.
   bool dispatchCommand(facebook::react::Tag tag, const std::string &name, const folly::dynamic &args);
 
+  // A wheel notch carries no pixel distance of its own, so a step has to be
+  // chosen. Roughly three lines of 16pt text, which is what browsers and both
+  // other desktops settle on. Public because the test instrument resolves
+  // notches into pixels before calling `scrollAt`, and the two must use one
+  // number.
+  static constexpr double kWheelStepPixels = 53.0;
+
+  // A wheel over a point, in the surface root's coordinates, for
+  // BASALT_TEST_SCROLL. Returns false when nothing under it scrolls.
+  //
+  // It exists for the same reason every other instrument does: a real wheel
+  // event needs a display server that will deliver one to a window it
+  // considers focused, and an automated run on a headless compositor has no
+  // such thing. This enters where the GtkEventControllerScroll callback does,
+  // so it exercises the hit test, the offset, the clamp, the state write-back,
+  // onScroll and the pull gesture, and skips only GDK's delivery.
+  bool scrollAt(RnView *root, double x, double y, double dx, double dy);
+
+  // The pull past the top of the list, which is what a <RefreshControl> is
+  // waiting for. Called with how far past the top this scroll asked to go, or
+  // with zero when the gesture went the other way or the view actually moved --
+  // which re-arms it. See core/PullToRefresh.h for why a desktop has to count
+  // this rather than measure a rubber band.
+  void setOverscrollTopHandler(std::function<void(facebook::react::Tag, double)> handler) {
+    overscrollTop_ = std::move(handler);
+  }
+
+
+
  private:
+  std::function<void(facebook::react::Tag, double)> overscrollTop_;
+
   struct Entry {
     RnView *view{nullptr};
     facebook::react::Tag tag{0};
@@ -112,6 +143,9 @@ class GtkScrollViewManager {
   };
 
   static gboolean onScroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer userData);
+  // The part of onScroll that is not about GTK's event controller, so the test
+  // instrument and a real wheel go through the same code.
+  void scrollEntry(Entry &entry, double dx, double dy);
   static void onScrollBegin(GtkEventControllerScroll *controller, gpointer userData);
   static void onScrollEnd(GtkEventControllerScroll *controller, gpointer userData);
   static void onDecelerate(GtkEventControllerScroll *controller,

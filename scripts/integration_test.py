@@ -751,11 +751,19 @@ def test_fast_refresh(bundle: Path) -> None:
                 if not wait_for_log(log, running, 1, timeout=120):
                     raise diagnose("the app never started")
 
-                # A __DEV__ bundle asks for the LogBox TurboModule and a release
-                # one does not, so this is how to tell which bundle actually
-                # evaluated. Editing before knowing that produces a confusing
-                # failure much later.
-                if not wait_for_log(log, "TurboModule: LogBox", 1, timeout=10):
+                # Which bundle actually evaluated. Editing before knowing that
+                # produces a confusing failure much later, because the app runs
+                # perfectly well on the stale one.
+                #
+                # Asked of Metro rather than of the host: Metro logs a BUNDLE
+                # line when it serves one, and that is a direct statement that
+                # the app fetched it. The previous version watched the host's
+                # log for `Failed to load TurboModule: LogBox`, which said the
+                # same thing only for as long as LogBox was unimplemented --
+                # once it worked, the line stopped appearing and this scenario
+                # failed on every machine, for a reason that had nothing to do
+                # with Fast Refresh.
+                if not wait_for_log(metro_log, "BUNDLE", 1, timeout=30):
                     raise diagnose(
                         "the app is running the on-disk release bundle, not Metro's"
                     )
@@ -1542,6 +1550,138 @@ def test_notifications(bundle: Path) -> None:
         raise Failure("an unimplemented method neither answered nor reported itself")
 
 
+def test_controls(bundle: Path) -> None:
+    """The four components that are a control rather than a box.
+
+    Runs js/controls.js, which has one of each: three <ActivityIndicator>s, three
+    <Switch>es, a <Modal> and a <RefreshControl> inside a <ScrollView>. Three
+    short runs rather than one, because each needs a different instrument and
+    the three hosts do not agree on what order two instruments run in -- a
+    dependency worth not having.
+
+    What each run is really asserting:
+
+      mounted     that all four reached the view layer at all. Until this
+                  existed the registry substituted UnimplementedNativeView for
+                  every one of them, which renders as nothing and says nothing.
+                  The `control=` field is written by core/DesktopControls.h, so
+                  three hosts cannot describe the same switch differently.
+      switch      that a press becomes `onValueChange` and that the *app* is
+                  what moves the switch. A host that let its own GtkSwitch or
+                  NSSwitch move would pass a screenshot and fail this.
+      modal       that `visible` mounts an overlay over the whole surface, that
+                  `onShow` fires, and that Escape reaches `onRequestClose`
+                  rather than closing the modal behind the app's back.
+      refresh     that a wheel which keeps asking to go up after the list has
+                  reached its top fires `onRefresh` -- once. See
+                  core/PullToRefresh.h for why a desktop counts the wheel
+                  instead of measuring a pull.
+    """
+    app = bundle_app(bundle.parent, "controls")
+
+    def run(run_ms: int, **instruments: str) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL"):
+                env.pop(name, None)
+            env.update(instruments)
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltControls"],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 60,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            # Both streams: GLib sends g_message to stdout and only warnings to
+            # stderr.
+            return dump.read_text() if dump.exists() else "", result.stdout + result.stderr
+
+    # --- everything mounts, and says what state it is in ---------------------
+    #
+    # Nothing is pressed in this run: what it is asserting is the state the app
+    # asked for, which a run that had already toggled a switch could not.
+    tree, _ = run(6000)
+
+    for expected in ("control=spinner:animating",
+                     "control=spinner-large:animating",
+                     "control=spinner:stopped",
+                     "control=switch:off",
+                     "control=switch:on",
+                     "control=switch:on:disabled",
+                     "control=refresh:idle"):
+        if expected not in tree:
+            raise Failure(
+                f"no view in the tree reports {expected}.\n"
+                "A component the registry does not know about is substituted by\n"
+                "UnimplementedNativeView, which renders as nothing at all.\n"
+                f"{tree}"
+            )
+
+    # --- a press on a switch is React's to answer ----------------------------
+    #
+    # The coordinates come from the app's own layout: 24 of padding, a 22-tall
+    # label, a 56-tall row, another label, then the switch row -- so the first
+    # switch's cell is 90 wide starting at x=24 and its middle is (69, 152).
+    tree, logged = run(7000, BASALT_TEST_TAP="69,152")
+
+    if "switch one -> true" not in logged:
+        raise Failure(
+            "pressing a <Switch> did not reach onValueChange.\n"
+            f"{tail_text(logged)}"
+        )
+    if "switch three ->" in logged:
+        raise Failure("a disabled <Switch> reported a change")
+    # Two switches were on when the app started; the pressed one makes three.
+    # This is the half that says React moved it: a host whose own GtkSwitch or
+    # NSSwitch flipped itself would have got here without the prop changing.
+    if tree.count("control=switch:on") != 3:
+        raise Failure(
+            "the switch did not follow its own prop after the press.\n"
+            f"{tree}"
+        )
+
+    # --- the modal opens, and Escape asks the app to close it ----------------
+    _, logged = run(9000, BASALT_TEST_TAP="114,226", BASALT_TEST_FOCUS="escape")
+
+    events = [
+        line.split("[js] ", 1)[1].strip()
+        for line in logged.splitlines()
+        if "[js] " in line and line.split("[js] ", 1)[1].strip().startswith(
+            ("opening modal", "modal "))
+    ]
+    expected = ["opening modal", "modal shown", "modal close requested"]
+    if not is_subsequence(expected, events):
+        raise Failure(
+            "the modal did not open and answer Escape.\n"
+            f"expected, in order: {expected}\n"
+            f"got:                {events}"
+        )
+
+    # --- a wheel past the top of a list is this platform's pull --------------
+    #
+    # Two notches of 53 pixels each, which is past the 80 in
+    # core/DesktopControls.h. Negative is up, the direction contentOffset reads.
+    _, logged = run(9000, BASALT_TEST_SCROLL="400,400,-1;400,400,-1;400,400,-1")
+
+    if "refresh requested" not in logged:
+        raise Failure(
+            "a wheel past the top of the list did not fire onRefresh.\n"
+            f"{tail_text(logged)}"
+        )
+    # Once, not once a notch. React Native's contract is one call per pull, and
+    # a missing latch is invisible except as a stream of requests.
+    if logged.count("refresh requested") != 1:
+        raise Failure(
+            "onRefresh fired "
+            f"{logged.count('refresh requested')} times for one pull; it must fire once.\n"
+            f"{tail_text(logged)}"
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1557,6 +1697,8 @@ SCENARIOS = [
     ("Alert.alert shows a dialog and says which button was pressed", test_alert),
     ("Share.share reaches the platform and settles both ways", test_share),
     ("expo-notifications imports and answers on every desktop", test_notifications),
+    ("ActivityIndicator, Switch, Modal and RefreshControl mount and answer",
+     test_controls),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

@@ -146,6 +146,16 @@ bool Win32ScrollViewManager::scrollEntry(Entry &entry, double dx, double dy) {
     emitScrollEvent(entry, "beginDrag");
   }
 
+  // The pull. A desktop scroll view has no rubber band to stretch, so what a
+  // <RefreshControl> gets instead is the wheel still asking to go up after the
+  // offset has already reached zero. Reported before the offset is applied,
+  // because applying it changes nothing at the top and there would be nothing
+  // left to see.
+  if (overscrollTop_) {
+    const bool pastTop = dy < 0.0 && entry.offsetY <= 0.0;
+    overscrollTop_(entry.tag, pastTop ? -dy : 0.0);
+  }
+
   applyOffset(entry, entry.offsetX + dx, entry.offsetY + dy, true);
 
   // Last, because with no UI thread installed -- which is every test --

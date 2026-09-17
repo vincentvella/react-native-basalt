@@ -125,6 +125,12 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // BASALT_TEST_TYPE: real WM_CHARs into whichever field has focus.
   bool typeIntoFocusedTextInput(const std::string &text);
 
+  // A press ended on this view. The one thing a painted control needs that a
+  // mounted one gets for free: a <Switch> on this host is drawn rather than
+  // being an HWND, so nothing under it turns a click into a toggle. Called by
+  // Win32TouchDispatcher, and a no-op for every view that is not a switch.
+  void pressedView(facebook::react::Tag tag);
+
   // BASALT_TEST_TAP: focuses the field under a point, which is the one thing a
   // synthesised tap cannot do -- a real click reaches the peer child window
   // directly and never passes through the touch dispatcher at all.
@@ -151,6 +157,10 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   void applyScrollView(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
   void applyTextInput(win32::RnWin32View *view, const facebook::react::ShadowView &shadowView);
 
+  // The Windows half of a control, which on this host is painting rather than
+  // mounting -- see RnWin32View.h for why there is no widget to mount.
+  void applyControlPeer(win32::RnWin32View *view, const basalt::ControlState &state);
+
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load and make the image flicker
   // whenever its parent resizes. Both other platforms keep the same map.
@@ -168,6 +178,11 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
   // too, and outlives this object while a load is in flight -- see the header.
   win32::Win32ImageLoader imageLoader_;
+
+  // A <Switch> is a controlled component: the drawing is not allowed to decide
+  // its own state, so the value React last sent is kept here and the view is
+  // repainted from it after the click that told JavaScript about it.
+  std::unordered_map<facebook::react::Tag, bool> switchValues_;
 
   std::function<void()> onDidMount_;
 };

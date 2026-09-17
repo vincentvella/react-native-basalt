@@ -291,10 +291,20 @@ TEST(win32_has_component_matches_the_registered_descriptors) {
   EXPECT(manager.hasComponent("Image"));
   EXPECT(manager.hasComponent("ScrollView"));
   EXPECT(manager.hasComponent("TextInput"));
+  EXPECT(manager.hasComponent("ActivityIndicatorView"));
+  EXPECT(manager.hasComponent("Switch"));
+  EXPECT(manager.hasComponent("ModalHostView"));
+  EXPECT(manager.hasComponent("PullToRefreshView"));
+  // What React Native substitutes for a component nobody registered. Mounting
+  // it is what turns "nothing happens" into a view the tree dump can show.
+  EXPECT(manager.hasComponent("UnimplementedNativeView"));
 
-  // The five an ordinary app is built from, plus the root, and nothing else.
-  // What is left out is what no desktop here has -- Switch, Modal,
-  // ActivityIndicator and the rest. See plan/backlog.md.
-  EXPECT(!manager.hasComponent("Switch"));
+  // Claiming a component this host cannot mount is worse than admitting the
+  // gap. `ActivityIndicator` is here rather than above on purpose: the
+  // component React Native actually mounts is `ActivityIndicatorView`, and
+  // answering to the name a reader expects would be answering to a name
+  // nothing sends.
+  EXPECT(!manager.hasComponent("Slider"));
+  EXPECT(!manager.hasComponent("ActivityIndicator"));
   EXPECT(!manager.hasComponent("SomethingNobodyHasHeardOf"));
 }

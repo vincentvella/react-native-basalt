@@ -17,6 +17,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 
@@ -381,6 +382,13 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
       textLayout_->draw(target, frame_.width, frame_.height);
     }
 
+    // A control sits where the text would: above the background, below the
+    // children. Nothing in React Native puts children inside a <Switch>, but
+    // the order still has to be decided somewhere.
+    if (control_ != Control::None) {
+      paintControl(target);
+    }
+
     paintChildren(target);
 
     // The focus ring, over everything including the children, because it is the
@@ -419,6 +427,158 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
 
 // Reads the current transform rather than being handed one, which is what keeps
 // D2D1_MATRIX_3X2_F -- and windows.h behind it -- out of the header.
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Where a spinner is in its turn, 0..1, from a monotonic clock.
+//
+// A clock rather than per-view state: every spinner on screen turns together,
+// which is what a real toolkit spinner does, and it means a view needs no
+// animation bookkeeping of its own. One turn a second, which is roughly what
+// GtkSpinner and NSProgressIndicator do.
+//
+// Here rather than in core/DesktopControls.h because this target deliberately
+// does not link React Native, and that header does.
+float spinnerTurn() {
+  using namespace std::chrono;
+  const double seconds = duration<double>(steady_clock::now().time_since_epoch()).count();
+  return static_cast<float>(seconds - std::floor(seconds));
+}
+
+D2D1_COLOR_F colourOr(const float rgba[4], bool has, D2D1_COLOR_F fallback) {
+  return has ? D2D1::ColorF(rgba[0], rgba[1], rgba[2], rgba[3]) : fallback;
+}
+
+// The greys the rest of this host draws controls in. Windows' own accent colour
+// would be more native and is a per-user setting read through UISettings, which
+// is a WinRT dependency this package does not have; React Native's own default
+// switch is not accent-coloured either.
+constexpr float kTrackOffGrey = 0.78f;
+constexpr float kTrackOnBlue[3] = {0.20f, 0.60f, 0.35f};
+constexpr float kSpinnerGrey = 0.45f;
+
+} // namespace
+
+void RnWin32View::setControl(Control kind, const ControlStyle &style, std::string description) {
+  control_ = kind;
+  controlStyle_ = style;
+  controlDescription_ = std::move(description);
+}
+
+bool RnWin32View::hasAnimatingSpinner() const {
+  if (control_ == Control::Spinner && controlStyle_.on) {
+    return true;
+  }
+  if (hidden_) {
+    return false;
+  }
+  for (const RnWin32View *child : children_) {
+    if (child != nullptr && child->hasAnimatingSpinner()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void RnWin32View::paintControl(ID2D1RenderTarget *target) const {
+  if (control_ == Control::Spinner) {
+    // A stopped indicator draws nothing at all, which is what
+    // `hidesWhenStopped` means and what a <RefreshControl> that is not
+    // refreshing does.
+    if (!controlStyle_.on && controlStyle_.hidesWhenStopped) {
+      return;
+    }
+
+    // Eight dots around a circle, the leading one opaque and the rest fading
+    // behind it. The same shape GtkSpinner and NSProgressIndicator draw, which
+    // matters because these three hosts are screenshotted side by side.
+    const float diameter = std::min({controlStyle_.large ? 36.0f : 20.0f, frame_.width, frame_.height});
+    if (diameter <= 0.0f) {
+      return;
+    }
+    const float centreX = frame_.width / 2.0f;
+    const float centreY = frame_.height / 2.0f;
+    const float radius = diameter / 2.0f;
+    const float dotRadius = std::max(radius / 6.0f, 1.0f);
+
+    ComPtr<ID2D1SolidColorBrush> brush;
+    const D2D1_COLOR_F base = colourOr(controlStyle_.thumb,
+                                       controlStyle_.hasThumb,
+                                       D2D1::ColorF(kSpinnerGrey, kSpinnerGrey, kSpinnerGrey, 1.0f));
+    if (FAILED(target->CreateSolidColorBrush(base, brush.GetAddressOf()))) {
+      return;
+    }
+
+    constexpr int kDots = 8;
+    // A stopped indicator that is still shown is drawn still, at phase zero,
+    // rather than at whatever the clock happens to say -- so a screenshot of a
+    // stopped spinner is the same picture every time.
+    const float turn = controlStyle_.on ? spinnerTurn() : 0.0f;
+    const int leading = static_cast<int>(turn * kDots) % kDots;
+    for (int i = 0; i < kDots; i++) {
+      const float angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(kDots);
+      const int behind = (leading - i + kDots) % kDots;
+      brush->SetOpacity(1.0f - static_cast<float>(behind) / static_cast<float>(kDots));
+      const D2D1_ELLIPSE dot = D2D1::Ellipse(
+          D2D1::Point2F(centreX + std::cos(angle) * (radius - dotRadius),
+                        centreY + std::sin(angle) * (radius - dotRadius)),
+          dotRadius,
+          dotRadius);
+      target->FillEllipse(dot, brush.Get());
+    }
+    return;
+  }
+
+  // A switch: a rounded track with a circular thumb at one end. Sized from the
+  // constants in core/DesktopControls.h -- which are also what the shadow node
+  // measures to -- and centred, so a <Switch> given a bigger box keeps its
+  // shape rather than stretching.
+  const float width = std::min(51.0f, frame_.width);
+  const float height = std::min(31.0f, frame_.height);
+  if (width <= 0.0f || height <= 0.0f) {
+    return;
+  }
+  const float left = (frame_.width - width) / 2.0f;
+  const float top = (frame_.height - height) / 2.0f;
+
+  const D2D1_COLOR_F trackColour = controlStyle_.on
+      ? colourOr(controlStyle_.trackOn,
+                 controlStyle_.hasTrackOn,
+                 D2D1::ColorF(kTrackOnBlue[0], kTrackOnBlue[1], kTrackOnBlue[2], 1.0f))
+      : colourOr(controlStyle_.trackOff,
+                 controlStyle_.hasTrackOff,
+                 D2D1::ColorF(kTrackOffGrey, kTrackOffGrey, kTrackOffGrey, 1.0f));
+
+  ComPtr<ID2D1SolidColorBrush> brush;
+  if (FAILED(target->CreateSolidColorBrush(trackColour, brush.GetAddressOf()))) {
+    return;
+  }
+  // Half opacity for a disabled switch, which is what every platform does and
+  // is the only thing `disabled` can mean to something that draws itself.
+  brush->SetOpacity(controlStyle_.disabled ? 0.4f : 1.0f);
+  const float radius = height / 2.0f;
+  target->FillRoundedRectangle(
+      D2D1::RoundedRect(D2D1::RectF(left, top, left + width, top + height), radius, radius),
+      brush.Get());
+
+  const float inset = 2.0f;
+  const float thumbRadius = radius - inset;
+  const float thumbX = controlStyle_.on ? left + width - radius : left + radius;
+  ComPtr<ID2D1SolidColorBrush> thumbBrush;
+  const D2D1_COLOR_F thumbColour =
+      colourOr(controlStyle_.thumb, controlStyle_.hasThumb, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+  if (FAILED(target->CreateSolidColorBrush(thumbColour, thumbBrush.GetAddressOf()))) {
+    return;
+  }
+  thumbBrush->SetOpacity(controlStyle_.disabled ? 0.4f : 1.0f);
+  target->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, top + radius), thumbRadius, thumbRadius),
+                      thumbBrush.Get());
+}
+
 void RnWin32View::paintChildren(ID2D1RenderTarget *target) const {
   if (children_.empty()) {
     return;
@@ -645,6 +805,14 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
     if (GetFocus() == editablePeer_) {
       out += " focused";
     }
+  }
+
+  // What kind of control this view is, and what state it is in. Written by
+  // core/DesktopControls.h rather than formatted here, for the same reason the
+  // role name below is React Native's vocabulary and not UIA's: three hosts
+  // describing the same switch in three ways is a diff on every line.
+  if (!controlDescription_.empty()) {
+    appendFormat(out, " control=%s", controlDescription_.c_str());
   }
 
   // React Native's role name, not UIA's. This dump is compared line by line

@@ -780,13 +780,29 @@ has gone unrecorded until now.
 
 ## Components not implemented
 
-`View`, `Text`, `Image`, `ScrollView` and `TextInput` are done, and touch input,
-`PanResponder` and command routing with them. What is left:
+`View`, `Text`, `Image`, `ScrollView`, `TextInput`, `ActivityIndicator`,
+`Switch`, `Modal` and `RefreshControl` are done on all three hosts, and touch
+input, `PanResponder` and command routing with them. What is left:
 
-- **`Modal`.** A second GTK window with its own Fabric surface, or an overlay
-  inside the existing one. The first is more correct on a desktop and depends on
-  multiple windows, above.
-- **`Switch`** and **`ActivityIndicator`**, both small.
+- **`Modal` is an overlay, not a window.** The shadow node is a root-kind node
+  sized from its state and positioned absolutely, so a modal fills the surface
+  it is in -- which is what it is on the web, and what needs no multiple-window
+  support. A second real window is more native on a desktop and is still the
+  better answer eventually; it depends on multiple windows, above.
+  `animationType` is ignored, and so are `presentationStyle` and the iOS
+  orientation props.
+- **A `<Switch>`'s colours are honoured on two hosts of three.** GTK gets them
+  through a CSS provider and Windows draws them; `NSSwitch` follows the system
+  accent colour and exposes nothing per instance, so `trackColor` and
+  `thumbColor` do nothing on macOS. The tree dump does not print colours, so
+  this is a difference in pixels rather than in behaviour.
+- **Nothing is keyboard-reachable that is not `accessible`.** A `<Switch>` is
+  pressed with the mouse and not with the keyboard, because React Native's
+  `focusable` prop never reaches this platform -- see the accessibility section.
+- **`DebuggingOverlay` mounts and draws nothing.** React DevTools' highlight
+  arrives as a command rather than as props, and no host handles it yet; what
+  registering it buys is that a DevTools session does not put an unmountable
+  component in the middle of the app.
 - **AT-SPI actions**, against the accessibility hooks `IMountingManager` already
   declares. See the accessibility section.
 

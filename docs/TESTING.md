@@ -1,8 +1,20 @@
 # Testing
 
-Five suites. The Linux ones need a display, because everything in them is a GTK
-program, and CI runs them on Linux, which is where they matter: see
-`.github/workflows/ci.yml`.
+All of it, in the order CI runs it:
+
+```bash
+scripts/test_all.sh                 # everything this machine can run
+scripts/test_all.sh --quick         # unit and Node suites only
+```
+
+It builds nothing but the demo bundle, and skips what is not built or not
+installed rather than failing -- so on a machine with one host it runs that
+host's suites and says which it left out. CI's jobs and that script are two
+spellings of one list; a suite added to one belongs in the other.
+
+The pieces, for when one of them is the thing being worked on. The Linux ones
+need a display, because everything in them is a GTK program, and CI runs them on
+Linux, which is where they matter: see `.github/workflows/ci.yml`.
 
 ```bash
 ./build/basalt_gtk_tests            # unit, Linux
@@ -13,6 +25,7 @@ scripts/bundle.sh ../react-native --prod
 scripts/integration_test.py         # end to end, on whichever host is built
 
 scripts/compare_hosts.sh            # every host built, same app, diffed
+scripts/compare_all.sh              # every app in js/, through every host
 node --test scripts/test_cli.js     # run-linux, run-macos and run-windows
 node scripts/check_includes.js      # a header used and not included
 ```
@@ -370,11 +383,26 @@ the window and leaving it there, which takes the pointer away from whoever is
 using the machine -- `xdotool mousemove` included.
 
 Keyboard focus is injected everywhere too, for the same reason.
-`BASALT_TEST_FOCUS` takes actions separated by `;` -- `tab`, `shift-tab` and
-`activate` -- and enters at each host's focus manager. A real Tab needs a window
-the display server considers focused, which an automated run does not reliably
-have on any of the three; what the instrument skips is the delivery of the
-keystroke and nothing above it.
+`BASALT_TEST_FOCUS` takes actions separated by `;` -- `tab`, `shift-tab`,
+`activate` and `escape` -- and enters at each host's focus manager. A real Tab
+needs a window the display server considers focused, which an automated run does
+not reliably have on any of the three; what the instrument skips is the delivery
+of the keystroke and nothing above it.
+
+`escape` is the odd one in that list and is there on purpose: it is not a focus
+action at all, it closes the topmost `<Modal>`. This is the instrument for "a
+key was pressed and nothing on the window has to be focused for it to arrive",
+which is exactly what Escape reaching `onRequestClose` is.
+
+The wheel has its own: `BASALT_TEST_SCROLL` takes `"x,y,lines"` triples
+separated by `;` -- a wheel over a point, in surface-root coordinates, positive
+lines scrolling down, which is the direction `contentOffset` reads. Each host
+enters it at a different depth, deliberately: Windows sends a real
+`WM_MOUSEWHEEL` through the real window procedure, macOS builds a real `NSEvent`
+and hands it to the view its own hit test found, and Linux enters at the scroll
+manager where `GtkEventControllerScroll` would. It is also the only way to reach
+`<RefreshControl>`, whose gesture on a desktop is a wheel that keeps asking to go
+up after the list has already reached its top.
 
 A modal dialog is the one thing no instrument could reach and no person is
 present for, so `BASALT_TEST_DIALOG` answers it instead of showing it: a button

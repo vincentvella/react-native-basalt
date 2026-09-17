@@ -83,7 +83,18 @@ class AppKitScrollViewManager {
                 bool momentumBegan,
                 bool momentumEnded);
 
+  // The pull past the top of the list, which is what a <RefreshControl> is
+  // waiting for. Called with how far past the top this scroll asked to go, or
+  // with zero when the gesture went the other way or the view actually moved --
+  // which re-arms it. See core/PullToRefresh.h for why a desktop has to count
+  // this rather than measure a rubber band.
+  void setOverscrollTopHandler(std::function<void(facebook::react::Tag, double)> handler) {
+    overscrollTop_ = std::move(handler);
+  }
+
  private:
+  std::function<void(facebook::react::Tag, double)> overscrollTop_;
+
   struct Entry {
     RnAppKitView *view{nil};
     facebook::react::Tag tag{0};

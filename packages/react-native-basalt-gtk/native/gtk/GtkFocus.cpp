@@ -133,6 +133,18 @@ gboolean GtkFocusManager::onKeyPressed(GtkEventControllerKey * /*controller*/,
                                        GdkModifierType /*state*/,
                                        gpointer userData) {
   auto *self = static_cast<GtkFocusManager *>(userData);
+
+  // Escape closes the topmost <Modal> -- or rather, asks the app to. React
+  // Native's `onRequestClose` is documented as the hardware back button on
+  // Android and the swipe-down on iOS; on a desktop it is Escape, and a modal
+  // the app does not close in response stays up, which is deliberate.
+  //
+  // Handled here because this is the only key controller on the window, and
+  // because a modal is a surface-wide thing rather than a focused view's.
+  if (keyval == GDK_KEY_Escape) {
+    return self->mountingManager_->requestCloseTopModal() ? GDK_EVENT_STOP : GDK_EVENT_PROPAGATE;
+  }
+
   if (keyval != GDK_KEY_Return && keyval != GDK_KEY_KP_Enter && keyval != GDK_KEY_space) {
     return GDK_EVENT_PROPAGATE;
   }

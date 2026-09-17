@@ -11,12 +11,16 @@ stand on them separately. Nothing is forked, which is why this can track the
 current Expo instead of trailing a rebase -- and why it is on React Native
 0.87 while react-native-windows is on 0.84 and react-native-macos on 0.81.
 
-Today all three desktops mount the five components an ordinary app is built
-from -- `<View>`, `<Text>`, `<Image>`, `<ScrollView>` and `<TextInput>` --
-respond to a press, a wheel and a keystroke, and report themselves to a screen
-reader. The demo app written for GTK runs on each of them unchanged, and
-`react-native run-linux`, `run-macos` and `run-windows` are one command with
-three names.
+Today all three desktops mount the components an ordinary app is built from --
+`<View>`, `<Text>`, `<Image>`, `<ScrollView>`, `<TextInput>`, `<Switch>`,
+`<ActivityIndicator>`, `<Modal>` and `<RefreshControl>` -- and answer a press, a
+wheel, a hover, a Tab and a keystroke with the events React Native says they
+should. `Alert`, `Share`, `Linking`, `Animated` with the native driver,
+`require()`d assets and React Native's own LogBox inspector work on all three;
+so do Reanimated, gesture-handler, expo-image and a proxy for
+`expo-notifications`. The demo app written for GTK runs on each of them
+unchanged, and `react-native run-linux`, `run-macos` and `run-windows` are one
+command with three names.
 
 Linux is the most finished: it runs real Expo apps, with fonts and assets, and
 CI builds and tests it in full. macOS and Linux produce a byte-identical view
@@ -108,7 +112,9 @@ Inside the shared package, under `native/`:
                                 parenting it, turning a ShadowView into widget
                                 state. The walk is in the shared half.
     gtk/ComponentRegistryGtk.cpp  What GTK claims: View, Paragraph, Text, RawText,
-                                Image, ScrollView, TextInput.
+                                Image, ScrollView, TextInput, and the controls
+                                -- ActivityIndicatorView, Switch, ModalHostView,
+                                PullToRefreshView.
     gtk/GtkAnimationChoreographer.*  AnimationChoreographer on GTK's frame clock.
     gtk/GtkTouchDispatcher.*    GTK input -> RN touch events. Hit test included.
     gtk/GtkImageLoader.*        <Image> pixels. RN's cxx platform provides none.

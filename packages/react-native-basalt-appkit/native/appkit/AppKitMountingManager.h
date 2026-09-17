@@ -64,6 +64,14 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void applyTransaction(facebook::react::SurfaceId surfaceId,
                         facebook::react::MountingTransaction &&transaction);
 
+  // A press ended on this view. A <Switch> is toggled from React Native's own
+  // touch path rather than by the NSSwitch's own input, so that a press means
+  // the same thing on three desktops -- and so that the same synthesised tap
+  // the rest of the suite uses can reach it. See applyControlPeer.
+  //
+  // A no-op for every view that is not a switch.
+  void pressedView(facebook::react::Tag tag);
+
   // The main-thread half of dispatchCommand, public for the same reason
   // applyTransaction is.
   void applyCommand(facebook::react::Tag tag,
@@ -82,6 +90,12 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   void updateView(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void forgetTag(facebook::react::Tag tag);
 
+  // The AppKit half of a control: an NSProgressIndicator for
+  // <ActivityIndicator> and <RefreshControl>, an NSSwitch for <Switch>.
+  // Everything that is not a view -- which props mean what, which scroll view
+  // a refresh control belongs to, when `onShow` fires -- is in MountingWalk.
+  void applyControlPeer(RnAppKitView *view, const basalt::ControlState &state);
+
   // --- The AppKit half of updateView ----------------------------------------
   void applyProps(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
@@ -94,6 +108,13 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   AppKitScrollViewManager scrollViews_;
   AppKitTextInputManager textInputs_;
   AppKitImageLoader imageLoader_;
+
+  // A <Switch> is a controlled component: the widget is not allowed to decide
+  // its own state, so the value React last sent is kept here and put straight
+  // back after the toggle that told JavaScript about it -- which is what React
+  // Native's own iOS switch does.
+  std::unordered_map<facebook::react::Tag, bool> switchValues_;
+
 
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load.

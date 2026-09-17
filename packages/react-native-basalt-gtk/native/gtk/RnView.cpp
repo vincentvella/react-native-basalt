@@ -69,11 +69,34 @@ static void rn_layout_allocate(GtkLayoutManager * /*manager*/,
       // allocated a negative size, which GTK treats as an error.
       const int inner_width = MAX(width - insets.left - insets.right, 0);
       const int inner_height = MAX(height - insets.top - insets.bottom, 0);
+
+      int peer_width = inner_width;
+      int peer_height = inner_height;
+      int peer_x = insets.left;
+      int peer_y = insets.top;
+
+      // A control keeps its own shape and is centred; only the text peer
+      // fills. A GtkSwitch stretched to whatever box the app gave it is a
+      // rectangle with a circle in it, and a GtkSpinner stretched is an
+      // ellipse -- neither of which any other React Native platform draws.
+      // `halign` would say this declaratively, and does nothing here: this
+      // layout manager allocates children directly rather than measuring them.
+      if (RN_IS_VIEW(widget) && rn_view_get_control(RN_VIEW(widget)) == child) {
+        int natural_width = 0;
+        int natural_height = 0;
+        gtk_widget_measure(child, GTK_ORIENTATION_HORIZONTAL, -1, nullptr, &natural_width, nullptr, nullptr);
+        gtk_widget_measure(child, GTK_ORIENTATION_VERTICAL, natural_width, nullptr, &natural_height, nullptr, nullptr);
+        peer_width = MIN(natural_width, inner_width);
+        peer_height = MIN(natural_height, inner_height);
+        peer_x += (inner_width - peer_width) / 2;
+        peer_y += (inner_height - peer_height) / 2;
+      }
+
       graphene_point_t offset;
-      offset.x = static_cast<float>(insets.left);
-      offset.y = static_cast<float>(insets.top);
+      offset.x = static_cast<float>(peer_x);
+      offset.y = static_cast<float>(peer_y);
       GskTransform *peer_transform = gsk_transform_translate(nullptr, &offset);
-      gtk_widget_allocate(child, inner_width, inner_height, -1, peer_transform);
+      gtk_widget_allocate(child, peer_width, peer_height, -1, peer_transform);
       continue;
     }
 
@@ -176,6 +199,15 @@ struct _RnView {
   // widget owns it once parented. See GtkTextPeer.h for why it is a GtkWidget
   // rather than either concrete type.
   GtkWidget *editable;
+
+  // The toolkit control this view stands for -- a GtkSpinner or a GtkSwitch --
+  // or NULL. Parented and allocated exactly like `editable` above, and never
+  // at the same time as one: a <TextInput> is not a <Switch>.
+  GtkWidget *control;
+  RnControlKind control_kind;
+  gboolean control_disabled;
+  // What the tree dump prints for it, written by core/DesktopControls.h.
+  char *control_description;
 
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
@@ -401,9 +433,12 @@ static void rn_view_dispose(GObject *object) {
     child = next;
   }
 
-  // The generic loop above already unparented it, so this only drops the
-  // borrowed pointer.
+  // The generic loop above already unparented them, so this only drops the
+  // borrowed pointers.
   self->editable = nullptr;
+  self->control = nullptr;
+  self->control_kind = RN_CONTROL_NONE;
+  g_clear_pointer(&self->control_description, g_free);
 
   g_clear_object(&self->text_layout);
   g_clear_object(&self->texture);
@@ -447,6 +482,10 @@ static void rn_view_init(RnView *self) {
   self->has_transform = FALSE;
   self->z_index = 0;
   self->editable = nullptr;
+  self->control = nullptr;
+  self->control_kind = RN_CONTROL_NONE;
+  self->control_disabled = FALSE;
+  self->control_description = nullptr;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -509,6 +548,67 @@ GtkWidget *rn_view_set_editable(RnView *self, gboolean editable, gboolean multil
 GtkWidget *rn_view_get_editable(RnView *self) {
   g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
   return self->editable;
+}
+
+GtkWidget *rn_view_set_control(RnView *self, RnControlKind kind) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+
+  // A view never changes which control it is -- React remounts rather than
+  // turning a switch into a spinner -- but a Delete that arrives as an Update
+  // would, and a stale GtkSwitch inside a spinner's frame is the kind of thing
+  // that is only visible in a screenshot.
+  if (self->control != nullptr && self->control_kind != kind) {
+    gtk_widget_unparent(self->control);
+    self->control = nullptr;
+    self->control_kind = RN_CONTROL_NONE;
+  }
+
+  if (kind == RN_CONTROL_NONE) {
+    if (self->control != nullptr) {
+      gtk_widget_unparent(self->control);
+      self->control = nullptr;
+    }
+    self->control_kind = RN_CONTROL_NONE;
+    return nullptr;
+  }
+
+  if (self->control == nullptr) {
+    self->control = kind == RN_CONTROL_SWITCH ? gtk_switch_new() : gtk_spinner_new();
+    self->control_kind = kind;
+    // Centred at its natural size by rn_layout_allocate, which is where the
+    // reason is written down.
+    gtk_widget_add_css_class(self->control, "rn-control");
+    gtk_widget_set_parent(self->control, GTK_WIDGET(self));
+  }
+  return self->control;
+}
+
+GtkWidget *rn_view_get_control(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+  return self->control;
+}
+
+RnControlKind rn_view_get_control_kind(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), RN_CONTROL_NONE);
+  return self->control_kind;
+}
+
+void rn_view_set_control_disabled(RnView *self, gboolean disabled) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  self->control_disabled = disabled;
+}
+
+gboolean rn_view_get_control_disabled(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), FALSE);
+  return self->control_disabled;
+}
+
+void rn_view_set_control_description(RnView *self, const char *description) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  g_clear_pointer(&self->control_description, g_free);
+  if (description != nullptr && *description != '\0') {
+    self->control_description = g_strdup(description);
+  }
 }
 
 void rn_view_set_accessible_text(RnView *self, const char *label, const char *description) {
@@ -966,6 +1066,14 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
     if (gtk_widget_has_focus(self->editable)) {
       g_string_append(out, " focused");
     }
+  }
+
+  // What kind of control this view is, and what state it is in. Written by
+  // core/DesktopControls.h rather than formatted here, for the same reason the
+  // role name below is React Native's vocabulary and not GTK's: three hosts
+  // describing the same switch in three ways is a diff on every line.
+  if (self->control_description != nullptr) {
+    g_string_append_printf(out, " control=%s", self->control_description);
   }
 
   // React Native's role name, not GTK's. This dump is compared line by line

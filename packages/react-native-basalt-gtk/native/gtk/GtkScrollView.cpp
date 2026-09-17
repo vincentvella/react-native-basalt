@@ -24,11 +24,6 @@ using facebook::react::Tag;
 
 namespace {
 
-// A wheel notch carries no pixel distance of its own, so a step has to be
-// chosen. This is roughly three lines of 16pt text, which is what GTK
-// applications and browsers settle on.
-constexpr double kWheelStepPixels = 53.0;
-
 double clampOffset(double value, double content, double container) {
   const double maximum = std::max(0.0, content - container);
   return std::clamp(value, 0.0, maximum);
@@ -143,12 +138,52 @@ gboolean GtkScrollViewManager::onScroll(GtkEventControllerScroll *controller,
   double stepX = dx;
   double stepY = dy;
   if (gtk_event_controller_scroll_get_unit(controller) == GDK_SCROLL_UNIT_WHEEL) {
-    stepX *= kWheelStepPixels;
-    stepY *= kWheelStepPixels;
+    stepX *= GtkScrollViewManager::kWheelStepPixels;
+    stepY *= GtkScrollViewManager::kWheelStepPixels;
   }
 
-  entry->owner->applyOffset(*entry, entry->offsetX + stepX, entry->offsetY + stepY, true);
+  entry->owner->scrollEntry(*entry, stepX, stepY);
   return GDK_EVENT_STOP;
+}
+
+void GtkScrollViewManager::scrollEntry(Entry &entry, double dx, double dy) {
+  // The pull. A desktop scroll view has no rubber band to stretch, so what a
+  // <RefreshControl> gets instead is the wheel still asking to go up after the
+  // offset has already reached zero. Reported before the offset is applied,
+  // because applying it changes nothing at the top and there would be nothing
+  // left to see.
+  if (overscrollTop_) {
+    const bool pastTop = dy < 0.0 && entry.offsetY <= 0.0;
+    overscrollTop_(entry.tag, pastTop ? -dy : 0.0);
+  }
+
+  applyOffset(entry, entry.offsetX + dx, entry.offsetY + dy, true);
+}
+
+bool GtkScrollViewManager::scrollAt(RnView *root, double x, double y, double dx, double dy) {
+  if (root == nullptr) {
+    return false;
+  }
+  GtkWidget *picked = gtk_widget_pick(
+      GTK_WIDGET(root), x, y, GTK_PICK_DEFAULT);
+  // Up from whatever was hit to the nearest view this manager knows about,
+  // which is what a wheel does anyway: a plain view inside a list scrolls the
+  // list, and a list inside a list scrolls the inner one.
+  for (GtkWidget *walk = picked; walk != nullptr; walk = gtk_widget_get_parent(walk)) {
+    if (!RN_IS_VIEW(walk)) {
+      continue;
+    }
+    const auto found = entries_.find(static_cast<facebook::react::Tag>(rn_view_get_tag(RN_VIEW(walk))));
+    if (found == entries_.end()) {
+      continue;
+    }
+    if (!found->second.scrollEnabled) {
+      return false;
+    }
+    scrollEntry(found->second, dx, dy);
+    return true;
+  }
+  return false;
 }
 
 void GtkScrollViewManager::onScrollBegin(GtkEventControllerScroll * /*controller*/, gpointer userData) {

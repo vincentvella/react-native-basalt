@@ -204,6 +204,50 @@ class RnWin32View {
   const std::shared_ptr<RnWin32Image> &image() const { return image_; }
   RnImageFit imageFit() const { return imageFit_; }
 
+  // --- Controls ----------------------------------------------------------------
+  //
+  // <ActivityIndicator>, <RefreshControl> and <Switch>, which the other two
+  // hosts mount a real toolkit widget for and this one draws.
+  //
+  // Not an oversight and not laziness: Windows has no spinner control at all
+  // (the closest is a marquee progress bar, which is a moving stripe), and no
+  // switch either -- the Win32 approximation is a checkbox, and WinUI's toggle
+  // is not reachable from a plain HWND app. Both would also be child windows,
+  // which is the one thing this view layer is built to avoid; see the note at
+  // the top about USER32's handle budget. So they are painted, in the same
+  // Direct2D walk as everything else, which is also what makes them appear in
+  // the offscreen snapshot the tests compare.
+  enum class Control { None, Spinner, Switch };
+
+  // Everything the drawing needs, which is core/DesktopControls.h's
+  // ControlState with the parts that are not pixels left out. A plain struct
+  // rather than that type because this target does not link React Native --
+  // the demo and half the tests build a view tree with no Fabric anywhere.
+  struct ControlStyle {
+    bool on = false;
+    bool disabled = false;
+    bool large = false;
+    bool hidesWhenStopped = true;
+    bool hasThumb = false;
+    float thumb[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    bool hasTrackOn = false;
+    float trackOn[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    bool hasTrackOff = false;
+    float trackOff[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  };
+
+  // `description` is what describeTree prints, written by
+  // core/DesktopControls.h so that three hosts cannot describe the same switch
+  // differently.
+  void setControl(Control kind, const ControlStyle &style, std::string description);
+  Control control() const { return control_; }
+  const ControlStyle &controlStyle() const { return controlStyle_; }
+
+  // Whether anything in this subtree is a spinner that is turning, and so
+  // whether the window has to keep repainting. The host asks the surface root
+  // once a frame; see main_win32.cpp.
+  bool hasAnimatingSpinner() const;
+
   // --- Accessibility ---------------------------------------------------------
 
   // What a screen reader is told. Unlike GTK, where the role is a
@@ -277,6 +321,8 @@ class RnWin32View {
   // in, which is this view's own. Separate from `paint` so the clip and the
   // scroll offset have an obvious scope, and so no Direct2D type appears above.
   void paintChildren(ID2D1RenderTarget *target) const;
+  // The spinner and the switch, drawn into this view's own coordinates.
+  void paintControl(ID2D1RenderTarget *target) const;
   void describeInto(std::string &out, int depth) const;
 
   int32_t tag_;
@@ -299,6 +345,9 @@ class RnWin32View {
   float scrollY_ = 0.0f;
 
   bool hidden_ = false;
+  Control control_ = Control::None;
+  ControlStyle controlStyle_;
+  std::string controlDescription_;
   std::shared_ptr<RnWin32TextLayout> textLayout_;
   std::shared_ptr<RnWin32Image> image_;
   RnImageFit imageFit_ = RnImageFit::Cover;

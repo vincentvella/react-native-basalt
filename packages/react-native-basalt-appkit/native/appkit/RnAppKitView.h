@@ -280,6 +280,28 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // NSTextView for a multiline one. See AppKitTextPeer.h.
 @property(nonatomic, weak, nullable) NSView *rnEditable;
 
+// --- Controls ----------------------------------------------------------------
+//
+// The three components that are a toolkit control rather than a box:
+// <ActivityIndicator> and <RefreshControl> are an NSProgressIndicator,
+// <Switch> is an NSSwitch. Held the same way the text peer above is -- weakly,
+// because the subview relationship is what owns it -- and for the same reason:
+// AppKit's own control brings the theme, the animation and the accessibility
+// with it.
+typedef NS_ENUM(NSInteger, RnAppKitControlKind) {
+  RnAppKitControlNone = 0,
+  RnAppKitControlSpinner,
+  RnAppKitControlSwitch,
+};
+
+@property(nonatomic, weak, nullable) NSView *rnControl;
+@property(nonatomic) RnAppKitControlKind rnControlKind;
+
+// What `describeTree` prints for this control, written by
+// core/DesktopControls.h so that three hosts cannot describe the same switch
+// differently.
+@property(nonatomic, copy, nullable) NSString *rnControlDescription;
+
 // Set on ScrollViews only. See RnAppKitScrollHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitScrollHandler> rnScrollHandler;
 

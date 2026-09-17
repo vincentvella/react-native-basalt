@@ -191,6 +191,38 @@ void rn_view_set_peer_insets(RnView *self, const GtkBorder *insets);
 void rn_view_get_peer_insets(RnView *self, GtkBorder *out);
 GtkWidget *rn_view_get_editable(RnView *self);
 
+// --- Controls ----------------------------------------------------------------
+//
+// The three components that are a toolkit control rather than a box:
+// <ActivityIndicator> and <RefreshControl> are a GtkSpinner, <Switch> is a
+// GtkSwitch. Parented and sized exactly the way the <TextInput> peer above is
+// -- a non-RnView child fills the view's inner rect -- because it is the same
+// arrangement for the same reason: GTK's own widget brings the theme, the
+// animation and the accessibility with it, and none of that is worth drawing
+// by hand.
+typedef enum {
+  RN_CONTROL_NONE,
+  RN_CONTROL_SPINNER,
+  RN_CONTROL_SWITCH,
+} RnControlKind;
+
+// Installs the control this view stands for, replacing any other kind, or
+// removes it for RN_CONTROL_NONE. Returns the control widget, or NULL.
+GtkWidget *rn_view_set_control(RnView *self, RnControlKind kind);
+GtkWidget *rn_view_get_control(RnView *self);
+RnControlKind rn_view_get_control_kind(RnView *self);
+
+// What `describe_tree` prints for this control, which core/DesktopControls.h
+// writes so that three hosts cannot describe the same switch differently. NULL
+// or empty prints nothing.
+void rn_view_set_control_description(RnView *self, const char *description);
+
+// Whether this control is disabled. Kept on the view rather than read back off
+// the widget because `sensitive` is GTK's word for two different things, and
+// only React Native's `disabled` should stop a press.
+void rn_view_set_control_disabled(RnView *self, gboolean disabled);
+gboolean rn_view_get_control_disabled(RnView *self);
+
 // Accessibility, as a screen reader sees it.
 //
 // `label` is the accessible name and `description` the hint; either may be NULL

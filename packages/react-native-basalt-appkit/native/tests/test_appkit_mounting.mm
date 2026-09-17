@@ -293,6 +293,11 @@ TEST(appkit_has_component_matches_the_registered_descriptors) {
     // registry rewrites to "View" before it reaches here.
     const std::vector<std::string> supported = {
         "View", "RootView", "Paragraph", "ScrollView", "Image", "TextInput",
+        // The controls, each of which is a real AppKit control rather than a
+        // box this host draws -- plus UnimplementedNativeView, which is what
+        // React Native substitutes for a component nobody registered.
+        "ActivityIndicatorView", "Switch", "ModalHostView", "PullToRefreshView",
+        "UnimplementedNativeView",
     };
     for (const auto &name : supported) {
       if (!manager.hasComponent(name)) {
@@ -304,8 +309,12 @@ TEST(appkit_has_component_matches_the_registered_descriptors) {
     // Claiming a component without an AppKit peer is worse than admitting the
     // gap: the registry would build shadow nodes nothing can mount, and the app
     // would render blank rectangles rather than fail.
+    // `ActivityIndicator` and `Modal` are here rather than above on purpose:
+    // the components React Native actually mounts are `ActivityIndicatorView`
+    // and `ModalHostView`, and answering to the names a reader expects would be
+    // answering to names nothing sends.
     const std::vector<std::string> unsupported = {
-        "Switch", "Slider", "Modal", "ActivityIndicator",
+        "Slider", "Modal", "ActivityIndicator", "SomethingNobodyHasHeardOf",
     };
     for (const auto &name : unsupported) {
       if (manager.hasComponent(name)) {

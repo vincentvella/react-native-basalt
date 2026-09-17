@@ -2,6 +2,9 @@
 
 #import "CoreTextLayout.h"
 
+// CIFilter, which is the only way to tint an NSProgressIndicator.
+#import <CoreImage/CoreImage.h>
+
 #include "ComponentRegistry.h"
 #include "ExpoImageComponent.h"
 #include "UIManagerAccess.h"
@@ -17,10 +20,32 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <memory>
 #include <string_view>
 #include <type_traits>
+
+
+// An NSSwitch that never takes a click.
+//
+// A <Switch> is toggled from React Native's own touch path -- see
+// `pressedView` -- rather than by the control's own input, so that a press
+// means the same thing on three desktops: the Windows one is painted and has
+// no widget to click at all. Refusing the hit is what lets the press fall
+// through to the RnAppKitView behind it, which is where the touch dispatcher
+// picks it up. The switch still draws, animates and reports itself to
+// accessibility exactly as it would.
+@interface RnAppKitSwitch : NSSwitch
+@end
+
+@implementation RnAppKitSwitch
+- (NSView *)hitTest:(NSPoint)point {
+  (void)point;
+  return nil;
+}
+@end
 
 namespace basalt {
 
@@ -45,7 +70,20 @@ using facebook::react::ViewProps;
 
 AppKitMountingManager::AppKitMountingManager()
     : scrollViews_([this](Tag tag) { return eventEmitterForTag(tag); }),
-      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {}
+      textInputs_([this](Tag tag) { return eventEmitterForTag(tag); }) {
+  // The pull past the top of a list, counted in core/PullToRefresh.h and fired
+  // at whichever <RefreshControl> that scroll view has. Identical on all three
+  // desktops, which is the point of the two of them being portable.
+  scrollViews_.setOverscrollTopHandler([this](Tag tag, double amount) {
+    if (amount <= 0.0) {
+      pullToRefresh().release(tag);
+      return;
+    }
+    if (pullToRefresh().pull(tag, amount)) {
+      fireRefresh(tag);
+    }
+  });
+}
 
 AppKitMountingManager::~AppKitMountingManager() noexcept {
   // MountingWalk cannot do this itself: by the time a base destructor runs, the
@@ -173,11 +211,16 @@ bool AppKitMountingManager::hasComponent(const std::string &name) {
   // ScrollView's content child arrives as "ScrollContentView", which the
   // registry rewrites to "View" before it reaches here, so it needs no entry.
   //
-  // The four components an ordinary app is built from, plus the root. What is
-  // left out is what neither desktop has: Switch, Modal, ActivityIndicator and
-  // the rest. See plan/backlog.md.
+  // The components an ordinary app is built from, plus the root; and below
+  // them the controls, each of which is a real AppKit control rather than a
+  // box this host draws. UnimplementedNativeView is here so that a component
+  // no platform registered mounts as a view that says so rather than as
+  // nothing at all.
   return name == "View" || name == "RootView" || name == "Paragraph" ||
-      name == "ScrollView" || name == "Image" || name == "TextInput";
+      name == "ScrollView" || name == "Image" || name == "TextInput" ||
+      name == "ActivityIndicatorView" || name == "Switch" || name == "ModalHostView" ||
+      name == "PullToRefreshView" || name == "UnimplementedNativeView" ||
+      name == "DebuggingOverlay";
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +256,7 @@ void AppKitMountingManager::forgetTag(Tag tag) {
   scrollViews_.remove(tag);
   textInputs_.remove(tag);
   imageUris_.erase(tag);
+  switchValues_.erase(tag);
 }
 
 namespace {
@@ -390,6 +434,122 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
   // given, and iOS documents the same ordering requirement -- layout before
   // state, or the offset is clamped against a stale size.
   applyScrollView(view, shadowView);
+  // After layout for the same reason the scroll view is: a control is centred
+  // in the frame it was just given, and a <Modal> commits that frame's size
+  // back into its own state.
+  applyControls(view, shadowView);
+}
+
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+void AppKitMountingManager::pressedView(Tag tag) {
+  RnAppKitView *view = viewForTag(tag);
+  if (view == nil || view.rnControlKind != RnAppKitControlSwitch) {
+    return;
+  }
+  const auto known = switchValues_.find(tag);
+  if (known == switchValues_.end()) {
+    return;
+  }
+  if ([view.rnControl isKindOfClass:[NSSwitch class]] && !((NSSwitch *)view.rnControl).enabled) {
+    return;
+  }
+
+  // Told, and then left alone. React Native's <Switch> is a controlled
+  // component: the app's `value` prop is the only thing that moves it, and a
+  // switch that flipped itself would show a state its props do not agree with
+  // -- which is exactly what an app that ignores onValueChange is supposed to
+  // look like. The NSSwitch never moved, because it never saw the click.
+  basalt::emitSwitchChange(eventEmitterForTag(tag), tag, !known->second);
+}
+
+void AppKitMountingManager::applyControlPeer(RnAppKitView *view, const basalt::ControlState &state) {
+  const RnAppKitControlKind kind =
+      state.kind == basalt::ControlKind::Switch ? RnAppKitControlSwitch : RnAppKitControlSpinner;
+
+  // A view never changes which control it is -- React remounts rather than
+  // turning a switch into a spinner -- but a stale NSSwitch inside a spinner's
+  // frame is the kind of thing only a screenshot would show.
+  if (view.rnControl != nil && view.rnControlKind != kind) {
+    [view.rnControl removeFromSuperview];
+    view.rnControl = nil;
+  }
+
+  const Tag tag = static_cast<Tag>(view.rnTag);
+  NSView *control = view.rnControl;
+  if (control == nil) {
+    if (kind == RnAppKitControlSwitch) {
+      control = [[RnAppKitSwitch alloc] initWithFrame:NSZeroRect];
+    } else {
+      NSProgressIndicator *spinner = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+      spinner.style = NSProgressIndicatorStyleSpinning;
+      spinner.indeterminate = YES;
+      spinner.wantsLayer = YES;
+      control = spinner;
+    }
+    view.rnControl = control;
+    view.rnControlKind = kind;
+    [view addSubview:control];
+  }
+
+  if (kind == RnAppKitControlSwitch) {
+    switchValues_[tag] = state.on;
+    NSSwitch *toggle = (NSSwitch *)control;
+    toggle.state = state.on ? NSControlStateValueOn : NSControlStateValueOff;
+    toggle.enabled = !state.disabled;
+  } else {
+    NSProgressIndicator *spinner = (NSProgressIndicator *)control;
+    spinner.controlSize = state.large ? NSControlSizeRegular : NSControlSizeSmall;
+    // `displayedWhenStopped` is AppKit's spelling of `hidesWhenStopped`, and
+    // React Native's default for it is the same as AppKit's.
+    spinner.displayedWhenStopped = !state.hidesWhenStopped;
+    if (state.on) {
+      [spinner startAnimation:nil];
+    } else {
+      [spinner stopAnimation:nil];
+    }
+
+    // The tint. NSProgressIndicator has no colour property at all -- it draws
+    // in the system's -- so the only way through is a Core Image filter over
+    // its layer, which is what every macOS app that tints one does. A switch
+    // gets no equivalent: NSSwitch follows the system accent colour and
+    // exposes nothing per instance, so `trackColor` and `thumbColor` are
+    // honoured on GTK and Win32 and not here. The tree dump does not print
+    // colours, so this is a difference in pixels rather than in behaviour.
+    if (state.hasForeground) {
+      CIFilter *filter = [CIFilter filterWithName:@"CIFalseColor"];
+      [filter setDefaults];
+      CIColor *tint = [CIColor colorWithRed:state.foreground[0]
+                                      green:state.foreground[1]
+                                       blue:state.foreground[2]
+                                      alpha:state.foreground[3]];
+      [filter setValue:tint forKey:@"inputColor0"];
+      [filter setValue:tint forKey:@"inputColor1"];
+      spinner.contentFilters = @[filter];
+    } else {
+      spinner.contentFilters = @[];
+    }
+  }
+
+  // Centred at its natural size rather than filling the frame: a switch
+  // stretched to whatever box the app gave it is a rectangle with a circle in
+  // it, and neither React Native nor AppKit draws one that way.
+  const NSSize natural = control.intrinsicContentSize;
+  const NSRect bounds = view.bounds;
+  const CGFloat width = std::min(natural.width, bounds.size.width);
+  const CGFloat height = std::min(natural.height, bounds.size.height);
+  control.frame = NSMakeRect(std::round((bounds.size.width - width) / 2.0),
+                             std::round((bounds.size.height - height) / 2.0),
+                             width,
+                             height);
+
+  const std::string described = basalt::describeControl(state);
+  view.rnControlDescription = described.empty()
+      ? nil
+      : [NSString stringWithUTF8String:described.c_str()];
 }
 
 void AppKitMountingManager::applyTextInput(RnAppKitView *view, const ShadowView &shadowView) {

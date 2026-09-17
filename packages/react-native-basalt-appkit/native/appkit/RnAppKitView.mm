@@ -968,6 +968,13 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     }
   }
 
+  // What kind of control this view is, and what state it is in. Written by
+  // core/DesktopControls.h rather than formatted here, for the same reason the
+  // role name below is React Native's vocabulary and not AppKit's.
+  if (_rnControlDescription != nil) {
+    [out appendFormat:@" control=%@", _rnControlDescription];
+  }
+
   // React Native's role name, not AppKit's. The GTK side reports the same
   // string for the same reason: this dump is compared line by line across two
   // platforms, and each reporting its own toolkit's vocabulary would make every

@@ -246,10 +246,44 @@ void requestRepaint() {
 // the view tree owns an HWND, so its placement is recomputed from the tree
 // rather than following it. GTK and AppKit need no equivalent, because there a
 // text field is a widget inside the widget that is the view.
+// Whether the window has to keep repainting because a spinner is turning, and
+// the timer that makes it.
+//
+// An <ActivityIndicator> is painted here rather than mounted -- Windows has no
+// spinner control; see RnWin32View.h -- so nothing invalidates the window
+// between mounts, and without this a spinner is a still picture. GtkSpinner and
+// NSProgressIndicator each drive their own redraw, which is why neither other
+// host needs an equivalent.
+//
+// Started and stopped rather than left running, for the reason
+// Win32AnimationChoreographer.h gives about its own timer: a timer that runs
+// whether or not anything is animating wakes the process sixty times a second
+// forever, which matters more on a laptop than the frame interval does.
+constexpr UINT_PTR kSpinnerTimer = 101;
+bool gSpinnerTimerRunning = false;
+
+void updateSpinnerTimer() {
+  if (gHost.window == nullptr || gHost.root == nullptr) {
+    return;
+  }
+  const bool wanted = gHost.root->hasAnimatingSpinner() ||
+      (gHost.logBoxRoot != nullptr && gHost.logBoxRoot->hasAnimatingSpinner());
+  if (wanted == gSpinnerTimerRunning) {
+    return;
+  }
+  gSpinnerTimerRunning = wanted;
+  if (wanted) {
+    SetTimer(gHost.window, kSpinnerTimer, 16, nullptr);
+  } else {
+    KillTimer(gHost.window, kSpinnerTimer);
+  }
+}
+
 void syncPeersAndRepaint() {
   if (gHost.mountingManager != nullptr) {
     gHost.mountingManager->syncTextInputBounds(gHost.root);
   }
+  updateSpinnerTimer();
   requestRepaint();
 }
 
@@ -602,6 +636,16 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
 
     case ScriptedInput::Kind::Focus: {
       std::fprintf(stderr, "BASALT_TEST_FOCUS: %s\n", action.text.c_str());
+      // Not a focus action, and here anyway: this is the instrument for "a key
+      // was pressed and nothing on the window has to be focused for it to
+      // arrive", which is exactly what Escape closing a <Modal> is.
+      if (action.text == "escape") {
+        if (gHost.mountingManager != nullptr) {
+          gHost.mountingManager->requestCloseTopModal();
+        }
+        InvalidateRect(hwnd, nullptr, FALSE);
+        break;
+      }
       if (gHost.focusManager != nullptr) {
         if (action.text == "tab") {
           gHost.focusManager->moveFocus(true);
@@ -884,6 +928,11 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         gHost.root->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
         gHost.reactHost->setSurfaceConstraints(
             kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+        // A <Modal> is sized from its own shadow-node state rather than from a
+        // style, and React Native's C++ platform answers "what size is the
+        // screen" with zero. Told here, where the window's size is already
+        // being handed to Fabric.
+        gHost.mountingManager->setSurfaceSize(static_cast<float>(width), static_cast<float>(height));
         // The inspector covers the window, so it resizes with it.
         if (gHost.logBoxRoot != nullptr) {
           gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
@@ -969,6 +1018,14 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // takes its keys directly, so anything reaching here is meant for the
     // painted views -- which have no window and so no focus of Windows' own.
     case WM_KEYDOWN:
+      // Escape closes the topmost <Modal> -- or rather, asks the app to. React
+      // Native's `onRequestClose` is the hardware back button on Android and
+      // the swipe-down on iOS; on a desktop it is Escape, and a modal the app
+      // does not close in response stays up, which is deliberate.
+      if (wparam == VK_ESCAPE && gHost.mountingManager != nullptr &&
+          gHost.mountingManager->requestCloseTopModal()) {
+        return 0;
+      }
       if (gHost.focusManager != nullptr &&
           gHost.focusManager->handleKeyDown(static_cast<unsigned int>(wparam))) {
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1077,6 +1134,10 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
 
     case WM_TIMER:
+      if (wparam == kSpinnerTimer) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+      }
       if (wparam == kSecondTreeTimer) {
         KillTimer(hwnd, kSecondTreeTimer);
         std::fprintf(stderr, "--- committing tree 2 from JS ---\n");
@@ -1435,8 +1496,8 @@ int main(int argc, char **argv) {
   if (const char *scrolls = std::getenv("BASALT_TEST_SCROLL")) {
     scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
   }
-  // BASALT_TEST_FOCUS: keyboard focus actions separated by ';' -- `tab`,
-  // `shift-tab` and `activate`. The same reason the other instruments exist: a
+  // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
+  // `activate` and `escape`. The same reason the other instruments exist: a
   // real Tab needs a window the system considers focused, which an automated
   // run does not reliably have.
   if (const char *focus = std::getenv("BASALT_TEST_FOCUS")) {
