@@ -155,6 +155,8 @@ if(TARGET basalt_core)
     appkit/AppKitRunLoopObserver.mm
     appkit/AppKitAnimationChoreographer.mm
     appkit/AppKitFocus.mm
+    # Why macOS cannot show a notification; see the file.
+    appkit/AppKitNotifications.mm
     appkit/AppKitTouchDispatcher.mm)
   target_compile_options(basalt_appkit PRIVATE -Wall -Wextra -fobjc-arc)
   target_link_libraries(basalt_appkit PRIVATE basalt_appkit_mounting)
@@ -173,6 +175,8 @@ if(TARGET basalt_core)
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
     appkit/AppKitFocus.mm
+    # Why macOS cannot show a notification; see the file.
+    appkit/AppKitNotifications.mm
     appkit/AppKitTouchDispatcher.mm
     tests/test_appkit_input.mm
     # <TextInput>'s controlled-value loop, through real mutations.

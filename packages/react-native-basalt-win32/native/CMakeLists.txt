@@ -175,6 +175,8 @@ if(TARGET basalt_core)
     # host so that tests can drive it, which is the only way the touch state
     # machine is provable without a cursor.
     win32/Win32Focus.cpp
+    # Why Windows cannot show a notification; see the file.
+    win32/Win32Notifications.cpp
     win32/Win32TouchDispatcher.cpp
     # <ScrollView>: the offset, the unthrottled state write-back, the wheel and
     # the commands. Routing the wheel is this platform's alone -- there is no

@@ -1352,6 +1352,88 @@ def test_alert(bundle: Path) -> None:
         raise Failure("dismiss should answer with the last button")
 
 
+def test_notifications(bundle: Path) -> None:
+    """An app using `expo-notifications` gets answers rather than an exception.
+
+    React Native has no notification API to port, so the contract implemented is
+    expo-notifications' -- the same argument gesture-handler and expo-clipboard
+    were ported on. The package's JavaScript is unchanged; what this platform
+    supplies is the native modules under it.
+
+    Skipped unless BASALT_EXPO_APP names an app with expo-notifications
+    installed *and* the host was built against that app's expo-modules-core with
+    -DBASALT_EXPO_MODULES_CORE. Neither is true of a plain checkout, and CI does
+    not build with Expo at all.
+
+    What is asserted is everything that does not need a notification service to
+    be running:
+
+      - the package imports, which needs all thirteen native modules to exist,
+        because `requireNativeModule` throws on a name it cannot find;
+      - `getPermissionsAsync` answers, and carries a reason when it says no;
+      - a rejected send carries that same reason rather than an empty failure;
+      - a method this platform does not implement is reported by name.
+
+    What is *not* asserted here is a notification actually appearing. That needs
+    a session bus with a notification daemon on it, which neither this machine
+    nor a CI runner has; see plan/backlog.md for what covering it would take.
+    """
+    expo_app = os.environ.get("BASALT_EXPO_APP")
+    if not expo_app or not (Path(expo_app) / "node_modules" / "expo-notifications").exists():
+        raise Skipped("needs BASALT_EXPO_APP naming an app with expo-notifications")
+
+    app = bundle_app(bundle.parent, "notifications")
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "8000"
+    for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                 "BASALT_TEST_FOCUS", "BASALT_TEST_DIALOG"):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltNotifications"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+    both = result.stdout + result.stderr
+
+    said = {}
+    for line in both.splitlines():
+        if "notifications: " in line:
+            rest = line.split("notifications: ", 1)[1].strip()
+            key, _, value = rest.partition(" ")
+            said[key] = value
+
+    if "imported" not in said:
+        raise Failure(
+            "expo-notifications did not import; a native module it asks for is "
+            f"missing.\n{tail_text(both, 30)}"
+        )
+    if said.get("status") not in ("granted", "denied"):
+        raise Failure(f"getPermissionsAsync answered {said.get('status')!r}")
+
+    if said["status"] == "denied":
+        # The reason is the whole value of answering `denied` rather than
+        # throwing: an app, or the person reading the log, can tell why.
+        if not said.get("reason"):
+            raise Failure("a denied permission must say why")
+        if not said.get("rejected", "").endswith(said["reason"]):
+            raise Failure(
+                "a send that could not happen should be rejected with the same "
+                f"reason the permission gave; got {said.get('rejected')!r}"
+            )
+    else:
+        if said.get("scheduled") != "true":
+            raise Failure("a granted platform did not schedule a notification")
+
+    # Android's channels, which no desktop has. expo's own check reports it by
+    # name because the method is left off rather than stubbed -- see
+    # native/core/ExpoModules.h.
+    if "channels" not in said:
+        raise Failure("an unimplemented method neither answered nor reported itself")
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1366,6 +1448,7 @@ SCENARIOS = [
      test_initial_url),
     ("Alert.alert shows a dialog and says which button was pressed", test_alert),
     ("Share.share reaches the platform and settles both ways", test_share),
+    ("expo-notifications imports and answers on every desktop", test_notifications),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

@@ -459,14 +459,48 @@ so anything importing them dies at startup.
   spec declares. Every one of those was invisible because nothing ever reached
   the next layer. js/alert.js logged "showing the alert" and asserted only that
   the main queue kept running, which it does whether or not a dialog appears.
-- **A desktop notification API**, which is what `ToastAndroid` should really be
-  and what any app wanting to tell a user something out-of-band needs. Note that
-  React Native has *no* notification API to be compatible with --
-  `PushNotificationIOS` is a separate package and Android's is a library -- so
-  this would be a `react-native-basalt` API rather than a port of one, which
-  makes it a design decision first. Linux has `g_application_send_notification`,
-  which is easy; macOS needs `UNUserNotificationCenter`, which needs a bundled
-  application with an identifier, and this host is a bare binary.
+- ~~**A desktop notification API.**~~ There is one, and it is not this project's:
+  the contract implemented is `expo-notifications`, which is what an app
+  reaching for notifications is most likely already using -- the same argument
+  react-native-gesture-handler and expo-clipboard were ported on. Thirteen
+  native modules, three of them with methods; the other ten exist because
+  `requireNativeModule` throws on a name it cannot find and the package asks for
+  every one at import.
+
+  Linux can show one, through `org.freedesktop.Notifications` on the session bus
+  -- not `g_application_send_notification`, which routes through the portal and
+  displays nothing without an installed `.desktop` file matching the
+  application id. macOS and Windows report `denied` with a reason, because both
+  need the host to be an installed, bundled application:
+  `UNUserNotificationCenter` does not merely fail for a process with no bundle
+  identifier, it raises and terminates, and a Windows toast wants an
+  AppUserModelID and a Start Menu shortcut. `getPermissionsAsync` answering
+  `denied` is how the API itself says this, and is what expo's documentation
+  tells an app to check.
+
+  **What is not verified**: a notification actually appearing. That needs a
+  session bus with a notification daemon on it, and neither this machine nor a
+  CI runner has one -- `dbus-daemon` is not even installed on the Mac this was
+  written on. Covering it would mean a stub service implementing
+  `org.freedesktop.Notifications.Notify` under `dbus-run-session`, which CI
+  could host; everything up to the D-Bus call is exercised, on both hosts, and
+  the "no bus" and "no daemon" paths are the ones that have actually run.
+- **Notification *delivery* back to the app.** `ExpoNotificationsEmitter` is
+  registered and empty, so an app never hears that a notification was tapped.
+  The freedesktop specification has `ActionInvoked` and `NotificationClosed`
+  signals for exactly this and they are a subscription away, but the thing on
+  the other end -- expo's handler and response machinery -- is a larger surface
+  than presenting one.
+- **Scheduling.** `scheduleNotificationAsync` delivers immediately, which is
+  what a null trigger means, and rejects by name for anything else. A real
+  trigger needs a timer that outlives the process and somewhere to keep the
+  queue, which is a feature rather than a branch.
+- **Packaging the host as an application** -- an `.app` on macOS, a Start Menu
+  shortcut with an AppUserModelID on Windows. It is the thing standing between
+  this platform and notifications on two of three desktops, and it is not only
+  notifications: the Dock icon, the menu bar name, file associations and a
+  registered URL scheme all come with the same bundle, and so does
+  `Linking.getInitialURL` for a URL delivered to an app that is already running.
 - ~~**LogBox has no red box.**~~ It has one, on all three hosts. What was
   missing was not an overlay: `LogBoxInspectorContainer` is registered by
   AppRegistry under the name "LogBox" exactly as an app registers its own
@@ -553,7 +587,10 @@ has gone unrecorded until now.
   kino's own macOS module ships a folder picker, so this is what a real app
   reaches for early.
 - **Drag and drop**, in and out of the application.
-- **A system tray icon**, and desktop notifications.
+- **A system tray icon.** Its own feature, and the natural partner for
+  notifications on Windows: `Shell_NotifyIcon` with `NIF_INFO` shows a balloon
+  from a tray icon and works for an unpackaged executable, which the toast API
+  does not.
 - **Cursor control** beyond what the `cursor` style property covers.
 
 ## Input

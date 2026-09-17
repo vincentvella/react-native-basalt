@@ -201,6 +201,8 @@ if(TARGET basalt_core)
     gtk/GtkAnimationChoreographer.cpp
     gtk/GtkRunLoopObserver.cpp
     gtk/GtkFocus.cpp
+    # org.freedesktop.Notifications, over the session bus.
+    gtk/GtkNotifications.cpp
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk PRIVATE basalt_gtk_mounting)
   target_compile_options(basalt_gtk PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
@@ -231,6 +233,8 @@ if(TARGET basalt_core)
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
     gtk/GtkFocus.cpp
+    # org.freedesktop.Notifications, over the session bus.
+    gtk/GtkNotifications.cpp
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk_tests PRIVATE basalt_gtk_mounting)
   target_include_directories(basalt_gtk_tests PRIVATE tests ${BASALT_TEST_INCLUDE})

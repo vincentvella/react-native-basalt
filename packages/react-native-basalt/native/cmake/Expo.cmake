@@ -74,11 +74,41 @@ if(WIN32)
   set(EXPO_CPP_DIR ${EXPO_CPP_COPY})
 endif()
 
+# `ExpoModulesJSI/JSIUtils.h`, which is how expo-modules-core's own sources have
+# included their JSI helpers since version 55.
+#
+# The files are still at `common/cpp/JSI/`; what changed is that upstream split
+# them into a second CocoaPods pod named ExpoModulesJSI, and CocoaPods publishes
+# a pod's headers under its own name. A build that is not CocoaPods has to make
+# that prefix resolve itself, which is one directory with one link in it -- and
+# adding `common/cpp/JSI` to the include path, as this already does, does not
+# help, because the include names the prefix.
+#
+# Only built when the prefix does not already resolve, so an older
+# expo-modules-core is untouched.
+if(EXISTS ${EXPO_CPP_DIR}/JSI/JSIUtils.h AND NOT EXISTS ${EXPO_CPP_DIR}/ExpoModulesJSI/JSIUtils.h)
+  set(EXPO_JSI_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/expo-modules-jsi-include)
+  file(MAKE_DIRECTORY ${EXPO_JSI_PREFIX})
+  if(WIN32)
+    # No symlink without developer mode; the headers are small and this is the
+    # same copy-into-the-build-tree the #import rewrite above already does.
+    file(COPY ${EXPO_CPP_DIR}/JSI/ DESTINATION ${EXPO_JSI_PREFIX}/ExpoModulesJSI
+         FILES_MATCHING PATTERN "*.h")
+  else()
+    # Removed and remade rather than created when absent: pointing
+    # BASALT_EXPO_MODULES_CORE at a different install would otherwise leave the
+    # link aimed at the old one, and the same header would then be included
+    # under two paths and redefine everything in it.
+    file(REMOVE ${EXPO_JSI_PREFIX}/ExpoModulesJSI)
+    file(CREATE_LINK ${EXPO_CPP_DIR}/JSI ${EXPO_JSI_PREFIX}/ExpoModulesJSI SYMBOLIC)
+  endif()
+endif()
+
 add_library(expo_core OBJECT ${EXPO_CORE_SRC})
 # SYSTEM, and warnings off: these are somebody else's sources held to somebody
 # else's warning set, and this project's -Wall -Wextra is about its own code.
 target_include_directories(expo_core SYSTEM PUBLIC
-        ${EXPO_CPP_DIR} ${EXPO_CPP_DIR}/JSI
+        ${EXPO_CPP_DIR} ${EXPO_CPP_DIR}/JSI ${EXPO_JSI_PREFIX}
         ${RN_DIR}/ReactCommon ${RN_DIR}/ReactCommon/jsi ${FOLLY_DIR})
 target_compile_options(expo_core PRIVATE -w)
 # TypedArray.cpp throws std::runtime_error without including <stdexcept>.

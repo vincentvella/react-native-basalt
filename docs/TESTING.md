@@ -402,6 +402,24 @@ drawn anything. `js/hover.js` is left out of `scripts/compare_all.sh` for that
 reason, and the end-to-end suite asserts the order events arrive in rather than
 that nothing else happens.
 
+## Expo, and the apps that need it
+
+Two of the apps in `js/` import an Expo package -- `notifications.js` imports
+`expo-notifications` -- and this directory is not an npm package, so there is
+nothing for Metro to resolve them against. Both halves have to be pointed at an
+app that does have them installed:
+
+```bash
+cmake -B build -DBASALT_EXPO_MODULES_CORE=/path/to/app/node_modules/expo-modules-core
+BASALT_EXPO_APP=/path/to/app scripts/bundle.sh --entry notifications.js --out notifications.jsbundle
+BASALT_EXPO_APP=/path/to/app scripts/integration_test.py
+```
+
+The same app for both, so that Expo's C++ and its JavaScript are the same
+version -- the same reason the host builds against the app's React Native.
+Without them the host has no Expo at all and the scenario skips saying so, which
+is what a plain checkout and every CI job do.
+
 ## Running on Linux
 
 The project targets Linux and is developed on a Mac, so everything here should

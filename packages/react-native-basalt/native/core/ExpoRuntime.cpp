@@ -4,6 +4,7 @@
 #include "FontRegistry.h"
 
 #include <filesystem>
+#include <random>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,27 @@ bool hasExpoRuntime() {
 #ifdef BASALT_HAS_EXPO
 
 namespace {
+
+// A version 4 UUID: 122 random bits, with the version and variant fields set as
+// RFC 4122 requires. `std::random_device` rather than a seeded generator --
+// this names things that may outlive the process and must not repeat between
+// two runs started in the same millisecond.
+std::string randomUuidV4() {
+  std::random_device entropy;
+  std::uniform_int_distribution<unsigned> nibble(0, 15);
+
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string uuid = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+  for (char &c : uuid) {
+    if (c == 'x') {
+      c = kHex[nibble(entropy)];
+    } else if (c == 'y') {
+      // The variant: one of 8, 9, a or b.
+      c = kHex[(nibble(entropy) & 0x3U) | 0x8U];
+    }
+  }
+  return uuid;
+}
 
 using facebook::jsi::Function;
 using facebook::jsi::Object;
@@ -255,6 +277,27 @@ void installExpoRuntime(facebook::jsi::Runtime &runtime) {
   jsi::Object core = runtime.global().getPropertyAsObject(runtime, "expo");
   core.setProperty(runtime, "modules", std::move(modules));
   installExpoViewConfigs(runtime, core);
+
+  // `expo.uuidv4`, which expo-modules-core's own `uuid.v4()` calls and throws
+  // without: "Native UUID version 4 generator implementation wasn't found in
+  // `expo-modules-core`". It is not a notifications concern, though that is
+  // where it was found -- `scheduleNotificationAsync` names a notification with
+  // one when an app does not, and so does every other Expo package that
+  // generates an identifier.
+  //
+  // `uuidv5` is deliberately absent: it is a SHA-1 of a namespace and a name,
+  // which is a hash implementation rather than a random number, and expo
+  // reports a missing one by name the way it reports a missing method.
+  core.setProperty(
+      runtime,
+      "uuidv4",
+      jsi::Function::createFromHostFunction(
+          runtime,
+          jsi::PropNameID::forAscii(runtime, "uuidv4"),
+          0,
+          [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *, size_t) -> jsi::Value {
+            return jsi::String::createFromUtf8(rt, randomUuidV4());
+          }));
 }
 
 #else
