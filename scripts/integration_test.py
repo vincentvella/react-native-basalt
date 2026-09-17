@@ -1682,6 +1682,95 @@ def test_controls(bundle: Path) -> None:
         )
 
 
+def test_dev_menu(bundle: Path) -> None:
+    """React Native's developer menu, which on a desktop is a keyboard shortcut.
+
+    Runs the host in dev mode against a real Metro, opens the menu the way
+    Ctrl+D does, and picks an item. Two runs, because the two items worth
+    asserting on prove different halves:
+
+      Reload                    that the menu reaches JavaScript at all. The
+                                reload lives on ReactHost's private
+                                `reloadReactInstance` and the only thing wired
+                                to it is React Native's own DevSettings module,
+                                so the host asks JavaScript to make the call --
+                                through a device event that
+                                `src/overrides/setUpDeveloperTools.js` listens
+                                for. If that override is not in the bundle,
+                                nothing happens and nothing says so, which is
+                                exactly what this catches.
+
+      Toggle Element Inspector  that the inspector renders. It needs no platform
+                                code -- it is React Native's own event and its
+                                own React views -- so what this really asserts
+                                is that a host mounts enough of React Native for
+                                its developer tools to work unmodified.
+
+    Injected at the host's own dev-menu entry point rather than through a real
+    Ctrl+D, for the same reason every other keyboard scenario is: a real
+    keystroke needs a window the display server considers focused. What it
+    skips is the delivery of the keystroke and nothing above it.
+
+    BASALT_TEST_MENU answers the menu, because a popup nobody dismisses stops an
+    automated run where it stands -- on macOS `popUpMenuPositioningItem` runs
+    its tracking loop on the main thread. See core/TestDialog.h.
+    """
+    if PLATFORM == "windows":
+        # scripts/metro.sh is a shell script, which is also why the Fast
+        # Refresh scenario skips here. Everything this proves about the *host*
+        # is the same code on every platform.
+        raise Skipped("scripts/metro.sh has no Windows path")
+
+    def run(choice: str, run_ms: int) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            log = Path(directory) / "host.log"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            env["BASALT_DEV"] = "1"
+            env["BASALT_DEV_PORT"] = str(METRO_PORT)
+            env["BASALT_TEST_FOCUS"] = "devmenu"
+            env["BASALT_TEST_MENU"] = choice
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_SCROLL"):
+                env.pop(name, None)
+
+            with log.open("w") as sink:
+                process = subprocess.Popen(
+                    [str(HOST), str(bundle), MODULE],
+                    cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=sink, text=True,
+                )
+                process.wait(timeout=run_ms / 1000 + 90)
+            text = log.read_text()
+            _remember_output(text)
+            check_output(text, process.returncode)
+            return (dump.read_text() if dump.exists() else ""), text
+
+    with Metro(Path(tempfile.gettempdir()) / "basalt-devmenu-metro.log"):
+        # Item 0 is Reload. The app running a second time is the whole
+        # assertion: the instance was torn down and rebuilt.
+        _, logged = run("0", 20000)
+        running = logged.count(f'Running "{MODULE}"')
+        if running < 2:
+            raise Failure(
+                "the dev menu's Reload did not reload the app.\n"
+                f'"Running \"{MODULE}\"" appears {running} time(s); it should appear twice.\n'
+                f"{tail_text(logged)}"
+            )
+
+        # Item 1 is Toggle Element Inspector. React Native's own inspector
+        # panel, rendered out of ordinary views this host already mounts.
+        tree, logged = run("1", 16000)
+        if "Tap something to inspect it" not in tree:
+            raise Failure(
+                "toggling the element inspector rendered nothing.\n"
+                "React Native's inspector is ordinary React views, so this is a\n"
+                "statement about mounting rather than about developer tools.\n"
+                f"{tree}"
+            )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1699,6 +1788,7 @@ SCENARIOS = [
     ("expo-notifications imports and answers on every desktop", test_notifications),
     ("ActivityIndicator, Switch, Modal and RefreshControl mount and answer",
      test_controls),
+    ("the developer menu reloads, and shows the element inspector", test_dev_menu),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

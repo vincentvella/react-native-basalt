@@ -5,7 +5,9 @@
 
 #include <gtk/gtk.h>
 
+#include <cstdlib>
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace basalt {
@@ -178,6 +180,199 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   // Onto the GTK main thread. This is called from the JavaScript thread, and
   // a dialog may only be created there.
   g_idle_add_full(G_PRIORITY_DEFAULT, showAlertOnMainThread, pending, nullptr);
+}
+
+// --- Menus -------------------------------------------------------------------
+
+namespace {
+
+struct PendingMenu {
+  MenuRequest request;
+  MenuCallback onChosen;
+  GtkWidget *popover{nullptr};
+  bool answered{false};
+};
+
+// The window a popup belongs to. GTK has no "the app's window": what it has is
+// a list of toplevels, so this takes the active one, or the first visible one
+// when nothing is focused -- which is what an automated run without a
+// compositor looks like.
+GtkWindow *activeWindow() {
+  GListModel *toplevels = gtk_window_get_toplevels();
+  if (toplevels == nullptr) {
+    return nullptr;
+  }
+  GtkWindow *fallback = nullptr;
+  const guint count = g_list_model_get_n_items(toplevels);
+  for (guint i = 0; i < count; i++) {
+    auto *window = static_cast<GtkWindow *>(g_list_model_get_item(toplevels, i));
+    if (window == nullptr) {
+      continue;
+    }
+    const bool visible = gtk_widget_get_visible(GTK_WIDGET(window)) != FALSE;
+    if (visible && gtk_window_is_active(window)) {
+      g_object_unref(window);
+      return window;
+    }
+    if (visible && fallback == nullptr) {
+      fallback = window;
+    }
+    g_object_unref(window);
+  }
+  return fallback;
+}
+
+// "Ctrl+R" into the "<Control>r" GTK wants for a displayed accelerator.
+// Display only: nothing here binds the key. An unparseable string becomes
+// empty, which shows no accelerator rather than a wrong one.
+std::string toGtkAccelerator(const std::string &shortcut) {
+  if (shortcut.empty()) {
+    return {};
+  }
+  std::string out;
+  size_t start = 0;
+  while (true) {
+    const size_t plus = shortcut.find('+', start);
+    const std::string part = shortcut.substr(
+        start, plus == std::string::npos ? std::string::npos : plus - start);
+    if (plus == std::string::npos) {
+      // The key itself, lowercased: GTK matches keyval names, and "R" is not one.
+      for (char c : part) {
+        out += static_cast<char>(g_ascii_tolower(c));
+      }
+      break;
+    }
+    if (part == "Ctrl" || part == "Control") {
+      out += "<Control>";
+    } else if (part == "Shift") {
+      out += "<Shift>";
+    } else if (part == "Alt" || part == "Option") {
+      out += "<Alt>";
+    } else if (part == "Cmd" || part == "Meta" || part == "Super") {
+      out += "<Meta>";
+    } else {
+      return {};
+    }
+    start = plus + 1;
+  }
+  return out;
+}
+
+// Answers once, whichever comes first: an item activating, or the popover
+// closing with nothing chosen. Both happen for a menu that was used, and the
+// order is not guaranteed.
+void finishMenu(PendingMenu *pending, int index) {
+  if (pending->answered) {
+    return;
+  }
+  pending->answered = true;
+  pending->onChosen(index);
+}
+
+void onMenuItemActivated(GSimpleAction *action, GVariant * /*parameter*/, gpointer userData) {
+  auto *pending = static_cast<PendingMenu *>(userData);
+  // The action is named "item<N>", which is where the index comes from: a
+  // GMenu carries no index of its own, and the position in the model is not
+  // the position in the vector once separators are sections.
+  const char *name = g_action_get_name(G_ACTION(action));
+  finishMenu(pending, name != nullptr ? std::atoi(name + 4) : -1);
+  if (pending->popover != nullptr) {
+    gtk_popover_popdown(GTK_POPOVER(pending->popover));
+  }
+}
+
+void onMenuClosed(GtkPopover * /*popover*/, gpointer userData) {
+  auto *pending = static_cast<PendingMenu *>(userData);
+  finishMenu(pending, -1);
+  // Unparented from an idle rather than here: GTK is still inside the
+  // popover's own signal emission, and destroying the widget it is emitting
+  // from is how a popup menu turns into a use-after-free.
+  g_idle_add_full(
+      G_PRIORITY_DEFAULT_IDLE,
+      [](gpointer data) -> gboolean {
+        std::unique_ptr<PendingMenu> owned{static_cast<PendingMenu *>(data)};
+        if (owned->popover != nullptr) {
+          gtk_widget_unparent(owned->popover);
+        }
+        return G_SOURCE_REMOVE;
+      },
+      pending,
+      nullptr);
+}
+
+gboolean showMenuOnMainThread(gpointer userData) {
+  auto *pending = static_cast<PendingMenu *>(userData);
+
+  GtkWindow *window = activeWindow();
+  GtkWidget *anchor = window != nullptr ? gtk_window_get_child(window) : nullptr;
+  if (anchor == nullptr) {
+    finishMenu(pending, -1);
+    delete pending;
+    return G_SOURCE_REMOVE;
+  }
+
+  // Separators are sections rather than entries: a GMenu has no separator item,
+  // and two sections are drawn with a line between them. The indexes the
+  // caller gets back still count them, which is what the action names carry.
+  GMenu *model = g_menu_new();
+  GMenu *section = g_menu_new();
+  auto *actions = g_simple_action_group_new();
+
+  for (size_t i = 0; i < pending->request.entries.size(); i++) {
+    const MenuEntry &entry = pending->request.entries[i];
+    if (entry.isSeparator()) {
+      g_menu_append_section(model, nullptr, G_MENU_MODEL(section));
+      g_object_unref(section);
+      section = g_menu_new();
+      continue;
+    }
+
+    const std::string name = "item" + std::to_string(i);
+    auto *action = g_simple_action_new(name.c_str(), nullptr);
+    g_simple_action_set_enabled(action, entry.enabled ? TRUE : FALSE);
+    g_signal_connect(action, "activate", G_CALLBACK(onMenuItemActivated), pending);
+    g_action_map_add_action(G_ACTION_MAP(actions), G_ACTION(action));
+    g_object_unref(action);
+
+    GMenuItem *item = g_menu_item_new(entry.label.c_str(), ("menu." + name).c_str());
+    const std::string accelerator = toGtkAccelerator(entry.shortcut);
+    if (!accelerator.empty()) {
+      g_menu_item_set_attribute(item, "accel", "s", accelerator.c_str());
+    }
+    g_menu_append_item(section, item);
+    g_object_unref(item);
+  }
+  g_menu_append_section(model, nullptr, G_MENU_MODEL(section));
+  g_object_unref(section);
+
+  GtkWidget *popover = gtk_popover_menu_new_from_model(G_MENU_MODEL(model));
+  g_object_unref(model);
+  pending->popover = popover;
+
+  gtk_widget_insert_action_group(popover, "menu", G_ACTION_GROUP(actions));
+  g_object_unref(actions);
+
+  gtk_widget_set_parent(popover, anchor);
+  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+  if (pending->request.x >= 0.0 && pending->request.y >= 0.0) {
+    const GdkRectangle at = {static_cast<int>(pending->request.x),
+                             static_cast<int>(pending->request.y),
+                             1,
+                             1};
+    gtk_popover_set_pointing_to(GTK_POPOVER(popover), &at);
+  }
+  g_signal_connect(popover, "closed", G_CALLBACK(onMenuClosed), pending);
+  gtk_popover_popup(GTK_POPOVER(popover));
+  return G_SOURCE_REMOVE;
+}
+
+} // namespace
+
+void showMenu(const MenuRequest &request, MenuCallback onChosen) {
+  auto *pending = new PendingMenu{request, std::move(onChosen), nullptr, false};
+  // Onto the GTK main thread, for the same reason showAlert is: this can be
+  // called from the JavaScript thread, and a widget may only be made here.
+  g_idle_add_full(G_PRIORITY_DEFAULT, showMenuOnMainThread, pending, nullptr);
 }
 
 void postDelayed(double milliseconds, std::function<void()> work) {

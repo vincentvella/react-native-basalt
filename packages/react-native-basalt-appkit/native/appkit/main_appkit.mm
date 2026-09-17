@@ -29,6 +29,8 @@
 
 #import "AppKitAnimationChoreographer.h"
 #import "AppKitMountingManager.h"
+
+#include "DevMenu.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
@@ -135,6 +137,10 @@ struct Host {
   // Metro's entry point, without the extension. Only meaningful in dev mode.
   std::string sourcePath;
   bool surfaceStarted{false};
+  // Whether this run is a development one, which is the only thing that decides
+  // whether Cmd+D opens anything. Kept because the ReactInstanceConfig it came
+  // from is not.
+  bool devMode{false};
   int scaleFactor{1};
 };
 
@@ -651,6 +657,7 @@ int main(int argc, const char *argv[]) {
     // bundle requires; and ReactHost opens a packager connection whose reload
     // message reloads the instance.
     config.enableDevMode = getenv("BASALT_DEV") != nullptr;
+    gHost.devMode = config.enableDevMode;
     config.enableInspector = config.enableDevMode;
     if (const char *devHost = getenv("BASALT_DEV_HOST")) {
       config.devServerHost = devHost;
@@ -759,14 +766,19 @@ int main(int argc, const char *argv[]) {
     [gHost.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 
+    // The two keys this host answers before anything else sees them.
+    //
     // Escape closes the topmost <Modal> -- or rather, asks the app to. React
     // Native's `onRequestClose` is the hardware back button on Android and the
     // swipe-down on iOS; on a desktop it is Escape.
     //
-    // A local event monitor rather than `keyDown:` on a view, because a modal
-    // is a surface-wide thing and nothing in it need have focus. The monitor
-    // swallows the key only when a modal was actually open, so Escape still
-    // does whatever it did before everywhere else.
+    // Cmd+D opens React Native's developer menu, which is the shortcut it uses
+    // on a simulator and the closest thing a desktop has to a phone's shake.
+    //
+    // A local event monitor rather than `keyDown:` on a view, because neither
+    // is about the focused view and nothing in the window need have focus. The
+    // monitor swallows a key only when it actually did something, so both
+    // still do whatever they did before everywhere else.
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
                                           handler:^NSEvent *(NSEvent *event) {
                                             const unichar first =
@@ -774,6 +786,14 @@ int main(int argc, const char *argv[]) {
                                                 ? [event.charactersIgnoringModifiers
                                                       characterAtIndex:0]
                                                 : 0;
+                                            const BOOL command =
+                                                (event.modifierFlags &
+                                                 NSEventModifierFlagCommand) != 0;
+                                            if (command && (first == 'd' || first == 'D') &&
+                                                gHost.devMode && gHost.reactHost != nullptr) {
+                                              basalt::showDevMenu(gHost.reactHost.get());
+                                              return nil;
+                                            }
                                             if (first != 0x1B || gHost.mountingManager == nullptr) {
                                               return event;
                                             }
@@ -865,7 +885,8 @@ int main(int argc, const char *argv[]) {
     }
 
     // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`,
-    // `shift-tab`, `activate` and `escape`, each fired a second apart.
+    // `shift-tab`, `activate`, `escape` and `devmenu`, each fired a second
+    // apart.
     //
     // The same reason the other instruments exist, one step further out. A real
     // Tab needs a window the window server considers key, which an automated
@@ -886,7 +907,8 @@ int main(int argc, const char *argv[]) {
                        ^{
                          NSLog(@"BASALT_TEST_FOCUS: %@", action);
                          if (gHost.focusManager == nullptr &&
-                             ![action isEqualToString:@"escape"]) {
+                             ![action isEqualToString:@"escape"] &&
+                             ![action isEqualToString:@"devmenu"]) {
                            return;
                          }
                          if ([action isEqualToString:@"tab"]) {
@@ -895,6 +917,12 @@ int main(int argc, const char *argv[]) {
                            gHost.focusManager->moveFocus(false);
                          } else if ([action isEqualToString:@"activate"]) {
                            gHost.focusManager->activateFocused();
+                         } else if ([action isEqualToString:@"devmenu"]) {
+                           // Also not a focus action. Same instrument for the
+                           // same reason: a key that needs nothing focused to
+                           // arrive. What it opens is answered by
+                           // BASALT_TEST_MENU; see core/TestDialog.h.
+                           basalt::showDevMenu(gHost.reactHost.get());
                          } else if ([action isEqualToString:@"escape"]) {
                            // Not a focus action, and here anyway: this is the
                            // instrument for "a key was pressed and nothing on

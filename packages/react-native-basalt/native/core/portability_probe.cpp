@@ -72,6 +72,13 @@ bool openUrl(const std::string &) {
   return false;
 }
 void showAlert(const AlertRequest &, AlertCallback) {}
+// A popup menu, stubbed the same way. Answering -1 is the seam's "dismissed",
+// which is the honest reply from a platform that cannot show one.
+void showMenu(const MenuRequest &, MenuCallback onChosen) {
+  if (onChosen) {
+    onChosen(-1);
+  }
+}
 // Added when the gesture recognisers arrived: "run this on the UI thread", now
 // and later. A platform with a run loop has both already; this one has neither
 // and says so.

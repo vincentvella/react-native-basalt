@@ -59,6 +59,34 @@
 
 @end
 
+// The target every popup menu item sends its action to.
+//
+// NSMenuItem needs an Objective-C target and a C++ lambda is not one. One
+// object per menu, holding the index its items carry as tags -- the same shape
+// the switch's target had before it was replaced, and for the same reason.
+@interface RnAppKitMenuTarget : NSObject
+@property(nonatomic) NSInteger chosen;
+- (void)pick:(NSMenuItem *)sender;
+@end
+
+@implementation RnAppKitMenuTarget
+
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    // Nothing chosen. -1 is the dismissal the seam documents, and it is the
+    // answer unless an item says otherwise.
+    _chosen = -1;
+  }
+  return self;
+}
+
+- (void)pick:(NSMenuItem *)sender {
+  _chosen = sender.tag;
+}
+
+@end
+
 namespace basalt {
 
 // --- Clipboard ---------------------------------------------------------------
@@ -180,6 +208,108 @@ void shareContent(const ShareRequest &request, ShareCallback onDone) {
 
       RnAppKitSharePicker *picker = [[RnAppKitSharePicker alloc] initWithItems:items done:onDone];
       [picker show:anchor];
+    }
+  });
+}
+
+// --- Menus --------------------------------------------------------------------
+
+namespace {
+
+// "Ctrl+R" into AppKit's key equivalent and modifier mask. Display only: the
+// menu is opened by a key the host binds, and these are drawn beside the
+// labels. An unparseable string becomes an empty equivalent, which draws
+// nothing rather than something wrong.
+NSString *keyEquivalentFor(const std::string &shortcut, NSEventModifierFlags *mask) {
+  *mask = 0;
+  if (shortcut.empty()) {
+    return @"";
+  }
+  size_t start = 0;
+  while (true) {
+    const size_t plus = shortcut.find('+', start);
+    const std::string part = shortcut.substr(
+        start, plus == std::string::npos ? std::string::npos : plus - start);
+    if (plus == std::string::npos) {
+      NSString *key = [NSString stringWithUTF8String:part.c_str()];
+      return key != nil ? key.lowercaseString : @"";
+    }
+    if (part == "Ctrl" || part == "Control") {
+      *mask |= NSEventModifierFlagControl;
+    } else if (part == "Shift") {
+      *mask |= NSEventModifierFlagShift;
+    } else if (part == "Alt" || part == "Option") {
+      *mask |= NSEventModifierFlagOption;
+    } else if (part == "Cmd" || part == "Meta" || part == "Super") {
+      *mask |= NSEventModifierFlagCommand;
+    } else {
+      *mask = 0;
+      return @"";
+    }
+    start = plus + 1;
+  }
+}
+
+} // namespace
+
+void showMenu(const MenuRequest &request, MenuCallback onChosen) {
+  // Copied before the block, for the same reason showAlert and shareContent
+  // copy theirs: the caller's request is a stack temporary and this returns
+  // before the block runs.
+  const MenuRequest content = request;
+
+  // Onto the main thread and back at once. `popUpMenuPositioningItem` runs the
+  // menu's own tracking loop, which may only happen on the main thread and
+  // which would deadlock the runtime if it happened on the JavaScript one.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    @autoreleasepool {
+      NSWindow *window = NSApp.keyWindow != nil ? NSApp.keyWindow : NSApp.mainWindow;
+      NSView *anchor = window.contentView;
+      if (anchor == nil) {
+        onChosen(-1);
+        return;
+      }
+
+      NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+      menu.autoenablesItems = NO;
+      RnAppKitMenuTarget *target = [[RnAppKitMenuTarget alloc] init];
+
+      for (size_t i = 0; i < content.entries.size(); i++) {
+        const MenuEntry &entry = content.entries[i];
+        if (entry.isSeparator()) {
+          [menu addItem:[NSMenuItem separatorItem]];
+          continue;
+        }
+        NSEventModifierFlags mask = 0;
+        NSString *equivalent = keyEquivalentFor(entry.shortcut, &mask);
+        NSString *label = [NSString stringWithUTF8String:entry.label.c_str()];
+        NSMenuItem *item = [menu addItemWithTitle:label != nil ? label : @""
+                                           action:@selector(pick:)
+                                    keyEquivalent:equivalent];
+        item.keyEquivalentModifierMask = mask;
+        item.target = target;
+        item.enabled = entry.enabled;
+        // The index the caller gets back, which counts separators -- so it is
+        // the position in the vector rather than in this menu.
+        item.tag = static_cast<NSInteger>(i);
+      }
+
+      NSPoint at;
+      if (content.x >= 0.0 && content.y >= 0.0) {
+        // The request is in window coordinates with a top-left origin, which is
+        // what every view in this host uses and what AppKit does not: the
+        // content view is flipped, so the point is already in its terms.
+        at = NSMakePoint(content.x, content.y);
+      } else {
+        // At the pointer, which is what a menu opened from the keyboard wants.
+        const NSPoint inWindow = [window convertPointFromScreen:NSEvent.mouseLocation];
+        at = [anchor convertPoint:inWindow fromView:nil];
+      }
+
+      // Blocks until the menu is dismissed, which is what a menu does. Safe
+      // here and not on the JavaScript thread; see above.
+      [menu popUpMenuPositioningItem:nil atLocation:at inView:anchor];
+      onChosen(static_cast<int>(target.chosen));
     }
   });
 }

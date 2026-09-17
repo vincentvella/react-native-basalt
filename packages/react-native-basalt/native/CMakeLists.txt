@@ -150,6 +150,9 @@ if(DEFINED RN_DIR)
     # three view layers have to read identically, plus the two shadow-node
     # obligations React Native leaves to Objective-C. See the header.
     core/DesktopControls.cpp
+    # React Native's developer menu, which on a desktop is a keyboard shortcut
+    # into a native popup rather than a shake.
+    core/DevMenu.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp

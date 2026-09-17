@@ -52,4 +52,39 @@ void presentAlert(const AlertRequest &request, AlertCallback onButton) {
   onButton(button, request.defaultText);
 }
 
+std::optional<int> scriptedMenuChoice() {
+  static const std::optional<int> choice = []() -> std::optional<int> {
+    const char *value = std::getenv("BASALT_TEST_MENU");
+    if (value == nullptr || *value == '\0') {
+      return std::nullopt;
+    }
+    if (std::string(value) == "dismiss") {
+      return -1;
+    }
+    char *end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (end == value) {
+      return std::nullopt;
+    }
+    return static_cast<int>(parsed);
+  }();
+  return choice;
+}
+
+void presentMenu(const MenuRequest &request, MenuCallback onChosen) {
+  const std::optional<int> scripted = scriptedMenuChoice();
+  if (!scripted.has_value()) {
+    showMenu(request, std::move(onChosen));
+    return;
+  }
+
+  // Out of range answers as a dismissal rather than being clamped, which is the
+  // opposite of what presentAlert does with a button. A menu's entries are not
+  // interchangeable -- picking the nearest one would run something the script
+  // did not ask for -- whereas an alert's last button is always the way out.
+  const int last = static_cast<int>(request.entries.size()) - 1;
+  const int index = (*scripted < 0 || *scripted > last) ? -1 : *scripted;
+  onChosen(index);
+}
+
 } // namespace basalt

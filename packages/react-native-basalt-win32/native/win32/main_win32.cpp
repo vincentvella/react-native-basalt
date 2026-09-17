@@ -37,6 +37,7 @@
 // win32/Win32TextInput.h.
 
 #include "Win32AnimationChoreographer.h"
+#include "DevMenu.h"
 #include "Win32MountingManager.h"
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
@@ -162,6 +163,10 @@ struct Host {
   // Metro's entry point, without the extension. Only meaningful in dev mode.
   std::string sourcePath;
   bool surfaceStarted{false};
+  // Whether this run is a development one, which is the only thing that decides
+  // whether Ctrl+D opens anything. Kept because the ReactInstanceConfig it came
+  // from is not.
+  bool devMode{false};
   int scaleFactor{1};
   // Whether TrackMouseEvent is armed. Windows sends WM_MOUSELEAVE once and then
   // forgets, so it has to be re-armed on every move; the flag keeps that to one
@@ -663,6 +668,13 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
       // Not a focus action, and here anyway: this is the instrument for "a key
       // was pressed and nothing on the window has to be focused for it to
       // arrive", which is exactly what Escape closing a <Modal> is.
+      if (action.text == "devmenu") {
+        // Also not a focus action. Same instrument for the same reason: a key
+        // that needs nothing focused to arrive. What it opens is answered by
+        // BASALT_TEST_MENU; see core/TestDialog.h.
+        basalt::showDevMenu(gHost.reactHost.get());
+        break;
+      }
       if (action.text == "escape") {
         if (gHost.mountingManager != nullptr) {
           gHost.mountingManager->requestCloseTopModal();
@@ -1042,6 +1054,15 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // takes its keys directly, so anything reaching here is meant for the
     // painted views -- which have no window and so no focus of Windows' own.
     case WM_KEYDOWN:
+      // Ctrl+D opens React Native's developer menu, which is the shortcut it
+      // uses on a simulator and the closest thing a desktop has to a phone's
+      // shake. Nothing in the window need have focus for it, which is why it is
+      // answered here rather than by the focus manager.
+      if (wparam == 'D' && (GetKeyState(VK_CONTROL) & 0x8000) != 0 && gHost.devMode &&
+          gHost.reactHost != nullptr) {
+        basalt::showDevMenu(gHost.reactHost.get());
+        return 0;
+      }
       // Escape closes the topmost <Modal> -- or rather, asks the app to. React
       // Native's `onRequestClose` is the hardware back button on Android and
       // the swipe-down on iOS; on a desktop it is Escape, and a modal the app
@@ -1376,6 +1397,7 @@ int main(int argc, char **argv) {
   // bundle requires; and ReactHost opens a packager connection whose reload
   // message reloads the instance.
   config.enableDevMode = std::getenv("BASALT_DEV") != nullptr;
+  gHost.devMode = config.enableDevMode;
   config.enableInspector = config.enableDevMode;
   if (const char *devHost = std::getenv("BASALT_DEV_HOST")) {
     config.devServerHost = devHost;
@@ -1521,7 +1543,7 @@ int main(int argc, char **argv) {
     scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
   }
   // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
-  // `activate` and `escape`. The same reason the other instruments exist: a
+  // `activate`, `escape` and `devmenu`. The same reason the other instruments exist: a
   // real Tab needs a window the system considers focused, which an automated
   // run does not reliably have.
   if (const char *focus = std::getenv("BASALT_TEST_FOCUS")) {

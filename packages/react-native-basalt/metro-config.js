@@ -155,6 +155,15 @@ const PLATFORM_OVERRIDES = [
     path.join(OVERRIDE_DIR, 'Share.js'),
   ],
   [
+    // React Native's own file, plus the listener the host's developer menu
+    // needs: `DevSettings.reload()` is the only way into ReactHost's private
+    // reload, and there is no way to call it from C++. It runs from
+    // InitializeCore in every development bundle, so an app that imports
+    // nothing from this package still gets a working dev menu. See its header.
+    path.join('Libraries', 'Core', 'setUpDeveloperTools.js'),
+    path.join(OVERRIDE_DIR, 'setUpDeveloperTools.js'),
+  ],
+  [
     // Also not a shim: `RefreshControl.js` branches on `Platform.OS === 'ios'`
     // with an `else` that renders Android's AndroidSwipeRefreshLayout, whose
     // shadow node needs fbjni and which no desktop registers.

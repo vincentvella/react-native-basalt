@@ -18,6 +18,7 @@
 // touches a widget off the main thread.
 
 #include "GtkAnimationChoreographer.h"
+#include "DevMenu.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
@@ -134,6 +135,10 @@ struct Host {
   // on-disk bundle.
   std::string sourcePath;
   bool surfaceStarted{false};
+  // Whether this run is a development one, which is the only thing that
+  // decides whether Ctrl+D opens anything. Kept because the ReactInstanceConfig
+  // it came from is not.
+  bool devMode{false};
   int scaleFactor{1};
   // Read by main() after the loop ends. GApplication has no exit status to set
   // any more, and a startup that failed has to be tellable from one that ran.
@@ -311,7 +316,7 @@ guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
 }
 
 // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
-// `activate` and `escape`, each fired a second apart.
+// `activate`, `escape` and `devmenu`, each fired a second apart.
 //
 // The same reason the other instruments exist, one step further out. A real Tab
 // needs a window the display server considers focused, and an automated run on
@@ -336,6 +341,11 @@ gboolean fireTestFocus(gpointer data) {
     pending->host->focusManager->moveFocus(false);
   } else if (pending->action == "activate") {
     pending->host->focusManager->activateFocused();
+  } else if (pending->action == "devmenu") {
+    // Also not a focus action. Same instrument for the same reason: a key that
+    // needs nothing focused to arrive. What it opens is answered by
+    // BASALT_TEST_MENU; see core/TestDialog.h.
+    basalt::showDevMenu(pending->host->reactHost.get());
   } else if (pending->action == "escape") {
     // Not a focus action, and here anyway: this is the instrument for "a key
     // was pressed and nothing on the window has to be focused for it to
@@ -484,6 +494,29 @@ gboolean commitSecondTree(gpointer data) {
   g_message("--- committing tree 2 from JS ---");
   callRenderFunction(host, 2);
   return G_SOURCE_REMOVE;
+}
+
+// Ctrl+D: React Native's developer menu.
+//
+// The shortcut is React Native's own on a simulator, which is the closest
+// thing a desktop has to a phone's shake. It does nothing in a release run --
+// there is no dev server to reload from and no debugger to open -- so the key
+// is left to travel on rather than swallowed.
+gboolean onDevMenuKey(GtkEventControllerKey * /*controller*/,
+                      guint keyval,
+                      guint /*keycode*/,
+                      GdkModifierType state,
+                      gpointer data) {
+  auto *host = static_cast<Host *>(data);
+  if (!host->devMode || host->reactHost == nullptr) {
+    return GDK_EVENT_PROPAGATE;
+  }
+  if ((keyval != GDK_KEY_d && keyval != GDK_KEY_D) ||
+      (state & GDK_CONTROL_MASK) == 0) {
+    return GDK_EVENT_PROPAGATE;
+  }
+  basalt::showDevMenu(host->reactHost.get());
+  return GDK_EVENT_STOP;
 }
 
 // ---------------------------------------------------------------------------
@@ -761,6 +794,16 @@ void onActivate(GtkApplication *app, gpointer data) {
   host->focusManager =
       std::make_unique<basalt::GtkFocusManager>(host->mountingManager.get(), host->root);
 
+  // Ctrl+D, which is React Native's developer menu. Its own controller rather
+  // than another case in the focus manager's: this has nothing to do with
+  // focus, and a shortcut that works wherever the caret is has to be on the
+  // window in the capture phase anyway -- otherwise a <TextInput> with the
+  // keyboard would eat it.
+  GtkEventController *devKeys = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(devKeys, GTK_PHASE_CAPTURE);
+  g_signal_connect(devKeys, "key-pressed", G_CALLBACK(onDevMenuKey), host);
+  gtk_widget_add_controller(GTK_WIDGET(host->window), devKeys);
+
   // Say what this host needs rather than inheriting a default that moves.
   //
   // HermesInstance gives the runtime a microtask queue only when
@@ -793,6 +836,7 @@ void onActivate(GtkApplication *app, gpointer data) {
   // the DevSettings module a __DEV__ bundle requires; and ReactHost opens a
   // packager connection whose reload message reloads the instance.
   config.enableDevMode = g_getenv("BASALT_DEV") != nullptr;
+  host->devMode = config.enableDevMode;
   config.enableInspector = config.enableDevMode;
   if (const char *devHost = g_getenv("BASALT_DEV_HOST")) {
     config.devServerHost = devHost;

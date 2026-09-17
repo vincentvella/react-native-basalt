@@ -55,6 +55,47 @@ struct AlertRequest {
 using AlertCallback = std::function<void(int buttonIndex, const std::string &text)>;
 void showAlert(const AlertRequest &request, AlertCallback onButton);
 
+// --- Menus --------------------------------------------------------------------
+
+// One entry in a popup menu. A separator is an item with an empty label, which
+// is how GMenu, NSMenu and an HMENU each spell it too.
+struct MenuEntry {
+  std::string label;
+  // Shown greyed and not choosable. A menu of only disabled items is still a
+  // menu, which is what makes this better than leaving the entry out.
+  bool enabled{true};
+  // Drawn beside the label -- "Cmd+R", "Ctrl+R". Decoration only: nothing here
+  // binds a key, because the shortcut that opened the menu and the shortcuts
+  // inside it are answered in different places on all three desktops.
+  std::string shortcut;
+
+  static MenuEntry separator() {
+    return MenuEntry{.label = {}, .enabled = false, .shortcut = {}};
+  }
+
+  bool isSeparator() const {
+    return label.empty();
+  }
+};
+
+struct MenuRequest {
+  std::vector<MenuEntry> entries;
+  // Where to put it, in the window's coordinates. A negative point means "wherever
+  // the pointer is", which is what a menu opened from the keyboard wants.
+  double x{-1.0};
+  double y{-1.0};
+};
+
+// Shows a popup menu and calls `onChosen` with the index of the entry picked,
+// or -1 when it was dismissed. Indexes count separators, so they line up with
+// the vector that was passed in.
+//
+// Must not block, for the same reason `showAlert` must not: this can be called
+// from the JavaScript thread, and a menu's own run loop there would deadlock
+// the runtime. Implementations marshal to the main thread and return at once.
+using MenuCallback = std::function<void(int index)>;
+void showMenu(const MenuRequest &request, MenuCallback onChosen);
+
 // --- Sharing ------------------------------------------------------------------
 
 // What an app asked to share. React Native's `Share.share()` takes `message`,

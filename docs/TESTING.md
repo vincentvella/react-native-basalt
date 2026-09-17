@@ -389,10 +389,19 @@ needs a window the display server considers focused, which an automated run does
 not reliably have on any of the three; what the instrument skips is the delivery
 of the keystroke and nothing above it.
 
-`escape` is the odd one in that list and is there on purpose: it is not a focus
-action at all, it closes the topmost `<Modal>`. This is the instrument for "a
-key was pressed and nothing on the window has to be focused for it to arrive",
-which is exactly what Escape reaching `onRequestClose` is.
+`escape` and `devmenu` are the odd ones in that list and are there on purpose:
+neither is a focus action. `escape` closes the topmost `<Modal>`, and `devmenu`
+opens React Native's developer menu -- the thing Ctrl+D (Cmd+D on macOS) opens.
+This is the instrument for "a key was pressed and nothing on the window has to
+be focused for it to arrive", which is what both of those are.
+
+A popup menu is the second thing an automated run cannot get past, and for a
+sharper reason than a dialog: on macOS `popUpMenuPositioningItem` runs the
+menu's own tracking loop on the main thread, so a menu nobody dismisses stops
+the process where it stands. `BASALT_TEST_MENU` answers it -- an entry index, or
+`dismiss` -- exactly as `BASALT_TEST_DIALOG` answers an alert, and with the same
+limit: only the presentation is skipped, and whatever the entry does still
+happens.
 
 The wheel has its own: `BASALT_TEST_SCROLL` takes `"x,y,lines"` triples
 separated by `;` -- a wheel over a point, in surface-root coordinates, positive

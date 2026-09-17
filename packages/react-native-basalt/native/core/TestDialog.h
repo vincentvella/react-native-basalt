@@ -61,4 +61,18 @@ std::optional<int> scriptedDialogButton();
 // and this project's share picker both put the cancelling choice.
 void presentAlert(const AlertRequest &request, AlertCallback onButton);
 
+// Which entry BASALT_TEST_MENU names, or nothing when it is unset. `dismiss`
+// is -1, which is what closing a menu without choosing reports.
+//
+// A popup menu is the second thing an automated run cannot get past, and for a
+// sharper reason than a dialog: on macOS `popUpMenuPositioningItem` runs the
+// menu's own tracking loop on the main thread, so a menu nobody dismisses
+// stops the process where it stands.
+std::optional<int> scriptedMenuChoice();
+
+// `showMenu`, or the scripted answer when there is one. Everything that would
+// put a popup menu on screen goes through here rather than calling the platform
+// directly, for the same reason `presentAlert` exists.
+void presentMenu(const MenuRequest &request, MenuCallback onChosen);
+
 } // namespace basalt

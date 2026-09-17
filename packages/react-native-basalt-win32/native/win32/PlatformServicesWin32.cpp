@@ -15,7 +15,9 @@
 #include <shellapi.h>
 
 #include <mutex>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace basalt {
@@ -310,6 +312,91 @@ bool openUrl(const std::string &url) {
 // implemented above.
 void shareContent(const ShareRequest &request, ShareCallback onDone) {
   shareThroughFallbackPicker(request, std::move(onDone));
+}
+
+// --- menus --------------------------------------------------------------------
+
+namespace {
+
+// "Ctrl+R" as a menu label suffix. Windows draws an accelerator by convention
+// rather than by property: the text after a tab in an item's string is
+// right-aligned, and that is all an HMENU knows about shortcuts. Nothing here
+// binds the key -- the host does.
+std::wstring withShortcut(const std::string &label, const std::string &shortcut) {
+  std::wstring text = widen(label);
+  if (!shortcut.empty()) {
+    text += L"\t";
+    text += widen(shortcut);
+  }
+  return text;
+}
+
+} // namespace
+
+void showMenu(const MenuRequest &request, MenuCallback onChosen) {
+  // Onto the UI thread. TrackPopupMenuEx runs its own message loop and must be
+  // called on the thread that owns the window -- and running it on the
+  // JavaScript thread would deadlock the runtime, which is the same reason
+  // showAlert and the GTK and AppKit menus marshal.
+  postToUiThread([request, onChosen = std::move(onChosen)] {
+    HWND window = GetActiveWindow();
+    if (window == nullptr) {
+      window = GetForegroundWindow();
+    }
+    if (window == nullptr) {
+      onChosen(-1);
+      return;
+    }
+
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) {
+      onChosen(-1);
+      return;
+    }
+
+    for (size_t i = 0; i < request.entries.size(); i++) {
+      const MenuEntry &entry = request.entries[i];
+      if (entry.isSeparator()) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        continue;
+      }
+      // The command id is the index plus one: TrackPopupMenu returns zero for
+      // "nothing was chosen", so zero cannot also mean the first item.
+      const std::wstring text = withShortcut(entry.label, entry.shortcut);
+      AppendMenuW(menu,
+                  MF_STRING | (entry.enabled ? MF_ENABLED : MF_GRAYED),
+                  static_cast<UINT_PTR>(i + 1),
+                  text.c_str());
+    }
+
+    POINT at;
+    if (request.x >= 0.0 && request.y >= 0.0) {
+      // The request is in the window's client coordinates, which is where every
+      // other coordinate in this host lives; TrackPopupMenuEx wants screen.
+      at.x = static_cast<LONG>(request.x);
+      at.y = static_cast<LONG>(request.y);
+      ClientToScreen(window, &at);
+    } else if (!GetCursorPos(&at)) {
+      at.x = 0;
+      at.y = 0;
+    }
+
+    // SetForegroundWindow before and the null PostMessage after are both from
+    // the documented TrackPopupMenu recipe: without them a menu opened from a
+    // window that is not foreground stays up after a click elsewhere, because
+    // it never receives the message that would dismiss it.
+    SetForegroundWindow(window);
+    const int chosen = TrackPopupMenuEx(menu,
+                                        TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY,
+                                        at.x,
+                                        at.y,
+                                        window,
+                                        nullptr);
+    PostMessageW(window, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+
+    onChosen(chosen > 0 ? chosen - 1 : -1);
+  });
 }
 
 // --- alerts ------------------------------------------------------------------

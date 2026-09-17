@@ -799,6 +799,10 @@ input, `PanResponder` and command routing with them. What is left:
 - **Nothing is keyboard-reachable that is not `accessible`.** A `<Switch>` is
   pressed with the mouse and not with the keyboard, because React Native's
   `focusable` prop never reaches this platform -- see the accessibility section.
+- **No dev menu item toggles Fast Refresh.** The menu has Reload, Toggle
+  Element Inspector and Open Debugger; `DevSettings.setHotLoadingEnabled` is a
+  no-op stub in ReactCxxPlatform, so turning Fast Refresh off means calling
+  `HMRClient` directly, which the override could do and does not yet.
 - **`DebuggingOverlay` mounts and draws nothing.** React DevTools' highlight
   arrives as a command rather than as props, and no host handles it yet; what
   registering it buys is that a DevTools session does not put an unmountable
