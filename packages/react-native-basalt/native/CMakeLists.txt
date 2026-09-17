@@ -156,6 +156,8 @@ if(DEFINED RN_DIR)
     # React Native's developer menu, which on a desktop is a keyboard shortcut
     # into a native popup rather than a shake.
     core/DevMenu.cpp
+    # The native file dialogs, which React Native has no API for at all.
+    core/DialogModule.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp

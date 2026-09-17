@@ -1832,6 +1832,88 @@ def test_dev_menu(bundle: Path) -> None:
             )
 
 
+def test_file_dialogs(bundle: Path) -> None:
+    """The native file dialogs, which React Native has no API for at all.
+
+    Runs js/dialogs.js: three buttons, one per kind. A phone has no file dialog,
+    so unlike every other scenario here there is no React Native behaviour to be
+    compatible with -- what is asserted is this project's own contract, which is
+    that all three answer `{canceled, paths}`:
+
+      * `canceled` is a different answer from an empty list. Every API that
+        collapses those two is one somebody has to work around.
+      * `paths` is a list even for a save and a folder, where it always holds
+        one, so an app moving between the three is not also moving between
+        result types. The native side clamps it, which is what the second run
+        checks: a script naming two paths for a save still gets one.
+
+    BASALT_TEST_FILE_DIALOG answers the dialog, because a file dialog is the
+    third thing an automated run cannot get past and the one with the most
+    behind it -- what an app does with a path cannot be reached without a path.
+    See core/TestDialog.h.
+    """
+    app = bundle_app(bundle.parent, "dialogs")
+
+    # The app's own layout: 24 of padding, a 22-tall label, then 48-tall buttons
+    # 12 apart. Their middles are at y=70, 130 and 190.
+    taps = "134,70;134,130;134,190"
+
+    def run(answer: str) -> str:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "9000"
+        env["BASALT_TEST_TAP"] = taps
+        env["BASALT_TEST_FILE_DIALOG"] = answer
+        for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                     "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+            env.pop(name, None)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltDialogs"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=150,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        # Both streams: GLib sends g_message to stdout and only warnings to
+        # stderr.
+        return result.stdout + result.stderr
+
+    def answers(text: str) -> dict:
+        found = {}
+        for line in text.splitlines():
+            if "dialog " in line and "canceled=" in line:
+                rest = line.split("dialog ", 1)[1].strip()
+                kind, _, detail = rest.partition(": ")
+                found[kind] = detail
+        return found
+
+    # The path separator the host splits on: a Windows path starts "C:\\", so a
+    # colon would cut every one of them in two.
+    separator = ";" if PLATFORM == "windows" else ":"
+    first = "C:\\tmp\\a.png" if PLATFORM == "windows" else "/tmp/a.png"
+    second = "C:\\tmp\\b.png" if PLATFORM == "windows" else "/tmp/b.png"
+
+    chosen = answers(run(separator.join([first, second])))
+    if len(chosen) != 3:
+        raise Failure(
+            f"expected an answer from all three dialogs, got {sorted(chosen)}"
+        )
+    # A multiple open keeps both.
+    if chosen["open"] != f"canceled=false paths={first}|{second}":
+        raise Failure(f"openFile answered {chosen['open']!r}")
+    # A save and a folder are one path however many the script named, which is
+    # what the platform dialogs enforce and what an app may assume.
+    if chosen["save"] != f"canceled=false paths={first}":
+        raise Failure(f"saveFile answered {chosen['save']!r}")
+    if chosen["folder"] != f"canceled=false paths={first}":
+        raise Failure(f"openFolder answered {chosen['folder']!r}")
+
+    cancelled = answers(run("cancel"))
+    for kind, detail in cancelled.items():
+        if detail != "canceled=true paths=":
+            raise Failure(f"a cancelled {kind} answered {detail!r}")
+    if len(cancelled) != 3:
+        raise Failure(f"expected all three to report a cancel, got {sorted(cancelled)}")
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1849,6 +1931,8 @@ SCENARIOS = [
     ("expo-notifications imports and answers on every desktop", test_notifications),
     ("ActivityIndicator, Switch, Modal and RefreshControl mount and answer",
      test_controls),
+    ("the native file dialogs answer with a path, or with a cancel",
+     test_file_dialogs),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]

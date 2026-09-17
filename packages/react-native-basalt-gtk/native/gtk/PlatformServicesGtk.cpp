@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace basalt {
 
@@ -182,16 +183,9 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   g_idle_add_full(G_PRIORITY_DEFAULT, showAlertOnMainThread, pending, nullptr);
 }
 
-// --- Menus -------------------------------------------------------------------
+// --- File dialogs -------------------------------------------------------------
 
 namespace {
-
-struct PendingMenu {
-  MenuRequest request;
-  MenuCallback onChosen;
-  GtkWidget *popover{nullptr};
-  bool answered{false};
-};
 
 // The window a popup belongs to. GTK has no "the app's window": what it has is
 // a list of toplevels, so this takes the active one, or the first visible one
@@ -221,6 +215,183 @@ GtkWindow *activeWindow() {
   }
   return fallback;
 }
+
+struct PendingFileDialog {
+  FileDialogRequest request;
+  FileDialogCallback onDone;
+};
+
+// The filters, as a GListModel of GtkFileFilter. GTK takes them that way and
+// not as a list of patterns, which is why this is not two lines.
+GListModel *buildFilters(const std::vector<FileFilter> &filters) {
+  if (filters.empty()) {
+    return nullptr;
+  }
+  GListStore *store = g_list_store_new(GTK_TYPE_FILE_FILTER);
+  for (const FileFilter &filter : filters) {
+    GtkFileFilter *entry = gtk_file_filter_new();
+    gtk_file_filter_set_name(entry, filter.name.empty() ? nullptr : filter.name.c_str());
+    for (const std::string &extension : filter.extensions) {
+      // A glob rather than a MIME type: an extension is what the caller gave,
+      // and guessing a type from it would be a second guess on top of theirs.
+      const std::string pattern = "*." + extension;
+      gtk_file_filter_add_pattern(entry, pattern.c_str());
+    }
+    g_list_store_append(store, entry);
+    g_object_unref(entry);
+  }
+  return G_LIST_MODEL(store);
+}
+
+// One answer, whichever call produced it. GTK's three finishers return a GFile
+// or a GListModel of them, and both arrive here as paths.
+void answerWith(PendingFileDialog *pending, GFile *file, GListModel *files, GError *error) {
+  std::vector<std::string> paths;
+  if (file != nullptr) {
+    char *path = g_file_get_path(file);
+    if (path != nullptr) {
+      paths.emplace_back(path);
+      g_free(path);
+    }
+  }
+  if (files != nullptr) {
+    const guint count = g_list_model_get_n_items(files);
+    for (guint i = 0; i < count; i++) {
+      auto *item = static_cast<GFile *>(g_list_model_get_item(files, i));
+      if (item == nullptr) {
+        continue;
+      }
+      char *path = g_file_get_path(item);
+      if (path != nullptr) {
+        paths.emplace_back(path);
+        g_free(path);
+      }
+      g_object_unref(item);
+    }
+  }
+
+  // An error here is a dismissal: GTK reports Cancel as
+  // GTK_DIALOG_ERROR_DISMISSED rather than as an empty answer. A real failure
+  // is reported the same way on purpose -- an app cannot do anything different
+  // with "the portal is not running" than with "the person said no", and
+  // rejecting the promise would make every caller write a catch for it.
+  const bool canceled = error != nullptr || paths.empty();
+  pending->onDone(canceled, paths);
+}
+
+void onOpenFinished(GObject *source, GAsyncResult *result, gpointer userData) {
+  std::unique_ptr<PendingFileDialog> pending{static_cast<PendingFileDialog *>(userData)};
+  GError *error = nullptr;
+  GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+  answerWith(pending.get(), file, nullptr, error);
+  g_clear_object(&file);
+  g_clear_error(&error);
+}
+
+void onOpenMultipleFinished(GObject *source, GAsyncResult *result, gpointer userData) {
+  std::unique_ptr<PendingFileDialog> pending{static_cast<PendingFileDialog *>(userData)};
+  GError *error = nullptr;
+  GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), result, &error);
+  answerWith(pending.get(), nullptr, files, error);
+  g_clear_object(&files);
+  g_clear_error(&error);
+}
+
+void onSaveFinished(GObject *source, GAsyncResult *result, gpointer userData) {
+  std::unique_ptr<PendingFileDialog> pending{static_cast<PendingFileDialog *>(userData)};
+  GError *error = nullptr;
+  GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, &error);
+  answerWith(pending.get(), file, nullptr, error);
+  g_clear_object(&file);
+  g_clear_error(&error);
+}
+
+void onFolderFinished(GObject *source, GAsyncResult *result, gpointer userData) {
+  std::unique_ptr<PendingFileDialog> pending{static_cast<PendingFileDialog *>(userData)};
+  GError *error = nullptr;
+  GFile *folder = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source), result, &error);
+  answerWith(pending.get(), folder, nullptr, error);
+  g_clear_object(&folder);
+  g_clear_error(&error);
+}
+
+gboolean showFileDialogOnMainThread(gpointer userData) {
+  auto *pending = static_cast<PendingFileDialog *>(userData);
+  const FileDialogRequest &request = pending->request;
+
+  GtkFileDialog *dialog = gtk_file_dialog_new();
+  if (!request.title.empty()) {
+    gtk_file_dialog_set_title(dialog, request.title.c_str());
+  }
+  if (!request.confirmLabel.empty()) {
+    gtk_file_dialog_set_accept_label(dialog, request.confirmLabel.c_str());
+  }
+  if (GListModel *filters = buildFilters(request.filters)) {
+    gtk_file_dialog_set_filters(dialog, filters);
+    g_object_unref(filters);
+  }
+  if (!request.defaultPath.empty()) {
+    if (request.kind == FileDialogRequest::Kind::SaveFile) {
+      // A save takes a name and a folder separately, and the caller may have
+      // given either or both in one string.
+      GFile *file = g_file_new_for_path(request.defaultPath.c_str());
+      char *name = g_file_get_basename(file);
+      GFile *folder = g_file_get_parent(file);
+      if (name != nullptr) {
+        gtk_file_dialog_set_initial_name(dialog, name);
+      }
+      if (folder != nullptr) {
+        gtk_file_dialog_set_initial_folder(dialog, folder);
+      }
+      g_free(name);
+      g_clear_object(&folder);
+      g_object_unref(file);
+    } else {
+      GFile *folder = g_file_new_for_path(request.defaultPath.c_str());
+      gtk_file_dialog_set_initial_folder(dialog, folder);
+      g_object_unref(folder);
+    }
+  }
+
+  GtkWindow *parent = activeWindow();
+  switch (request.kind) {
+    case FileDialogRequest::Kind::OpenFile:
+      if (request.multiple) {
+        gtk_file_dialog_open_multiple(dialog, parent, nullptr, onOpenMultipleFinished, pending);
+      } else {
+        gtk_file_dialog_open(dialog, parent, nullptr, onOpenFinished, pending);
+      }
+      break;
+    case FileDialogRequest::Kind::SaveFile:
+      gtk_file_dialog_save(dialog, parent, nullptr, onSaveFinished, pending);
+      break;
+    case FileDialogRequest::Kind::OpenFolder:
+      gtk_file_dialog_select_folder(dialog, parent, nullptr, onFolderFinished, pending);
+      break;
+  }
+  g_object_unref(dialog);
+  return G_SOURCE_REMOVE;
+}
+
+} // namespace
+
+void showFileDialog(const FileDialogRequest &request, FileDialogCallback onDone) {
+  auto *pending = new PendingFileDialog{request, std::move(onDone)};
+  // Onto the GTK main thread, for the same reason showAlert is: this is called
+  // from the JavaScript thread, and a dialog may only be made here.
+  g_idle_add_full(G_PRIORITY_DEFAULT, showFileDialogOnMainThread, pending, nullptr);
+}
+
+// --- Menus -------------------------------------------------------------------
+
+namespace {
+
+struct PendingMenu {
+  MenuRequest request;
+  MenuCallback onChosen;
+  GtkWidget *popover{nullptr};
+  bool answered{false};
+};
 
 // "Ctrl+R" into the "<Control>r" GTK wants for a displayed accelerator.
 // Display only: nothing here binds the key. An unparseable string becomes

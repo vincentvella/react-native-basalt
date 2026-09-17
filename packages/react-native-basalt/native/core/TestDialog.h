@@ -38,6 +38,8 @@
 
 #include "PlatformServices.h"
 
+#include <vector>
+
 #include <optional>
 
 namespace basalt {
@@ -74,5 +76,21 @@ std::optional<int> scriptedMenuChoice();
 // put a popup menu on screen goes through here rather than calling the platform
 // directly, for the same reason `presentAlert` exists.
 void presentMenu(const MenuRequest &request, MenuCallback onChosen);
+
+// What BASALT_TEST_FILE_DIALOG names, or nothing when it is unset.
+//
+// `cancel` is the person pressing Cancel. Anything else is a list of paths
+// separated by the platform's path separator -- `:` everywhere but Windows,
+// where it is `;`, because a Windows path has a colon two characters in.
+//
+// A file dialog is the third thing an automated run cannot get past, and the
+// one with the most to prove afterwards: what an app does with a path is the
+// interesting part, and it cannot be reached at all without one.
+std::optional<std::vector<std::string>> scriptedFileDialogPaths();
+
+// `showFileDialog`, or the scripted answer when there is one. Everything that
+// would put a file dialog on screen goes through here, for the same reason
+// `presentAlert` exists.
+void presentFileDialog(const FileDialogRequest &request, FileDialogCallback onDone);
 
 } // namespace basalt

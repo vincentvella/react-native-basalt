@@ -4,8 +4,13 @@
 #include "TestDialog.h"
 
 #include <cstdint>
+#include <vector>
 
 #import <Cocoa/Cocoa.h>
+// UTType, which is what a file panel's filters are now that
+// `allowedFileTypes` -- which took the bare extensions a caller gives -- is
+// deprecated. The umbrella header only forward-declares the class.
+#import <UniformTypeIdentifiers/UTType.h>
 
 // The picker's delegate, and its owner.
 //
@@ -208,6 +213,130 @@ void shareContent(const ShareRequest &request, ShareCallback onDone) {
 
       RnAppKitSharePicker *picker = [[RnAppKitSharePicker alloc] initWithItems:items done:onDone];
       [picker show:anchor];
+    }
+  });
+}
+
+// --- File dialogs -------------------------------------------------------------
+
+namespace {
+
+// The filters, as the content types NSOpenPanel and NSSavePanel take.
+//
+// `allowedContentTypes` rather than `allowedFileTypes`: the second is
+// deprecated since macOS 12 and takes bare extensions, which is what the caller
+// gave -- so this is the one place that has to translate. An extension macOS
+// has never heard of yields no type and is dropped, which is the same thing the
+// panel would do with it.
+NSArray<UTType *> *contentTypesFor(const std::vector<FileFilter> &filters) {
+  NSMutableArray<UTType *> *types = [NSMutableArray array];
+  for (const FileFilter &filter : filters) {
+    for (const std::string &extension : filter.extensions) {
+      NSString *text = [NSString stringWithUTF8String:extension.c_str()];
+      if (text == nil) {
+        continue;
+      }
+      UTType *type = [UTType typeWithFilenameExtension:text];
+      if (type != nil) {
+        [types addObject:type];
+      }
+    }
+  }
+  return types;
+}
+
+std::vector<std::string> pathsFrom(NSArray<NSURL *> *urls) {
+  std::vector<std::string> paths;
+  for (NSURL *url in urls) {
+    if (url.path != nil) {
+      paths.emplace_back(url.path.UTF8String);
+    }
+  }
+  return paths;
+}
+
+} // namespace
+
+void showFileDialog(const FileDialogRequest &request, FileDialogCallback onDone) {
+  // Copied before the block, for the same reason every other request in this
+  // file is: the caller's is a stack temporary and this returns first.
+  const FileDialogRequest content = request;
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    @autoreleasepool {
+      NSSavePanel *panel = nil;
+      if (content.kind == FileDialogRequest::Kind::SaveFile) {
+        panel = [NSSavePanel savePanel];
+      } else {
+        NSOpenPanel *open = [NSOpenPanel openPanel];
+        open.canChooseFiles = content.kind == FileDialogRequest::Kind::OpenFile;
+        open.canChooseDirectories = content.kind == FileDialogRequest::Kind::OpenFolder;
+        open.allowsMultipleSelection = content.multiple;
+        panel = open;
+      }
+
+      if (!content.title.empty()) {
+        NSString *title = [NSString stringWithUTF8String:content.title.c_str()];
+        // `message`, not `title`: a panel's title has not been shown since
+        // macOS 10.11, and the message is where the words actually appear.
+        panel.message = title != nil ? title : @"";
+      }
+      if (!content.confirmLabel.empty()) {
+        NSString *label = [NSString stringWithUTF8String:content.confirmLabel.c_str()];
+        panel.prompt = label != nil ? label : @"";
+      }
+      if (!content.filters.empty()) {
+        NSArray<UTType *> *types = contentTypesFor(content.filters);
+        if (types.count > 0) {
+          panel.allowedContentTypes = types;
+        }
+      }
+      if (!content.defaultPath.empty()) {
+        NSString *text = [NSString stringWithUTF8String:content.defaultPath.c_str()];
+        if (text != nil) {
+          if (content.kind == FileDialogRequest::Kind::SaveFile) {
+            // A save takes the folder and the name separately, and the caller
+            // may have given either or both in one string.
+            NSString *directory = text.stringByDeletingLastPathComponent;
+            NSString *name = text.lastPathComponent;
+            if (directory.length > 0) {
+              panel.directoryURL = [NSURL fileURLWithPath:directory isDirectory:YES];
+            }
+            if (name.length > 0) {
+              panel.nameFieldStringValue = name;
+            }
+          } else {
+            panel.directoryURL = [NSURL fileURLWithPath:text isDirectory:YES];
+          }
+        }
+      }
+
+      const auto finish = [onDone, panel](NSModalResponse response) {
+        if (response != NSModalResponseOK) {
+          onDone(true, {});
+          return;
+        }
+        NSArray<NSURL *> *urls = [panel isKindOfClass:[NSOpenPanel class]]
+            ? ((NSOpenPanel *)panel).URLs
+            : (panel.URL != nil ? @[panel.URL] : @[]);
+        const std::vector<std::string> paths = pathsFrom(urls);
+        onDone(paths.empty(), paths);
+      };
+
+      // A sheet where there is a window, for the same reason the alert is one:
+      // `runModal` spins its own run loop on the main thread and holds every
+      // mount transaction, timer and animation frame until somebody chooses.
+      NSWindow *window = NSApp.keyWindow != nil ? NSApp.keyWindow : NSApp.mainWindow;
+      if (window != nil) {
+        [panel beginSheetModalForWindow:window
+                      completionHandler:^(NSModalResponse response) {
+                        finish(response);
+                      }];
+        return;
+      }
+      [panel beginWithCompletionHandler:^(NSModalResponse response) {
+        finish(response);
+      }];
     }
   });
 }

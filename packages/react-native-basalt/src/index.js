@@ -26,6 +26,9 @@
 // mechanism React Native uses for its own and means this line never has to know
 // how many desktops there are.
 export {default as Platform} from './overrides/Platform';
+// The native file dialogs, which React Native has no API for: a phone has none.
+// See useDialog.js.
+export {useDialog, dialog} from './useDialog';
 // The window's title bar: its title and colours, and a hidden style that lets
 // the app draw its own header. See TitleBar.js.
 export {TitleBar, useTitleBar, useTitleBarMetrics} from './TitleBar';

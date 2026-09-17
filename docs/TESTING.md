@@ -403,6 +403,11 @@ the process where it stands. `BASALT_TEST_MENU` answers it -- an entry index, or
 limit: only the presentation is skipped, and whatever the entry does still
 happens.
 
+A file dialog is the third, and the one with the most behind it: what an app
+does with a path cannot be reached without a path. `BASALT_TEST_FILE_DIALOG`
+answers one -- `cancel`, or a list of paths separated by `:` (`;` on Windows,
+where a path starts `C:\` and a colon would cut every one of them in two).
+
 The wheel has its own: `BASALT_TEST_SCROLL` takes `"x,y,lines"` triples
 separated by `;` -- a wheel over a point, in surface-root coordinates, positive
 lines scrolling down, which is the direction `contentOffset` reads. Each host

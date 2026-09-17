@@ -13,6 +13,8 @@
 #include <windows.h>
 
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 
 #include <mutex>
 #include <string>
@@ -312,6 +314,171 @@ bool openUrl(const std::string &url) {
 // implemented above.
 void shareContent(const ShareRequest &request, ShareCallback onDone) {
   shareThroughFallbackPicker(request, std::move(onDone));
+}
+
+// --- file dialogs -------------------------------------------------------------
+
+namespace {
+
+// The filters, in the shape IFileDialog takes: one COMDLG_FILTERSPEC per entry,
+// with the extensions joined into a single semicolon-separated pattern. The
+// strings have to outlive the call, which is why they are built into a vector
+// that the caller keeps rather than into temporaries.
+struct FilterStorage {
+  std::vector<std::wstring> names;
+  std::vector<std::wstring> patterns;
+  std::vector<COMDLG_FILTERSPEC> specs;
+};
+
+FilterStorage buildFilters(const std::vector<FileFilter> &filters) {
+  FilterStorage storage;
+  storage.names.reserve(filters.size());
+  storage.patterns.reserve(filters.size());
+  for (const FileFilter &filter : filters) {
+    std::wstring pattern;
+    for (const std::string &extension : filter.extensions) {
+      if (!pattern.empty()) {
+        pattern += L";";
+      }
+      pattern += L"*.";
+      pattern += widen(extension);
+    }
+    storage.names.push_back(widen(filter.name.empty() ? "Files" : filter.name));
+    storage.patterns.push_back(std::move(pattern));
+  }
+  // Built second, because a vector that grows moves its strings and the specs
+  // hold pointers into them.
+  storage.specs.reserve(storage.names.size());
+  for (size_t i = 0; i < storage.names.size(); i++) {
+    storage.specs.push_back(
+        COMDLG_FILTERSPEC{storage.names[i].c_str(), storage.patterns[i].c_str()});
+  }
+  return storage;
+}
+
+std::string pathOf(IShellItem *item) {
+  PWSTR path = nullptr;
+  if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) || path == nullptr) {
+    return {};
+  }
+  const std::string result = narrow(path);
+  CoTaskMemFree(path);
+  return result;
+}
+
+} // namespace
+
+void showFileDialog(const FileDialogRequest &request, FileDialogCallback onDone) {
+  // Onto the UI thread. IFileDialog::Show runs its own modal loop and must be
+  // called on a thread with an apartment, which is the one the host's window
+  // lives on -- and running it on the JavaScript thread would deadlock the
+  // runtime.
+  postToUiThread([request, onDone = std::move(onDone)] {
+    const bool saving = request.kind == FileDialogRequest::Kind::SaveFile;
+
+    IFileDialog *dialog = nullptr;
+    const HRESULT created = CoCreateInstance(saving ? CLSID_FileSaveDialog : CLSID_FileOpenDialog,
+                                             nullptr,
+                                             CLSCTX_INPROC_SERVER,
+                                             IID_IFileDialog,
+                                             (void **)&dialog);
+    if (FAILED(created) || dialog == nullptr) {
+      onDone(true, {});
+      return;
+    }
+
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    options |= FOS_FORCEFILESYSTEM;
+    if (request.kind == FileDialogRequest::Kind::OpenFolder) {
+      options |= FOS_PICKFOLDERS;
+    }
+    if (request.kind == FileDialogRequest::Kind::OpenFile && request.multiple) {
+      options |= FOS_ALLOWMULTISELECT;
+    }
+    dialog->SetOptions(options);
+
+    if (!request.title.empty()) {
+      dialog->SetTitle(widen(request.title).c_str());
+    }
+    if (!request.confirmLabel.empty()) {
+      dialog->SetOkButtonLabel(widen(request.confirmLabel).c_str());
+    }
+    // A folder picker with file-type filters is a dialog that filters nothing
+    // and shows a combo box saying so.
+    FilterStorage filters;
+    if (request.kind != FileDialogRequest::Kind::OpenFolder && !request.filters.empty()) {
+      filters = buildFilters(request.filters);
+      if (!filters.specs.empty()) {
+        dialog->SetFileTypes(static_cast<UINT>(filters.specs.size()), filters.specs.data());
+      }
+    }
+    if (!request.defaultPath.empty()) {
+      const std::wstring wide = widen(request.defaultPath);
+      const size_t slash = wide.find_last_of(L"\\/");
+      const std::wstring directory = slash == std::wstring::npos ? L"" : wide.substr(0, slash);
+      const std::wstring name = slash == std::wstring::npos ? wide : wide.substr(slash + 1);
+
+      if (saving && !name.empty()) {
+        dialog->SetFileName(name.c_str());
+      }
+      const std::wstring folder = saving ? directory : wide;
+      if (!folder.empty()) {
+        IShellItem *item = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(folder.c_str(), nullptr, IID_IShellItem,
+                                                  (void **)&item)) &&
+            item != nullptr) {
+          dialog->SetFolder(item);
+          item->Release();
+        }
+      }
+    }
+
+    const HRESULT shown = dialog->Show(GetActiveWindow());
+    if (FAILED(shown)) {
+      // HRESULT_FROM_WIN32(ERROR_CANCELLED) is Cancel, and every other failure
+      // is reported the same way on purpose: an app can do nothing different
+      // with "the dialog would not open" than with "the person said no".
+      dialog->Release();
+      onDone(true, {});
+      return;
+    }
+
+    std::vector<std::string> paths;
+    IFileOpenDialog *openDialog = nullptr;
+    if (!saving && SUCCEEDED(dialog->QueryInterface(IID_IFileOpenDialog, (void **)&openDialog)) &&
+        openDialog != nullptr) {
+      IShellItemArray *items = nullptr;
+      if (SUCCEEDED(openDialog->GetResults(&items)) && items != nullptr) {
+        DWORD count = 0;
+        items->GetCount(&count);
+        for (DWORD i = 0; i < count; i++) {
+          IShellItem *item = nullptr;
+          if (SUCCEEDED(items->GetItemAt(i, &item)) && item != nullptr) {
+            std::string path = pathOf(item);
+            if (!path.empty()) {
+              paths.push_back(std::move(path));
+            }
+            item->Release();
+          }
+        }
+        items->Release();
+      }
+      openDialog->Release();
+    } else {
+      IShellItem *item = nullptr;
+      if (SUCCEEDED(dialog->GetResult(&item)) && item != nullptr) {
+        std::string path = pathOf(item);
+        if (!path.empty()) {
+          paths.push_back(std::move(path));
+        }
+        item->Release();
+      }
+    }
+
+    dialog->Release();
+    onDone(paths.empty(), paths);
+  });
 }
 
 // --- menus --------------------------------------------------------------------

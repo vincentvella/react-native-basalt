@@ -19,7 +19,8 @@ should. `Alert`, `Share`, `Linking`, `Animated` with the native driver,
 `require()`d assets, React Native's own LogBox inspector and its developer menu
 -- Ctrl+D, Cmd+D on macOS -- work on all three; `run-macos` builds a real `.app`
 so notifications and the Dock icon work, and `run-linux` writes a `.desktop`
-entry;
+entry; and `useDialog()` opens the native file dialogs, which React Native has
+no API for because a phone has none;
 so do Reanimated, gesture-handler, expo-image and a proxy for
 `expo-notifications`. The demo app written for GTK runs on each of them
 unchanged, and `react-native run-linux`, `run-macos` and `run-windows` are one

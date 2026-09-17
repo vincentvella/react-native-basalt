@@ -20,6 +20,7 @@
 #include "GtkAnimationChoreographer.h"
 #include "AppIdentity.h"
 #include "DevMenu.h"
+#include "DialogModule.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
@@ -651,6 +652,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         }
         if (name == basalt::DesktopShareModule::kModuleName) {
           return std::make_shared<basalt::DesktopShareModule>(jsInvoker);
+        }
+        // The native file dialogs, which React Native has no API for and which
+        // are the first thing a desktop app reaches for. See core/DialogModule.h.
+        if (name == basalt::DesktopDialogModule::kModuleName) {
+          return std::make_shared<basalt::DesktopDialogModule>(jsInvoker);
         }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);

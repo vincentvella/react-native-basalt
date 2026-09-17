@@ -151,6 +151,9 @@ if(TARGET basalt_core)
   # to run at all without a bundle identifier, which is the thing that actually
   # decides whether notifications work. See that file.
   target_link_libraries(basalt_appkit_mounting PUBLIC "-framework UserNotifications")
+  # UniformTypeIdentifiers, for the file panel's filters: `allowedFileTypes`
+  # took bare extensions and is deprecated, and its replacement takes UTTypes.
+  target_link_libraries(basalt_appkit_mounting PUBLIC "-framework UniformTypeIdentifiers")
 
   # -------------------------------------------------------------------------
   # basalt_appkit — a ReactHost, Hermes, and one surface in an NSWindow.

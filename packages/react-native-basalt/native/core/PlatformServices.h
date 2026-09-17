@@ -55,6 +55,54 @@ struct AlertRequest {
 using AlertCallback = std::function<void(int buttonIndex, const std::string &text)>;
 void showAlert(const AlertRequest &request, AlertCallback onButton);
 
+// --- File dialogs -------------------------------------------------------------
+
+// One entry in a dialog's file-type filter. `extensions` are without the dot.
+struct FileFilter {
+  std::string name;
+  std::vector<std::string> extensions;
+};
+
+struct FileDialogRequest {
+  enum class Kind {
+    // One or more existing files.
+    OpenFile,
+    // A path to write to, existing or not. The only kind that asks about
+    // overwriting, which every platform does for itself.
+    SaveFile,
+    // A directory.
+    OpenFolder,
+  };
+
+  Kind kind{Kind::OpenFile};
+  std::string title;
+  // Where to start, and for a save, what to call it. A directory for the two
+  // open kinds; a file name, optionally with a directory, for a save.
+  std::string defaultPath;
+  // What the accepting button says. Empty means the system's own word, which
+  // is almost always the right one.
+  std::string confirmLabel;
+  // OpenFile only. Ignored by the other two, because no desktop has a
+  // multiple-selection save.
+  bool multiple{false};
+  std::vector<FileFilter> filters;
+};
+
+// Shows a file dialog and calls `onDone` with what was chosen, or with
+// `canceled` and nothing.
+//
+// Must not block, for the same reason `showAlert` must not: this is called from
+// the JavaScript thread and a modal run loop there would deadlock the runtime.
+// Implementations marshal to the main thread and return at once.
+//
+// Paths are absolute, and are whatever the platform calls a path -- a Windows
+// one has backslashes in it. Nothing here normalises them: an app passes them
+// straight back to `fetch`, to a native module, or to the same dialog next
+// time, and a "tidied" path is one the system may no longer recognise.
+using FileDialogCallback =
+    std::function<void(bool canceled, const std::vector<std::string> &paths)>;
+void showFileDialog(const FileDialogRequest &request, FileDialogCallback onDone);
+
 // --- Menus --------------------------------------------------------------------
 
 // One entry in a popup menu. A separator is an item with an empty label, which

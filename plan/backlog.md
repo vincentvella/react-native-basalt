@@ -605,9 +605,12 @@ has gone unrecorded until now.
   react-native-basalt. Linux and macOS ignore those calls until their hosts
   implement them.
 - **Menus**, both a menu bar and context menus.
-- **Native file dialogs.** `GtkFileDialog` exists; nothing exposes it. Note that
-  kino's own macOS module ships a folder picker, so this is what a real app
-  reaches for early.
+- ~~**Native file dialogs.**~~ Done on all three: `useDialog().openFile()`,
+  `saveFile()` and `openFolder()`, over `GtkFileDialog`, `NSOpenPanel` /
+  `NSSavePanel` and `IFileDialog`. What is left is the rest of what a desktop
+  calls a dialog -- a message box with arbitrary buttons (`Alert` is limited to
+  three on Windows, and has no text field on Linux; see the core modules
+  section), and no API for a print or colour dialog.
 - **Drag and drop**, in and out of the application.
 - **A system tray icon.** Half done, and not as a feature: `Win32Notifications.cpp`
   owns a hidden one because `Shell_NotifyIcon` needs an icon to notify from.

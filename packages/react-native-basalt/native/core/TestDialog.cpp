@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace basalt {
 
@@ -85,6 +86,63 @@ void presentMenu(const MenuRequest &request, MenuCallback onChosen) {
   const int last = static_cast<int>(request.entries.size()) - 1;
   const int index = (*scripted < 0 || *scripted > last) ? -1 : *scripted;
   onChosen(index);
+}
+
+std::optional<std::vector<std::string>> scriptedFileDialogPaths() {
+  static const std::optional<std::vector<std::string>> paths =
+      []() -> std::optional<std::vector<std::string>> {
+    const char *value = std::getenv("BASALT_TEST_FILE_DIALOG");
+    if (value == nullptr || *value == '\0') {
+      return std::nullopt;
+    }
+    const std::string spec(value);
+    if (spec == "cancel") {
+      return std::vector<std::string>{};
+    }
+    // `;` on Windows, where a path starts "C:\\" and splitting on a colon
+    // would cut every path in two.
+#ifdef _WIN32
+    const char separator = ';';
+#else
+    const char separator = ':';
+#endif
+    std::vector<std::string> parsed;
+    size_t start = 0;
+    while (start <= spec.size()) {
+      const size_t next = spec.find(separator, start);
+      const std::string part =
+          spec.substr(start, next == std::string::npos ? std::string::npos : next - start);
+      if (!part.empty()) {
+        parsed.push_back(part);
+      }
+      if (next == std::string::npos) {
+        break;
+      }
+      start = next + 1;
+    }
+    return parsed;
+  }();
+  return paths;
+}
+
+void presentFileDialog(const FileDialogRequest &request, FileDialogCallback onDone) {
+  const std::optional<std::vector<std::string>> scripted = scriptedFileDialogPaths();
+  if (!scripted.has_value()) {
+    showFileDialog(request, std::move(onDone));
+    return;
+  }
+
+  // An empty list is `cancel`, which is the distinction the whole result shape
+  // exists to keep: "nothing was chosen" and "the person pressed Cancel" are
+  // not the same answer.
+  const bool canceled = scripted->empty();
+  std::vector<std::string> paths = *scripted;
+  // A save and a folder are one path however many the script named, which is
+  // what the platform dialogs enforce and what an app is entitled to assume.
+  if (!canceled && request.kind != FileDialogRequest::Kind::OpenFile && paths.size() > 1) {
+    paths.resize(1);
+  }
+  onDone(canceled, paths);
 }
 
 } // namespace basalt
