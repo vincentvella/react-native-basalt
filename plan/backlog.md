@@ -1023,6 +1023,14 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
   than done. `onKeyPress` firing before `onChange` is the case that most wants
   it, being an ordering guarantee nothing currently checks.
 
+- **The hover scenario cannot assert its order on GTK-over-quartz**, and is
+  skipped there with a note rather than loosened. A real cursor sitting over the
+  window when it maps has already entered the card before the first scripted
+  move lands, so the `enter card` the sequence expects in the middle arrives at
+  the start -- and again at the end. Deterministic rather than flaky: three runs
+  byte-identical. CI runs this host under Xvfb, which has no pointer, and
+  asserts the full order, so nothing was weakened where it counts.
+
 - **One flaky end-to-end scenario.** "focus a TextInput, type, and see it
   round-trip through React" failed once in five consecutive runs of
   `scripts/integration_test.py` with "the focus command did not move focus to
