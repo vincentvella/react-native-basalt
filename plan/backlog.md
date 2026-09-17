@@ -478,13 +478,15 @@ so anything importing them dies at startup.
   `denied` is how the API itself says this, and is what expo's documentation
   tells an app to check.
 
-  **What is not verified**: a notification actually appearing. That needs a
-  session bus with a notification daemon on it, and neither this machine nor a
-  CI runner has one -- `dbus-daemon` is not even installed on the Mac this was
-  written on. Covering it would mean a stub service implementing
-  `org.freedesktop.Notifications.Notify` under `dbus-run-session`, which CI
-  could host; everything up to the D-Bus call is exercised, on both hosts, and
-  the "no bus" and "no daemon" paths are the ones that have actually run.
+  The send is verified, and the end-to-end suite verifies it on every run that
+  has `dbus-daemon`: it starts a session bus and
+  `basalt_notification_stub` on it -- a stand-in daemon that owns the name,
+  answers `Notify` and prints what it was asked to show -- then asserts that the
+  permission is granted, that the service received the notification, and that it
+  carried the app's own words. Not `dbus-run-session`, which on macOS insists on
+  launchd's socket and will not start a plain bus. Where there is no
+  `dbus-daemon` the suite asserts the other half instead: that the host reports
+  why it cannot send.
 - **Notification *delivery* back to the app.** `ExpoNotificationsEmitter` is
   registered and empty, so an app never hears that a notification was tapped.
   The freedesktop specification has `ActionInvoked` and `NotificationClosed`

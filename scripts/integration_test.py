@@ -57,6 +57,7 @@ import subprocess
 import sys
 import socket
 import tempfile
+import shutil
 import time
 import urllib.error
 import urllib.request
@@ -1352,6 +1353,82 @@ def test_alert(bundle: Path) -> None:
         raise Failure("dismiss should answer with the last button")
 
 
+class NotificationService:
+    """A session bus with a stand-in notification daemon on it.
+
+    The one thing about notifications that cannot be asserted without a service
+    running is that a notification is actually sent, and neither a developer's
+    Mac nor a CI runner has a desktop's own daemon. So the suite starts both: a
+    plain `dbus-daemon` -- not `dbus-run-session`, which on macOS insists on
+    launchd's socket and fails -- and `basalt_notification_stub` on it.
+
+    A context manager rather than a fixture, so the bus goes away with the test
+    even when it fails.
+    """
+
+    def __init__(self, build: Path, directory: Path) -> None:
+        self.stub_binary = build / "basalt_notification_stub"
+        self.directory = directory
+        self.address: str | None = None
+        self.log = directory / "stub.log"
+        self._bus: subprocess.Popen | None = None
+        self._stub: subprocess.Popen | None = None
+
+    def available(self) -> bool:
+        return self.stub_binary.exists() and shutil.which("dbus-daemon") is not None
+
+    def __enter__(self) -> "NotificationService":
+        config = self.directory / "session.conf"
+        # A unix socket in a temporary directory, and a policy that allows
+        # everything: this bus exists for one test and has one client on it.
+        config.write_text(
+            "<!DOCTYPE busconfig PUBLIC "
+            '"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" '
+            '"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">\n'
+            "<busconfig><type>session</type>"
+            "<listen>unix:tmpdir=/tmp</listen>"
+            '<policy context="default">'
+            '<allow send_destination="*"/><allow own="*"/><allow receive_sender="*"/>'
+            "</policy></busconfig>\n"
+        )
+        started = subprocess.run(
+            ["dbus-daemon", "--config-file", str(config), "--print-address", "--fork",
+             "--print-pid"],
+            capture_output=True, text=True, timeout=30,
+        )
+        lines = started.stdout.split()
+        if started.returncode != 0 or not lines:
+            raise Failure(f"could not start a session bus: {started.stderr.strip()}")
+        self.address = lines[0]
+
+        environment = dict(os.environ)
+        environment["DBUS_SESSION_BUS_ADDRESS"] = self.address
+        self._stub = subprocess.Popen(
+            [str(self.stub_binary)], env=environment,
+            stdout=self.log.open("w"), stderr=subprocess.STDOUT,
+        )
+        # Owning the name is asynchronous, and the host asks whether anyone owns
+        # it before sending anything.
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if self.log.exists() and "STUB ready" in self.log.read_text():
+                return self
+            time.sleep(0.1)
+        raise Failure("the notification stub never took the bus name")
+
+    def __exit__(self, *_: object) -> None:
+        if self._stub is not None:
+            self._stub.terminate()
+            self._stub.wait(timeout=10)
+        # The bus forked, so it is not a child of this process; it is told to go
+        # by closing its socket, which happens when the directory is removed.
+        subprocess.run(["pkill", "-f", "dbus-daemon --config-file " + str(self.directory)],
+                       capture_output=True)
+
+    def saw(self) -> str:
+        return self.log.read_text() if self.log.exists() else ""
+
+
 def test_notifications(bundle: Path) -> None:
     """An app using `expo-notifications` gets answers rather than an exception.
 
@@ -1374,9 +1451,12 @@ def test_notifications(bundle: Path) -> None:
       - a rejected send carries that same reason rather than an empty failure;
       - a method this platform does not implement is reported by name.
 
-    What is *not* asserted here is a notification actually appearing. That needs
-    a session bus with a notification daemon on it, which neither this machine
-    nor a CI runner has; see plan/backlog.md for what covering it would take.
+    Where `dbus-daemon` and `basalt_notification_stub` are both there, the suite
+    starts a session bus with a stand-in daemon on it and asserts the rest: that
+    the permission is granted, that the send reaches the service, and that it
+    carries the app's own words. That is the whole contract, and it is the only
+    way to exercise it -- a real desktop's daemon is not present on a Mac or on
+    a CI runner.
     """
     expo_app = os.environ.get("BASALT_EXPO_APP")
     if not expo_app or not (Path(expo_app) / "node_modules" / "expo-notifications").exists():
@@ -1390,10 +1470,26 @@ def test_notifications(bundle: Path) -> None:
                  "BASALT_TEST_FOCUS", "BASALT_TEST_DIALOG"):
         env.pop(name, None)
 
-    result = subprocess.run(
-        [str(HOST), str(app), "BasaltNotifications"],
-        cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
-    )
+    with tempfile.TemporaryDirectory() as directory:
+        service = NotificationService(bundle.parent, Path(directory))
+        # A session bus with a daemon on it where one can be had, so that the
+        # send itself is exercised rather than only the refusal. Without it the
+        # host reports why it cannot, which is the other half worth asserting.
+        if service.available():
+            with service:
+                env["DBUS_SESSION_BUS_ADDRESS"] = service.address or ""
+                result = subprocess.run(
+                    [str(HOST), str(app), "BasaltNotifications"],
+                    cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
+                )
+                sent = service.saw()
+        else:
+            sent = ""
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltNotifications"],
+                cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
+            )
+
     _remember_output(result.stderr)
     check_output(result.stderr, result.returncode)
     both = result.stdout + result.stderr
@@ -1426,6 +1522,18 @@ def test_notifications(bundle: Path) -> None:
     else:
         if said.get("scheduled") != "true":
             raise Failure("a granted platform did not schedule a notification")
+        if said.get("presented") != "1":
+            raise Failure(
+                f"one notification was sent and {said.get('presented')} are presented"
+            )
+        # What the daemon actually received, which is the only thing that says
+        # the D-Bus call was made and carried the app's words.
+        if "Notify" not in sent:
+            raise Failure(f"the notification service was never asked to show one:\n{sent}")
+        if "A notification from a desktop" not in sent:
+            raise Failure(f"the notification reached the service without its body:\n{sent}")
+        if "CloseNotification" not in sent:
+            raise Failure(f"dismissing a notification did not reach the service:\n{sent}")
 
     # Android's channels, which no desktop has. expo's own check reports it by
     # name because the method is left off rather than stubbed -- see

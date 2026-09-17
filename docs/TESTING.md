@@ -420,6 +420,23 @@ version -- the same reason the host builds against the app's React Native.
 Without them the host has no Expo at all and the scenario skips saying so, which
 is what a plain checkout and every CI job do.
 
+## Notifications, and the daemon that is never there
+
+`GtkNotifications.cpp` sends `Notify` over the session bus, and neither a
+developer's Mac nor a CI runner has a desktop's notification daemon listening
+for it. So the suite brings its own: `basalt_notification_stub` owns
+`org.freedesktop.Notifications`, answers `Notify` with an id and prints what it
+was asked to show, and `scripts/integration_test.py` starts it on a session bus
+of its own for the length of one scenario.
+
+`dbus-daemon` directly rather than `dbus-run-session`: on macOS the latter
+insists on launchd's socket and fails with "DBUS_LAUNCHD_SESSION_BUS_SOCKET is
+empty". `brew install dbus` is enough on a Mac; a Linux runner has it already.
+
+Without `dbus-daemon` the scenario still runs and asserts the other half -- that
+the host reports why it cannot send -- which is also what macOS and Windows
+report on every machine, daemon or not.
+
 ## Running on Linux
 
 The project targets Linux and is developed on a Mac, so everything here should

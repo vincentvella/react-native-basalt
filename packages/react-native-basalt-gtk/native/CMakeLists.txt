@@ -92,6 +92,19 @@ target_include_directories(basalt_gtk_view PUBLIC
 target_link_libraries(basalt_gtk_view PUBLIC PkgConfig::GTK4 PkgConfig::FONTCONFIG PkgConfig::PANGOFT2)
 
 # ---------------------------------------------------------------------------
+# basalt_notification_stub -- a stand-in for a desktop's notification daemon.
+#
+# Test infrastructure rather than a host: the end-to-end suite starts a session
+# bus and this on it, so that the one thing about notifications that needs a
+# service to be running can actually be asserted. Needs GIO and nothing else,
+# which basalt_gtk_view already brings.
+# ---------------------------------------------------------------------------
+
+add_executable(basalt_notification_stub tests/notification_stub.cpp)
+target_link_libraries(basalt_notification_stub PRIVATE PkgConfig::GTK4)
+target_compile_options(basalt_notification_stub PRIVATE -Wall -Wextra)
+
+# ---------------------------------------------------------------------------
 # demo_layout_gtk — exercises the widget layer with hand-written frames.
 # ---------------------------------------------------------------------------
 
