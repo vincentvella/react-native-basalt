@@ -435,21 +435,30 @@ so anything importing them dies at startup.
   (phase 26) and `AccessibilityInfo.js` (phase 32) all did this, each found by an
   app failing rather than by review. Worth checking for deliberately the next
   time a module misbehaves.
-- **`ShareModule`** (soft) is the core-module gap left, and it needs a decision
-  before an implementation. `Share.share()` does not reach a native module at
-  all today: `Share.js` branches on `Platform.OS` being exactly `android` or
-  `ios` and rejects with "Unsupported platform" otherwise, so it needs a
-  JavaScript override like `TextInput.js` and `setUpXHR.js` have. Underneath,
-  the three desktops do not agree that the feature exists. macOS has
-  `NSSharingServicePicker`. Windows has the `DataTransferManager` share UI,
-  through WinRT interop. Linux has nothing: there is no share portal, and the
-  nearest thing is composing an email with `xdg-email`, which is not what an app
-  calling `Share` is asking for. So the question is whether to ship an API that
-  is real on one desktop, awkward on a second and absent on the third, which
-  runs against what this project is for -- and it is not a question to settle
-  quietly inside an implementation.
-  `ToastAndroid` and `DevSettings` were also throwing and are done; a toast logs
-  rather than showing, for the same reason as the entry below.
+- ~~**`ShareModule`**~~ is done on all three, and it took a JavaScript override
+  as well as a module: `Share.js` branches on `Platform.OS` being exactly
+  `android` or `ios` and rejects with "Unsupported platform" otherwise, so no
+  desktop module was ever reached. macOS shows `NSSharingServicePicker`. Linux
+  and Windows show the picker core/ShareFallback.h builds from a clipboard and a
+  mail client, which is the honest answer where no share service exists -- see
+  that header for the argument. Windows' own `DataTransferManager` share UI is
+  the upgrade, and needs WinRT interop that cannot be tested from a Mac.
+
+  Three things fell out of doing it, all of them bugs that were already there:
+  `Alert.alert()` did nothing at all on any desktop (below); `showAlert` on
+  macOS read its request through a dangling reference, which showed as a dialog
+  with no text; and no instrument could get past a modal dialog, which is now
+  `BASALT_TEST_DIALOG`.
+- ~~**`Alert.alert()` did nothing.**~~ Not a gap -- a silent break, in a module
+  the backlog recorded as finished in phase 32. Two of them in one chain:
+  `Alert.js` branches on `Platform.OS` being exactly `ios` or `android` with no
+  else, and `RCTAlertManager.js` is one of the self-importing shims, so it
+  resolved to its `.android.js` sibling, which calls `DialogManagerAndroid` --
+  a module this platform does not have -- and returns. `AlertManager` also
+  answered with Android's three-argument callback rather than the two its own
+  spec declares. Every one of those was invisible because nothing ever reached
+  the next layer. js/alert.js logged "showing the alert" and asserted only that
+  the main queue kept running, which it does whether or not a dialog appears.
 - **A desktop notification API**, which is what `ToastAndroid` should really be
   and what any app wanting to tell a user something out-of-band needs. Note that
   React Native has *no* notification API to be compatible with --

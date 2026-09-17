@@ -1,6 +1,7 @@
 // Linux's half of the platform-services seam: clipboard, opening a URI, alerts.
 
 #include "PlatformServices.h"
+#include "ShareFallback.h"
 
 #include <gtk/gtk.h>
 
@@ -94,6 +95,20 @@ bool openUrl(const std::string &url) {
     return false;
   }
   return true;
+}
+
+// --- Sharing -----------------------------------------------------------------
+
+// No share service on this desktop, and no portal for one either: the
+// freedesktop specifications have `xdg-email` and nothing that offers a choice
+// of destinations. So this is the picker core/ShareFallback.h builds out of a
+// clipboard and a mail client, which is what every desktop does have.
+//
+// Nothing here beyond the call, because there is nothing platform-specific
+// left in it -- it goes through showAlert, setClipboardText and openUrl, all of
+// which are implemented above.
+void shareContent(const ShareRequest &request, ShareCallback onDone) {
+  shareThroughFallbackPicker(request, std::move(onDone));
 }
 
 // --- Alerts ------------------------------------------------------------------

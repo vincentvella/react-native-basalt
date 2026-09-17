@@ -262,6 +262,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopLinkingModule::kModuleName) {
           return std::make_shared<basalt::DesktopLinkingModule>(jsInvoker);
         }
+        if (name == basalt::DesktopShareModule::kModuleName) {
+          return std::make_shared<basalt::DesktopShareModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }
@@ -419,6 +422,25 @@ void showLogBoxSurface(const std::string &appKey) {
                                 folly::dynamic::object(),
                                 constraintsFor(width, height),
                                 layoutContextFor(gHost.scaleFactor));
+}
+
+// Closes any modal sheet before the application tries to go away.
+//
+// Not a testing concern, or not only one: `[NSApp terminate:]` does nothing at
+// all while a sheet is up, so an app showing an `Alert.alert()` when a quit
+// arrives simply does not quit -- no dialog dismissed, no callback, no exit.
+// It looked like a hung automated run, which is how it was found, and it is the
+// same hang a person would get from Cmd-Q.
+//
+// Ending the sheet runs its completion handler, so whatever was waiting on the
+// answer is told the dialog closed rather than left holding a promise forever.
+void endAnyOpenSheets() {
+  for (NSWindow *window in NSApp.windows) {
+    // A copy, because endSheet: mutates the array being walked.
+    for (NSWindow *sheet in [window.sheets copy]) {
+      [window endSheet:sheet];
+    }
+  }
 }
 
 void shutdown() {
@@ -1054,6 +1076,7 @@ int main(int argc, const char *argv[]) {
                        dispatch_get_main_queue(),
                        ^{
                          NSLog(@"BASALT_QUIT_AFTER_MS elapsed; quitting");
+                         endAnyOpenSheets();
                          [NSApp terminate:nil];
                        });
       }

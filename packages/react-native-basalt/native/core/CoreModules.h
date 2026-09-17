@@ -28,6 +28,7 @@
 
 #include <FBReactNativeSpec/FBReactNativeSpecJSI.h>
 
+#include <optional>
 #include <string>
 
 namespace basalt {
@@ -111,6 +112,36 @@ class DesktopLinkingModule
   facebook::jsi::Value openSettings(facebook::jsi::Runtime &rt);
   void addListener(facebook::jsi::Runtime &rt, facebook::jsi::String eventName);
   void removeListeners(facebook::jsi::Runtime &rt, double count);
+};
+
+// `Share.share()`.
+//
+// The last of React Native's core modules that was throwing, and the one whose
+// JavaScript had to be replaced as well: `Share.js` branches on `Platform.OS`
+// being exactly `android` or `ios` and rejects with "Unsupported platform"
+// otherwise, so the module was never reached at all. See
+// src/overrides/Share.js.
+//
+// Shaped like Android's `ShareModule` rather than iOS's action sheet, because
+// the Android one is the promise-shaped API and the iOS one is a callback pair
+// on `ActionSheetManager`. It takes what Android's does plus a `url`, which
+// React Native marks as iOS-only and a desktop has no reason to refuse.
+//
+// The promise settles when the picker does, which may be a long time: this is
+// the first asynchronous thing on this platform that is genuinely asynchronous
+// underneath, so it is the first to need a promise that is not already settled.
+// `AsyncPromise` is ReactCommon's, and it handles the thread hop back.
+class DesktopShareModule : public facebook::react::NativeShareModuleCxxSpec<DesktopShareModule> {
+ public:
+  explicit DesktopShareModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker)
+      : NativeShareModuleCxxSpec(std::move(jsInvoker)) {}
+
+  static constexpr const char *kModuleName = "ShareModule";
+
+  facebook::jsi::Object getConstants(facebook::jsi::Runtime &rt);
+  facebook::jsi::Value share(facebook::jsi::Runtime &rt,
+                             facebook::jsi::Object content,
+                             std::optional<facebook::jsi::String> dialogTitle);
 };
 
 // Right-to-left layout. Portable in full: Yoga already does the work, and this

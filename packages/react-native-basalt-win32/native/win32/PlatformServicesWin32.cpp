@@ -5,6 +5,7 @@
 // only one with a real design decision in it. See postToUiThread below.
 
 #include "PlatformServices.h"
+#include "ShareFallback.h"
 
 #include "Win32Strings.h"
 #include "Win32UiThread.h"
@@ -291,6 +292,24 @@ bool openUrl(const std::string &url) {
   const auto result = reinterpret_cast<INT_PTR>(
       ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
   return result > 32;
+}
+
+// --- sharing -----------------------------------------------------------------
+
+// Windows does have a share UI -- the DataTransferManager's, the one the Share
+// charm opens -- and reaching it means WinRT interop:
+// `IDataTransferManagerInterop::ShowShareUIForWindow` against an HWND, plus the
+// activation and the data-requested handler. That is worth doing and is not
+// done here, because it cannot be tested from the machine this was written on
+// and a share sheet that fails is worse than one that is plainly minimal. See
+// plan/backlog.md.
+//
+// Until then, the picker core/ShareFallback.h builds out of a clipboard and a
+// mail client, which is what every desktop has. Nothing here beyond the call:
+// it goes through showAlert, setClipboardText and openUrl, all of which are
+// implemented above.
+void shareContent(const ShareRequest &request, ShareCallback onDone) {
+  shareThroughFallbackPicker(request, std::move(onDone));
 }
 
 // --- alerts ------------------------------------------------------------------

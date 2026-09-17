@@ -1241,6 +1241,117 @@ def test_initial_url(bundle: Path) -> None:
         )
 
 
+def test_share(bundle: Path) -> None:
+    """`Share.share()` reaches the platform and settles both ways.
+
+    Two things were broken and only one of them was a missing module.
+    `Share.js` branches on `Platform.OS` being exactly `android` or `ios` and
+    rejects with "Unsupported platform" otherwise, so no desktop module was ever
+    reached; the replacement is in packages/react-native-basalt/src/overrides.
+
+    Run twice, because a share sheet has two answers and an app is expected to
+    handle both. BASALT_TEST_DIALOG answers the picker without showing one --
+    see native/core/TestDialog.h for why that rather than driving a real dialog,
+    and for what it skips.
+
+    On the desktops with no share service the picker is built from a clipboard
+    and a mail client, so "Copy" is checked by reading the clipboard back:
+    what is asserted there is that the picker ran, not merely that a promise
+    settled. macOS shows NSSharingServicePicker instead, which the instrument
+    answers without running any of that.
+    """
+    app = bundle_app(bundle.parent, "share")
+
+    def outcome_for(answer: str) -> tuple[str, str]:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "8000"
+        env["BASALT_TEST_DIALOG"] = answer
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                     "BASALT_TEST_FOCUS"):
+            env.pop(name, None)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltShare"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        both = result.stdout + result.stderr
+        action = ""
+        clipboard = ""
+        for line in both.splitlines():
+            if "share: action " in line:
+                action = line.split("share: action ", 1)[1].strip()
+            if "clipboard: " in line:
+                clipboard = line.split("clipboard: ", 1)[1].strip()
+        if not action:
+            raise Failure(f"the share never settled:\n{tail_text(both, 30)}")
+        return action, clipboard
+
+    # Button 0 is "Copy" in the fallback picker, and any chosen service on macOS.
+    shared, clipboard = outcome_for("0")
+    if shared != "sharedAction":
+        raise Failure(f"a share that was accepted reported {shared!r}")
+
+    if PLATFORM != "macos":
+        # The picker really ran: this is what its "Copy" did.
+        if "React Native on the desktop" not in clipboard:
+            raise Failure(
+                "the picker resolved but nothing reached the clipboard: "
+                f"{clipboard!r}"
+            )
+
+    dismissed, _ = outcome_for("dismiss")
+    if dismissed != "dismissedAction":
+        raise Failure(
+            "a dismissed share must resolve rather than reject, and with "
+            f"dismissedAction; got {dismissed!r}"
+        )
+
+
+def test_alert(bundle: Path) -> None:
+    """`Alert.alert()` shows a dialog and reports which button was pressed.
+
+    It did neither, on any of the three desktops, and had not since the module
+    was written: `Alert.alert` branches on `Platform.OS` being exactly `ios` or
+    `android` with no else, and `RCTAlertManager` resolves to its Android
+    sibling, which calls a module this platform does not have. Two breaks in one
+    chain, both silent. Found while implementing Share, which fails the same way
+    for the same reason.
+
+    js/alert.js logs which button its handler ran, so the assertion is on the
+    answer travelling back rather than on a dialog being on screen.
+    """
+    app = bundle_app(bundle.parent, "alert")
+
+    def chose(answer: str) -> str:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "6000"
+        env["BASALT_TEST_DIALOG"] = answer
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                     "BASALT_TEST_FOCUS"):
+            env.pop(name, None)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltAlert"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        both = result.stdout + result.stderr
+        for line in both.splitlines():
+            if "chose: " in line:
+                return line.split("chose: ", 1)[1].strip()
+        raise Failure(f"the alert's callback never reached JavaScript:\n{tail_text(both, 30)}")
+
+    # js/alert.js offers Cancel then Delete, in that order.
+    if chose("0") != "Cancel":
+        raise Failure(f"pressing the first button reported {chose('0')!r}")
+    if chose("1") != "Delete":
+        raise Failure(f"pressing the second button reported {chose('1')!r}")
+    # `dismiss` is the last button, which is where the way out lives.
+    if chose("dismiss") != "Delete":
+        raise Failure("dismiss should answer with the last button")
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -1253,6 +1364,8 @@ SCENARIOS = [
     ("a console error opens LogBox's inspector", test_logbox),
     ("Linking.getInitialURL answers with the URL the app was opened with",
      test_initial_url),
+    ("Alert.alert shows a dialog and says which button was pressed", test_alert),
+    ("Share.share reaches the platform and settles both ways", test_share),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]
 

@@ -55,6 +55,43 @@ struct AlertRequest {
 using AlertCallback = std::function<void(int buttonIndex, const std::string &text)>;
 void showAlert(const AlertRequest &request, AlertCallback onButton);
 
+// --- Sharing ------------------------------------------------------------------
+
+// What an app asked to share. React Native's `Share.share()` takes `message`,
+// `url` and `title`, and marks each as belonging to one platform or the other;
+// a desktop has no reason to honour that split, so all three arrive and each
+// implementation uses what it can.
+struct ShareRequest {
+  std::string message;
+  std::string url;
+  std::string title;
+  // `options.dialogTitle`, which names the picker on the platforms that show
+  // one they did not draw themselves.
+  std::string dialogTitle;
+};
+
+// What became of it. React Native's promise resolves with `sharedAction` or
+// `dismissedAction` and rejects on anything else, so these are the three
+// answers it can carry and no more.
+enum class ShareOutcome { Shared, Dismissed, Failed };
+
+// `message` is meaningful only for Failed, and becomes the rejection's reason.
+using ShareCallback = std::function<void(ShareOutcome outcome, const std::string &message)>;
+
+// Puts the content in front of the user and reports what they did with it.
+//
+// Must not block, for the same reason `showAlert` must not: it is called from
+// the JavaScript thread and a modal run loop there would deadlock the runtime.
+// Implementations marshal to the main thread and return at once, and the
+// callback comes later -- possibly much later, because a share sheet is on
+// screen until a person does something with it.
+//
+// Only macOS has a share service of its own. The other two go through
+// core/ShareFallback.h, which builds a picker from a clipboard and a mail
+// client; see its header for why that is the honest answer rather than a
+// rejection.
+void shareContent(const ShareRequest &request, ShareCallback onDone);
+
 // Runs `work` on the UI thread after `milliseconds`, once.
 //
 // Every gesture recogniser needs this and nothing else does yet: a long press

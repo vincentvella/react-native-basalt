@@ -54,6 +54,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gestures.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hover.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_momentum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_share.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sourcecode.cpp
     CACHE INTERNAL "core's own tests")
 
@@ -161,7 +162,11 @@ if(DEFINED RN_DIR)
     core/PlatformConstantsModule.cpp
     # The fling GTK hands over half-finished; see the header.
     core/ScrollMomentum.cpp
+    # A share sheet for the desktops that have none; see the header.
+    core/ShareFallback.cpp
     core/SourceCodeModule.cpp
+    # Answering a modal dialog without showing one; see the header.
+    core/TestDialog.cpp
     core/StatusBarModule.cpp
     core/ReanimatedModule.cpp
     core/UIManagerAccess.cpp

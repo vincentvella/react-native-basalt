@@ -558,6 +558,9 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopLinkingModule::kModuleName) {
           return std::make_shared<basalt::DesktopLinkingModule>(jsInvoker);
         }
+        if (name == basalt::DesktopShareModule::kModuleName) {
+          return std::make_shared<basalt::DesktopShareModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }

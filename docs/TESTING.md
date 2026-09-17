@@ -376,6 +376,26 @@ the display server considers focused, which an automated run does not reliably
 have on any of the three; what the instrument skips is the delivery of the
 keystroke and nothing above it.
 
+A modal dialog is the one thing no instrument could reach and no person is
+present for, so `BASALT_TEST_DIALOG` answers it instead of showing it: a button
+index, or `dismiss` for the last button. It covers `Alert.alert` and the share
+picker on every host, and it is the one place this project deliberately does not
+drive the real thing -- see `native/core/TestDialog.h`, which sets out why
+(Apple's own `addUIInterruptionMonitor` is documented as not firing on recent
+iOS versions, and reaching into the dialog through accessibility needs a
+permission an automated run does not have).
+
+What it skips is the presentation and nothing else. The request is built by the
+same module from the same JavaScript, the answer travels back through the same
+callback, and on the desktops whose share picker is built from a clipboard and a
+mail client, a scripted "Copy" really copies -- which is what the end-to-end
+suite asserts on.
+
+Without it, a run that opens a dialog hangs rather than failing: on macOS a
+sheet that is up stops `[NSApp terminate:]` outright. That is a real bug rather
+than a testing inconvenience -- a person pressing Cmd-Q would see the same -- so
+the host now closes any open sheet before it tries to quit.
+
 That cuts the other way too, and it is worth knowing before a tree looks wrong:
 a window that opens under someone's cursor *is* hovered, before either host has
 drawn anything. `js/hover.js` is left out of `scripts/compare_all.sh` for that

@@ -114,6 +114,22 @@ const PLATFORM_OVERRIDES = [
     path.join(OVERRIDE_DIR, 'TextInput.js'),
   ],
   [
+    // Also not a shim, and the same failure: `Alert.alert()` branches on
+    // `Platform.OS` being exactly 'ios' or 'android' with no else, so on a
+    // desktop it returns having done nothing -- no dialog, no error. The
+    // AlertManager module has been there since phase 32 and was never reached.
+    path.join('Libraries', 'Alert', 'Alert.js'),
+    path.join(OVERRIDE_DIR, 'Alert.js'),
+  ],
+  [
+    // Also not a shim. React Native's `Share.share()` branches on `Platform.OS`
+    // being exactly 'android' or 'ios' and rejects with "Unsupported platform"
+    // otherwise -- so the native module is never reached and implementing one
+    // changes nothing. See the header of the replacement.
+    path.join('Libraries', 'Share', 'Share.js'),
+    path.join(OVERRIDE_DIR, 'Share.js'),
+  ],
+  [
     // Also not a shim. `fetch` is broken on this platform without it: every
     // request asks for a blob response, which ReactCxxPlatform's
     // NetworkingModule cannot produce, so the response getter throws before

@@ -1,5 +1,10 @@
 #include "CoreModules.h"
 
+#include "ShareFallback.h"
+#include "TestDialog.h"
+
+#include <react/bridging/Promise.h>
+
 #include <glog/logging.h>
 
 #include <mutex>
@@ -124,20 +129,21 @@ void DesktopAlertModule::alertWithArgs(Runtime &rt, Object args, Function callba
   auto shared = std::make_shared<Function>(std::move(callback));
   auto invoker = jsInvoker_;
 
-  showAlert(request, [shared, invoker](int buttonIndex, const std::string &text) {
+  presentAlert(request, [shared, invoker](int buttonIndex, const std::string &text) {
     if (invoker == nullptr) {
       return;
     }
     // Back onto the JavaScript thread: the platform calls this from its own
     // main thread, and a jsi::Function may only be called on the runtime's.
     invoker->invokeAsync([shared, buttonIndex, text](Runtime &rt) {
-      // React Native's callback is (action, buttonKeyOrIndex, text) on iOS and
-      // (action, buttonIndex) on Android. Both read the first two, and the
-      // third only when a prompt was shown.
-      shared->call(rt,
-                   String::createFromUtf8(rt, "buttonClicked"),
-                   Value(buttonIndex),
-                   String::createFromUtf8(rt, text));
+      // `(id, value)`, which is what NativeAlertManager's own spec declares --
+      // two arguments, not three. The three-argument form belongs to Android's
+      // DialogManagerAndroid, which is a different module. This sent that one
+      // for three phases and nothing noticed, because `Alert.alert()` never
+      // reached the module at all: it branches on Platform.OS being exactly ios
+      // or android and returns having done nothing otherwise. See
+      // src/overrides/Alert.js.
+      shared->call(rt, Value(buttonIndex), String::createFromUtf8(rt, text));
     });
   });
 }
@@ -540,6 +546,47 @@ void DesktopDevSettingsModule::removeListeners(Runtime &rt, double count) {
 void DesktopDevSettingsModule::setIsShakeToShowDevMenuEnabled(Runtime &rt, bool enabled) {
   (void)rt;
   (void)enabled;
+}
+
+// ---------------------------------------------------------------------------
+// Share
+// ---------------------------------------------------------------------------
+
+Object DesktopShareModule::getConstants(Runtime &rt) {
+  return Object(rt);
+}
+
+Value DesktopShareModule::share(Runtime &rt, Object content, std::optional<String> dialogTitle) {
+  ShareRequest request;
+  request.message = optionalString(rt, content, "message");
+  request.url = optionalString(rt, content, "url");
+  request.title = optionalString(rt, content, "title");
+  if (dialogTitle.has_value()) {
+    request.dialogTitle = dialogTitle->utf8(rt);
+  }
+
+  // Held by the callback, which is what keeps the promise alive until the
+  // picker is done with it.
+  auto promise = std::make_shared<facebook::react::AsyncPromise<folly::dynamic>>(rt, jsInvoker_);
+
+  shareContent(request, [promise](ShareOutcome outcome, const std::string &message) {
+    switch (outcome) {
+      case ShareOutcome::Shared:
+        // The shape Android's ShareModule resolves with. `activityType` is
+        // iOS's and React Native's JavaScript fills in null for it.
+        promise->resolve(folly::dynamic::object("action", "sharedAction"));
+        return;
+      case ShareOutcome::Dismissed:
+        promise->resolve(folly::dynamic::object("action", "dismissedAction"));
+        return;
+      case ShareOutcome::Failed:
+        promise->reject(facebook::react::Error(
+            message.empty() ? std::string("sharing failed") : message));
+        return;
+    }
+  });
+
+  return Value(rt, facebook::react::bridging::toJs(rt, *promise, jsInvoker_));
 }
 
 } // namespace basalt
