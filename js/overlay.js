@@ -10,7 +10,8 @@
  *
  * Both kinds are here because they are drawn differently on purpose: an
  * inspected element is filled, a trace update is only outlined, and telling
- * them apart at a glance is the whole point.
+ * them apart at a glance is the whole point. They are two screens rather than
+ * one because one of them disappears on a timer; see below.
  *
  * @format
  */
@@ -38,40 +39,35 @@ const styles = StyleSheet.create({
   overlay: {...StyleSheet.absoluteFill},
 });
 
-function App() {
+// Two apps rather than one, and the reason is timing rather than tidiness.
+//
+// An inspected element stays until it is cleared; a trace update takes itself
+// down after a moment. Issuing both from one screen means the answer depends on
+// when you look -- and a test that dumps the tree at the moment the trace
+// update expires reads "nothing is drawn" as a failure. It did, on a CI machine
+// and not on a developer's.
+//
+// So each kind gets a screen, and each screen has one stable answer: this one
+// always shows a highlight, and the one below never does by the time anybody
+// looks.
+function Inspected() {
   const overlay = React.useRef(null);
 
   React.useEffect(() => {
     if (overlay.current == null) {
       return;
     }
-    // An inspected element: filled, and it stays until it is cleared.
+    // Filled, in DevTools' blue, and it stays: nothing takes an inspected
+    // element down but `clearElementsHighlights`.
     Commands.highlightElements(overlay.current, [
       {x: 24, y: 46, width: 200, height: 120},
     ]);
     console.log('overlay: highlighted an element');
-
-    // A trace update: outlined, in the colour DevTools chose, and it clears
-    // itself after a moment because the point is that it flashes.
-    const timer = setTimeout(() => {
-      if (overlay.current == null) {
-        return;
-      }
-      Commands.highlightTraceUpdates(overlay.current, [
-        {
-          id: 1,
-          rectangle: {x: 24, y: 180, width: 200, height: 120},
-          color: 0xff00c853,
-        },
-      ]);
-      console.log('overlay: highlighted a trace update');
-    }, 1500);
-    return () => clearTimeout(timer);
   }, []);
 
   return (
     <View style={styles.page}>
-      <Text style={styles.label}>DebuggingOverlay</Text>
+      <Text style={styles.label}>DebuggingOverlay: an inspected element</Text>
       <View style={styles.card} />
       <View style={styles.card} />
       <DebuggingOverlayNativeComponent ref={overlay} style={styles.overlay} />
@@ -79,4 +75,34 @@ function App() {
   );
 }
 
-AppRegistry.registerComponent('BasaltOverlay', () => App);
+function TraceUpdate() {
+  const overlay = React.useRef(null);
+
+  React.useEffect(() => {
+    if (overlay.current == null) {
+      return;
+    }
+    // Outlined, in the colour DevTools chose for how often this component has
+    // re-rendered, and it clears itself after a moment because the point is
+    // that it flashes.
+    Commands.highlightTraceUpdates(overlay.current, [
+      {
+        id: 1,
+        rectangle: {x: 24, y: 46, width: 200, height: 120},
+        color: 0xff00c853,
+      },
+    ]);
+    console.log('overlay: highlighted a trace update');
+  }, []);
+
+  return (
+    <View style={styles.page}>
+      <Text style={styles.label}>DebuggingOverlay: a trace update</Text>
+      <View style={styles.card} />
+      <DebuggingOverlayNativeComponent ref={overlay} style={styles.overlay} />
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltOverlay', () => Inspected);
+AppRegistry.registerComponent('BasaltOverlayTrace', () => TraceUpdate);

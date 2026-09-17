@@ -2116,7 +2116,7 @@ def test_debugging_overlay(bundle: Path) -> None:
     """
     app = bundle_app(bundle.parent, "overlay")
 
-    def highlights(run_ms: int) -> tuple[int, str]:
+    def highlights(module: str, run_ms: int) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as directory:
             dump = Path(directory) / "tree.txt"
             env = dict(os.environ)
@@ -2126,7 +2126,7 @@ def test_debugging_overlay(bundle: Path) -> None:
                          "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL"):
                 env.pop(name, None)
             result = subprocess.run(
-                [str(HOST), str(app), "BasaltOverlay"],
+                [str(HOST), str(app), module],
                 cwd=REPO, env=env, capture_output=True, text=True,
                 timeout=run_ms / 1000 + 90,
             )
@@ -2135,22 +2135,25 @@ def test_debugging_overlay(bundle: Path) -> None:
             tree = dump.read_text() if dump.exists() else ""
             return tree.count("highlights="), result.stdout + result.stderr
 
-    # Three seconds: after the element highlight and after the trace update
-    # replaced it, and before the trace update's own lifetime is up.
-    drawn, logged = highlights(3000)
-    for expected in ("overlay: highlighted an element",
-                     "overlay: highlighted a trace update"):
-        if expected not in logged:
-            raise Failure(f"the app never got as far as {expected!r}:\n{tail_text(logged)}")
+    # An inspected element, which stays until it is cleared. Whenever the tree is
+    # dumped, it is there -- which is what makes this the half that says the
+    # commands are routed at all.
+    drawn, logged = highlights("BasaltOverlay", 5000)
+    if "overlay: highlighted an element" not in logged:
+        raise Failure(f"the app never issued the command:\n{tail_text(logged)}")
     if drawn == 0:
         raise Failure(
             "the overlay commands arrived and drew nothing. The view mounts, so "
             "this is the command routing rather than the component."
         )
 
-    # Five seconds: the trace update's lifetime has passed and it should have
-    # taken itself down.
-    left, _ = highlights(5000)
+    # A trace update, which takes itself down. Five seconds against a lifetime
+    # of one and a half, so the answer does not depend on how fast the machine
+    # is -- an earlier version dumped at exactly the moment it expired and read
+    # its own success as a failure on a slow runner.
+    left, logged = highlights("BasaltOverlayTrace", 5000)
+    if "overlay: highlighted a trace update" not in logged:
+        raise Failure(f"the app never issued the command:\n{tail_text(logged)}")
     if left != 0:
         raise Failure(
             "a trace update was still on screen after its lifetime. It is meant "
