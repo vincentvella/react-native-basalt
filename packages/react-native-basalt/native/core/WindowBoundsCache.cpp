@@ -11,6 +11,7 @@
 // three and the listener dispatch is what they would each have copied.
 
 #include "WindowControl.h"
+#include "WindowHost.h"
 
 #include <mutex>
 #include <utility>
@@ -61,6 +62,39 @@ void notifyWindowBoundsChanged() {
   // a call into the runtime is how a deadlock is built.
   if (toCall) {
     toCall(bounds);
+  }
+}
+
+// --- Windows closing themselves ----------------------------------------------
+//
+// Kept here rather than in each host for the same reason the bounds listener
+// is: the storage and the null check are identical in all three, and what
+// differs is only which toolkit notices.
+
+namespace {
+
+std::function<void(facebook::react::SurfaceId)> &closedListener() {
+  static std::function<void(facebook::react::SurfaceId)> value;
+  return value;
+}
+
+} // namespace
+
+void setHostWindowClosedListener(std::function<void(facebook::react::SurfaceId)> listener) {
+  const std::lock_guard<std::mutex> guard(lock());
+  closedListener() = std::move(listener);
+}
+
+void hostWindowClosed(facebook::react::SurfaceId surfaceId) {
+  std::function<void(facebook::react::SurfaceId)> toCall;
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    toCall = closedListener();
+  }
+  // Outside the lock: it emits a device event, and holding a lock across a call
+  // into the runtime is how a deadlock is built.
+  if (toCall) {
+    toCall(surfaceId);
   }
 }
 

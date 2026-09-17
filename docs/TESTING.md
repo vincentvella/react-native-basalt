@@ -383,6 +383,11 @@ would happily hit-test a tree that is not on screen and report a press on
 whatever was at those coordinates. A point with no `@` means the app's own
 window, so every spec written before windows existed still means what it did.
 
+`BASALT_TEST_CLOSE_WINDOW` takes a surface id and closes that window the way a
+*person* would -- its own close button rather than the app asking. The two are
+different paths through the host, and only that one can leave the host holding a
+record whose window is gone while the app still believes it is open.
+
 `BASALT_DUMP_TREE` writes every window, each under a `--- window <n> ---`
 header, for the same reason it already appended the error inspector: they are
 separate trees on screen, and nesting one inside another would say something

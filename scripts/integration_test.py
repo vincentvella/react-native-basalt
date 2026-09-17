@@ -2211,6 +2211,29 @@ def test_windows(bundle: Path) -> None:
             tree = dump.read_text() if dump.exists() else ""
             return tree, result.stdout + result.stderr
 
+    def run_closing(taps: str, surfaceId: int, run_ms: int) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            env["BASALT_TEST_TAP"] = taps
+            # Closes the window the way its own close button does, rather than
+            # the way the app does. See docs/TESTING.md.
+            env["BASALT_TEST_CLOSE_WINDOW"] = str(surfaceId)
+            for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                         "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+                env.pop(name, None)
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltWindows"],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 90,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            tree = dump.read_text() if dump.exists() else ""
+            return tree, result.stdout + result.stderr
+
     if "windows supported: true" not in run("", 5000)[1]:
         raise Skipped("this host cannot open a second window")
 
@@ -2249,6 +2272,20 @@ def test_windows(bundle: Path) -> None:
     tree, logged = run("134,110;134,110", 11000)
     if "--- window 3 ---" in tree:
         raise Failure(f"the second window was still open after being closed:\n{tree}")
+
+    # Closed by the person rather than by the app, which is a different path
+    # through the host and the one that can go wrong quietly: the window is
+    # destroyed either way, and only this one can leave the host holding a
+    # record whose window is gone and the app believing it is still open.
+    tree, logged = run_closing("134,110", 3, 11000)
+    if "the second window closed itself" not in logged:
+        raise Failure(
+            "a window the person closed did not tell the app. Its `open` flag "
+            "stays true, the next render tries to close a window that has "
+            f"already closed, and it can never be reopened.\n{tail_text(logged)}"
+        )
+    if "--- window 3 ---" in tree:
+        raise Failure(f"a window the person closed is still in the tree:\n{tree}")
 
 
 SCENARIOS = [

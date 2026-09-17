@@ -931,6 +931,32 @@ HostWindow *createHostWindow(Host *host,
   const auto onWindowState = +[](GObject * /*window*/, GParamSpec * /*spec*/, gpointer /*data*/) {
     basalt::notifyWindowBoundsChanged();
   };
+  // Closed by the person rather than by the app: its own close button, or the
+  // window manager. Without this the host keeps a record whose GtkWindow is
+  // gone -- a dangling pointer rather than a stale flag -- and the `<Window>`
+  // that opened it goes on believing it is open.
+  //
+  // Only for a window an app opened: the main window closing ends the process,
+  // which GtkApplication already arranges.
+  if (!isMainWindow) {
+    g_signal_connect(made->window,
+                     "close-request",
+                     G_CALLBACK(+[](GtkWindow *window, gpointer data) -> gboolean {
+                       (void)window;
+                       auto *closing = static_cast<HostWindow *>(data);
+                       // Tell JavaScript, then take the window down the same
+                       // way an app closing it would -- so there is one
+                       // teardown path rather than two.
+                       basalt::hostWindowClosed(closing->surfaceId);
+                       basalt::closeHostWindow(closing->surfaceId);
+                       // Handled: closeHostWindow destroys the window once the
+                       // surface has stopped, and letting GTK destroy it now
+                       // would be the race that teardown exists to avoid.
+                       return TRUE;
+                     }),
+                     made);
+  }
+
   g_signal_connect(made->window, "notify::maximized", G_CALLBACK(onWindowState), nullptr);
   g_signal_connect(made->window, "notify::fullscreened", G_CALLBACK(onWindowState), nullptr);
   // The animation choreographer runs on a frame clock, and a widget only has
@@ -1182,6 +1208,34 @@ void onActivate(GtkApplication *app, gpointer data) {
   }
   if (const char *scrolls = g_getenv("BASALT_TEST_SCROLL")) {
     scriptedDelayMs = scheduleTestScrolls(host, scrolls, scriptedDelayMs);
+  }
+  // BASALT_TEST_CLOSE_WINDOW: the surface id of a window to close the way a
+  // person would -- its own close button, not the app asking. The two take
+  // different paths through the host and only one of them can leave a record
+  // whose window is gone, which is why it is worth being able to drive.
+  if (const char *closing = g_getenv("BASALT_TEST_CLOSE_WINDOW")) {
+    const auto surfaceId = static_cast<facebook::react::SurfaceId>(g_ascii_strtoll(closing, nullptr, 10));
+    struct PendingClose {
+      Host *host;
+      facebook::react::SurfaceId surfaceId;
+    };
+    g_timeout_add(
+        scriptedDelayMs,
+        +[](gpointer data) -> gboolean {
+          std::unique_ptr<PendingClose> pending{static_cast<PendingClose *>(data)};
+          g_message("BASALT_TEST_CLOSE_WINDOW: closing window %d",
+                    static_cast<int>(pending->surfaceId));
+          HostWindow *target = pending->host->windowFor(pending->surfaceId);
+          if (target != nullptr) {
+            // `close`, not `destroy`: this is the request a close button makes,
+            // so the close-request handler runs exactly as it would for a
+            // person.
+            gtk_window_close(target->window);
+          }
+          return G_SOURCE_REMOVE;
+        },
+        new PendingClose{host, surfaceId});
+    scriptedDelayMs += 1000;
   }
   if (const char *focus = g_getenv("BASALT_TEST_FOCUS")) {
     scriptedDelayMs = scheduleTestFocus(host, focus, scriptedDelayMs);

@@ -1408,6 +1408,47 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       // taking the whole application with it.
       if (self == nullptr || self->surfaceId == kSurfaceId) {
         PostQuitMessage(0);
+        return 0;
+      }
+      // Closed by the person rather than by the app: its own close button, or
+      // Alt+F4. Without this the host keeps a record whose HWND is gone -- a
+      // dangling handle rather than a stale flag -- and the `<Window>` that
+      // opened it goes on believing it is open.
+      //
+      // The window is already being destroyed, so this cannot go through
+      // closeHostWindow's teardown; what it does instead is stop the surface
+      // and drop the record, which is the same work in the order this message
+      // leaves available.
+      {
+        const facebook::react::SurfaceId closing = self->surfaceId;
+        basalt::hostWindowClosed(closing);
+        if (gHost.reactHost != nullptr) {
+          gHost.reactHost->stopSurface(closing);
+        }
+        self->focusManager.reset();
+        self->touchDispatcher.reset();
+        self->target.Reset();
+        self->window = nullptr;
+        // The root outlives this message: the unmount mutations the stop
+        // produces are still to come, and they name views in it. Dropped from
+        // a round trip later, which is ordered behind them.
+        if (gHost.reactHost != nullptr) {
+          gHost.reactHost->runOnRuntimeScheduler([closing](facebook::jsi::Runtime &) {
+            basalt::postToUiThread([closing] {
+              HostWindow *going = gHost.windowFor(closing);
+              if (going == nullptr) {
+                return;
+              }
+              gHost.mountingManager->destroySurfaceRoot(closing);
+              for (auto it = gHost.windows.begin(); it != gHost.windows.end(); ++it) {
+                if (it->get() == going) {
+                  gHost.windows.erase(it);
+                  break;
+                }
+              }
+            });
+          });
+        }
       }
       return 0;
 
@@ -1579,7 +1620,11 @@ void closeHostWindow(facebook::react::SurfaceId surfaceId) {
       // root the mutations named. DestroyWindow takes any <TextInput> peer
       // parented to it with it, which is why nothing here frees one by hand.
       going->target.Reset();
-      DestroyWindow(going->window);
+      // Null when WM_DESTROY got here first, which is a window the person
+      // closed rather than the app.
+      if (going->window != nullptr) {
+        DestroyWindow(going->window);
+      }
       gHost.mountingManager->destroySurfaceRoot(surfaceId);
 
       for (auto it = gHost.windows.begin(); it != gHost.windows.end(); ++it) {
@@ -1876,6 +1921,16 @@ int main(int argc, char **argv) {
   if (const char *scrolls = std::getenv("BASALT_TEST_SCROLL")) {
     scriptedDelayMs = scheduleTestScrolls(scrolls, scriptedDelayMs);
   }
+  // BASALT_TEST_CLOSE_WINDOW: the surface id of a window to close the way a
+  // person would -- its own close button, not the app asking. The two take
+  // different paths through the host and only one of them can leave a record
+  // whose window is gone, which is why it is worth being able to drive.
+  if (const char *closing = std::getenv("BASALT_TEST_CLOSE_WINDOW")) {
+    gScriptedCloseSurfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(closing));
+    scriptedDelayMs = scheduleScriptedInput(
+        ScriptedInput{.kind = ScriptedInput::Kind::CloseWindow}, scriptedDelayMs);
+  }
+
   // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
   // `activate`, `escape` and `devmenu`. The same reason the other instruments exist: a
   // real Tab needs a window the system considers focused, which an automated

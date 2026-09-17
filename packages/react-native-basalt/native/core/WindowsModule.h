@@ -23,6 +23,7 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
   static constexpr const char *kModuleName = "BasaltWindows";
 
   explicit DesktopWindowsModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
+  ~DesktopWindowsModule() override;
 
  private:
   // `open({component, title, width, height, props})` -> a promise of the new
@@ -45,6 +46,14 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
                                          facebook::react::TurboModule &module,
                                          const facebook::jsi::Value *args,
                                          size_t count);
+  static facebook::jsi::Value noop(facebook::jsi::Runtime &runtime,
+                                   facebook::react::TurboModule &module,
+                                   const facebook::jsi::Value *args,
+                                   size_t count);
 };
+
+// The device event a window's closing arrives on. Named here so the two sides
+// cannot drift.
+inline constexpr const char *kWindowClosedEvent = "basaltWindowClosed";
 
 } // namespace basalt

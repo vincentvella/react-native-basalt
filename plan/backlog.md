@@ -597,9 +597,10 @@ has gone unrecorded until now.
     bars.
   - **The title bar and the error inspector are the main window's.** Both are
     process-wide seams; making them per-window is its own piece of work.
-  - **A window an app opened has no close button behaviour of its own.**
-    Closing it from the window manager destroys the window, and the `<Window>`
-    that opened it does not learn that it is gone.
+  - **A window an app opened cannot refuse to close.** Closing it from the
+    window manager tells the app through `onClose`, which is enough to keep the
+    two sides agreeing -- but there is no "are you sure", because nothing
+    reports a close *attempt*.
   - **`<Modal>` is still an in-surface overlay**, though a real window is now
     something this platform could do.
 - **Packaging is macOS and Linux only, and shallow.** `react-native run-macos`

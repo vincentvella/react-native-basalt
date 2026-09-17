@@ -31,6 +31,16 @@
  * `<Preview>` does not. An app that needs context in a window should pass the
  * value as a prop and re-provide it inside.
  *
+ * ## `onClose`
+ *
+ * Called when the *person* closed the window -- its own close button, or the
+ * window manager -- and not when the app unmounted the `<Window>`. An app that
+ * unmounted it already knows.
+ *
+ * It is the half that keeps the two sides agreeing: without it an app's `open`
+ * flag would stay true after the window had gone, the next render would try to
+ * close a window that closed itself, and the window could never be reopened.
+ *
  * `useWindow()` inside a second window's tree still reports the *active*
  * window, not the one it is in; that is a real gap and is in plan/backlog.md.
  *
@@ -40,7 +50,7 @@
 'use strict';
 
 import * as React from 'react';
-import {AppRegistry, TurboModuleRegistry} from 'react-native';
+import {AppRegistry, DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
 
 const NativeWindows = TurboModuleRegistry.get('BasaltWindows');
 
@@ -50,6 +60,9 @@ export const isSupported = NativeWindows != null;
 // What each open window is rendering, by the id `<Window>` gave it, and who to
 // tell when it changes. Module level because the two ends are in different
 // React roots and have no ancestor in common -- which is the whole situation.
+// Must match kWindowClosedEvent in native/core/WindowsModule.h.
+const CLOSED_EVENT = 'basaltWindowClosed';
+
 const contents = new Map();
 const listeners = new Map();
 
@@ -114,9 +127,38 @@ export function Window({title, width, height, children, onClose}) {
   // ref rather than in state: nothing renders differently for it.
   const surfaceId = React.useRef(null);
 
+  // In a ref so that the subscription below does not have to be torn down and
+  // rebuilt every time an app passes a new closure, which is every render.
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+
   // Deliberately not depending on title, width or height. They are how a window
   // *opens*, and re-opening one because its title changed would be a new window
   // in a new place. Changing them afterwards is `useWindow()`'s job.
+  // Closed by the person rather than by the app -- its own close button, or the
+  // window manager. The window is already gone by the time this arrives; what
+  // it is for is telling the app, so its state stops saying the window is open.
+  //
+  // Without it the next render would try to close a window that closed itself,
+  // and an app whose `open` flag never cleared could never reopen one.
+  React.useEffect(() => {
+    if (!isSupported) {
+      return;
+    }
+    const subscription = DeviceEventEmitter.addListener(CLOSED_EVENT, closedId => {
+      if (closedId !== surfaceId.current) {
+        return;
+      }
+      // Forgotten first, so the cleanup below does not ask the host to close a
+      // window that is already gone.
+      surfaceId.current = null;
+      if (onCloseRef.current != null) {
+        onCloseRef.current();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
   React.useEffect(() => {
     if (!isSupported) {
       return;
@@ -150,9 +192,6 @@ export function Window({title, width, height, children, onClose}) {
       }
       contents.delete(windowId);
       listeners.delete(windowId);
-      if (onClose != null) {
-        onClose();
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowId]);

@@ -66,7 +66,16 @@ function App() {
       </Pressable>
 
       {open ? (
-        <Window title="The second window" width={520} height={360}>
+        <Window
+          title="The second window"
+          width={520}
+          height={360}
+          onClose={() => {
+            // The person closed it, not the app. Without this the flag below
+            // would stay true and the window could never be reopened.
+            console.log('windows: the second window closed itself');
+            setOpen(false);
+          }}>
           <View style={styles.second}>
             <Text style={styles.label}>Second window</Text>
             {/* The same number, from the same state, in a different tree. */}

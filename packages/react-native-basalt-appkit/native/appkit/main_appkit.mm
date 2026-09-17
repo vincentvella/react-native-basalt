@@ -585,6 +585,25 @@ void shutdown() {
 // resize there is no surface to reconstrain -- which is exactly why it needs
 // its own handler: the resize one would never run, and `center()` would look
 // like it had done nothing.
+// Closed by the person rather than by the app: its own close button, or the
+// window manager. Without this the host keeps a record whose NSWindow is gone
+// and the `<Window>` that opened it goes on believing it is open.
+//
+// Only for a window an app opened: the main window closing ends the process,
+// which applicationShouldTerminateAfterLastWindowClosed already arranges.
+- (void)windowWillClose:(NSNotification *)notification {
+  for (const auto &candidate : gHost.windows) {
+    if (candidate->window != notification.object || candidate->surfaceId == kSurfaceId) {
+      continue;
+    }
+    // Tell JavaScript, then take the window down the same way an app closing it
+    // would -- so there is one teardown path rather than two.
+    basalt::hostWindowClosed(candidate->surfaceId);
+    basalt::closeHostWindow(candidate->surfaceId);
+    return;
+  }
+}
+
 - (void)windowDidMove:(NSNotification *)notification {
   (void)notification;
   basalt::notifyWindowBoundsChanged();
@@ -1166,6 +1185,27 @@ int main(int argc, const char *argv[]) {
         delayMs += 1000;
       }
       scriptedDelayMs = delayMs;
+    }
+
+    // BASALT_TEST_CLOSE_WINDOW: the surface id of a window to close the way a
+    // person would -- its own close button, not the app asking. The two take
+    // different paths through the host and only one of them can leave a record
+    // whose window is gone, which is why it is worth being able to drive.
+    if (const char *closing = getenv("BASALT_TEST_CLOSE_WINDOW")) {
+      const auto surfaceId = (facebook::react::SurfaceId)atoi(closing);
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, scriptedDelayMs * NSEC_PER_MSEC),
+                     dispatch_get_main_queue(),
+                     ^{
+                       NSLog(@"BASALT_TEST_CLOSE_WINDOW: closing window %d", (int)surfaceId);
+                       HostWindow *target = gHost.windowFor(surfaceId);
+                       if (target != nullptr) {
+                         // `performClose:`, not `close`: this is what a close
+                         // button sends, so windowWillClose: runs exactly as it
+                         // would for a person.
+                         [target->window performClose:nil];
+                       }
+                     });
+      scriptedDelayMs += 1000;
     }
 
     // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`,

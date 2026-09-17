@@ -28,6 +28,8 @@
 #pragma once
 
 #include <folly/dynamic.h>
+
+#include <functional>
 #include <react/renderer/core/ReactPrimitives.h>
 
 #include <string>
@@ -65,5 +67,21 @@ void closeHostWindow(facebook::react::SurfaceId surfaceId);
 // Every window this host has open, main window first. For the tree dump, and
 // for an app asking what it has.
 std::vector<facebook::react::SurfaceId> hostWindows();
+
+// A window was closed by the person rather than by the app -- its own close
+// button, or the window manager.
+//
+// This is not a nicety. Without it the host is left holding a record whose
+// window is gone, which is a dangling pointer rather than a stale flag, and the
+// `<Window>` that opened it goes on believing it is open: the app's state says
+// one thing and the screen says another, and the next render tries to close a
+// window that has already closed itself.
+//
+// So the host calls `hostWindowClosed` on the way out, and the module turns it
+// into a device event that `<Window>` unmounts on.
+void setHostWindowClosedListener(std::function<void(facebook::react::SurfaceId)> listener);
+
+// The host's half: called on the UI thread, before the record is dropped.
+void hostWindowClosed(facebook::react::SurfaceId surfaceId);
 
 } // namespace basalt

@@ -36,6 +36,33 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
   methodMap_["open"] = MethodMetadata{1, open};
   methodMap_["close"] = MethodMetadata{1, close};
   methodMap_["getWindows"] = MethodMetadata{0, getWindows};
+  // What a NativeEventEmitter over this module calls; the event goes out as a
+  // device event either way.
+  methodMap_["addListener"] = MethodMetadata{1, noop};
+  methodMap_["removeListeners"] = MethodMetadata{1, noop};
+
+  // A window closed by the person rather than by the app. Without this the
+  // `<Window>` that opened it would go on believing it is open; see
+  // core/WindowHost.h.
+  setHostWindowClosedListener([this](facebook::react::SurfaceId surfaceId) {
+    emitDeviceEvent(kWindowClosedEvent,
+                    [surfaceId](Runtime & /*runtime*/, std::vector<Value> &args) {
+                      args.emplace_back(Value(static_cast<int>(surfaceId)));
+                    });
+  });
+}
+
+DesktopWindowsModule::~DesktopWindowsModule() {
+  // The listener holds this module's emitter. Cleared on the way out, the same
+  // arrangement the title bar has with its metrics listener.
+  setHostWindowClosedListener(nullptr);
+}
+
+Value DesktopWindowsModule::noop(Runtime & /*runtime*/,
+                                 TurboModule & /*module*/,
+                                 const Value * /*args*/,
+                                 size_t /*count*/) {
+  return Value::undefined();
 }
 
 Value DesktopWindowsModule::open(Runtime &runtime,
