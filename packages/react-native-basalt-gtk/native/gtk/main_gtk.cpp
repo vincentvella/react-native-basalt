@@ -1375,8 +1375,19 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
   // Stop feeding the beat before the manager it points at is released.
   basalt::removeRunLoopObserver(host->runLoopObserver);
   host->runLoopObserver = nullptr;
-  host->main().focusManager.reset();
-  host->main().touchDispatcher.reset();
+  // Every window, not only the app's own -- which is what this said when there
+  // was only ever one, and did not say when there stopped being.
+  //
+  // A dispatcher left alive past `mountingManager.reset()` below is the crash
+  // this file just fixed in the other direction: GTK goes on delivering
+  // crossings and key presses while the widgets come down, and the handler
+  // reads an event emitter out of a manager that has been freed. The
+  // destructors disconnect, so the order here is what decides whether anything
+  // is still listening.
+  for (const auto &window : host->windows) {
+    window->focusManager.reset();
+    window->touchDispatcher.reset();
+  }
   if (host->reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
     host->reactHost->stopAllSurfaces();
@@ -1387,6 +1398,10 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
   }
   host->choreographer.reset();
   host->runLoopObserverManager.reset();
+  // The window records before the manager that made their roots. Each holds a
+  // borrowed `RnView *` root and a resize callback carrying the record itself,
+  // and a record outliving the manager is the same hazard one line up.
+  host->windows.clear();
   host->mountingManager.reset();
 }
 

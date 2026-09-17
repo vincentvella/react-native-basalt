@@ -555,8 +555,18 @@ void shutdown() {
   basalt::removeRunLoopObserver(gHost.runLoopObserver);
   gHost.runLoopObserver = nullptr;
 
-  gHost.main().focusManager.reset();
-  gHost.main().touchDispatcher.reset();
+  // Every window, not only the app's own -- which is what this said when there
+  // was only ever one, and did not say when there stopped being.
+  //
+  // A dispatcher left alive past `mountingManager.reset()` below would read an
+  // event emitter out of a manager that has been freed, for any event AppKit
+  // still delivers while the windows come down. Clearing the back pointer in
+  // the dispatcher's own destructor does not cover this: the dispatcher is
+  // still there, and it is the manager that has gone.
+  for (const auto &window : gHost.windows) {
+    window->focusManager.reset();
+    window->touchDispatcher.reset();
+  }
   gHost.logBoxRoot = nil;
   if (gHost.reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
@@ -568,6 +578,9 @@ void shutdown() {
   }
   gHost.choreographer.reset();
   gHost.runLoopObserverManager.reset();
+  // The window records before the manager that made their roots: each holds a
+  // borrowed root, and a record outliving the manager is the same hazard.
+  gHost.windows.clear();
   gHost.mountingManager.reset();
 }
 
