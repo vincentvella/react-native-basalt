@@ -682,6 +682,10 @@ struct ScriptedInput {
   // the app's own, so every spec written before windows existed still means
   // what it did.
   facebook::react::SurfaceId surfaceId{kSurfaceId};
+  // Tap only: which button. A secondary tap presses nothing and arrives as a
+  // pointer event, which is the whole thing BASALT_TEST_SECONDARY_TAP exists to
+  // drive. See core/PointerButtons.h.
+  basalt::PointerButton button{basalt::PointerButton::Primary};
   // Type only. Default-initialised explicitly, so that the three kinds that do
   // not carry text can leave it out of a designated initialiser.
   std::string text{};
@@ -737,25 +741,31 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
   const ScriptedInput &action = gScriptedInput[index];
   switch (action.kind) {
     case ScriptedInput::Kind::Tap: {
+      const bool secondary = action.button != basalt::PointerButton::Primary;
+      const char *name = secondary ? "BASALT_TEST_SECONDARY_TAP" : "BASALT_TEST_TAP";
       std::fprintf(stderr,
-                   "BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d\n",
+                   "%s: tapping (%.0f, %.0f) in window %d\n",
+                   name,
                    action.fromX,
                    action.fromY,
                    static_cast<int>(action.surfaceId));
       HostWindow *target = gHost.windowFor(action.surfaceId);
       if (target == nullptr) {
-        std::fprintf(stderr, "BASALT_TEST_TAP: no window %d\n", static_cast<int>(action.surfaceId));
+        std::fprintf(stderr, "%s: no window %d\n", name, static_cast<int>(action.surfaceId));
         break;
       }
       if (target->touchDispatcher != nullptr) {
-        target->touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+        target->touchDispatcher->synthesiseTap(action.fromX, action.fromY, action.button);
       }
       // A real click on a <TextInput> never reaches the touch dispatcher: the
       // peer is a child window, so USER32 routes the click to it and the
       // control focuses itself. That is the one thing a synthesised tap cannot
       // reproduce, so it is done here instead -- and only here, because the
       // real path needs none of it.
-      if (gHost.mountingManager != nullptr &&
+      //
+      // The primary button only: a right-click on a field does not focus it on
+      // any desktop, it asks for a menu.
+      if (!secondary && gHost.mountingManager != nullptr &&
           gHost.mountingManager->focusTextInputAt(target->root, action.fromX, action.fromY)) {
         std::fprintf(stderr, "BASALT_TEST_TAP: focused the field there\n");
       }
@@ -898,7 +908,10 @@ UINT scheduleScriptedInput(const ScriptedInput &action, UINT delayMs) {
 
 // "x,y" pairs separated by ';' -- the spelling BASALT_TEST_TAP and
 // BASALT_TEST_HOVER share, since a press and a hover are both just a point.
-UINT scheduleTestPoints(const char *spec, UINT delayMs, ScriptedInput::Kind kind) {
+UINT scheduleTestPoints(const char *spec,
+                        UINT delayMs,
+                        ScriptedInput::Kind kind,
+                        basalt::PointerButton button = basalt::PointerButton::Primary) {
   const std::string all(spec);
   size_t start = 0;
   while (start <= all.size()) {
@@ -917,7 +930,8 @@ UINT scheduleTestPoints(const char *spec, UINT delayMs, ScriptedInput::Kind kind
       delayMs = scheduleScriptedInput(ScriptedInput{.kind = kind,
                                                     .fromX = numbers[0],
                                                     .fromY = numbers[1],
-                                                    .surfaceId = surfaceId},
+                                                    .surfaceId = surfaceId,
+                                                    .button = button},
                                       delayMs);
     }
     if (semicolon == std::string::npos) {
@@ -2068,6 +2082,12 @@ int main(int argc, char **argv) {
   UINT scriptedDelayMs = 1500;
   if (const char *taps = std::getenv("BASALT_TEST_TAP")) {
     scriptedDelayMs = scheduleTestPoints(taps, scriptedDelayMs, ScriptedInput::Kind::Tap);
+  }
+  // BASALT_TEST_SECONDARY_TAP: the other button, which presses nothing and
+  // arrives as a pointer event. See core/PointerButtons.h.
+  if (const char *taps = std::getenv("BASALT_TEST_SECONDARY_TAP")) {
+    scriptedDelayMs = scheduleTestPoints(
+        taps, scriptedDelayMs, ScriptedInput::Kind::Tap, basalt::PointerButton::Secondary);
   }
   // BASALT_TEST_HOVER: the pointer moving with no button down. A negative point
   // means it left the window, which is what WM_MOUSELEAVE reports.
