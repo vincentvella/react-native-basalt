@@ -130,6 +130,14 @@ constexpr const char *kRenderFunctionName = "basaltRender";
 
 constexpr UINT_PTR kSecondTreeTimer = 100;
 
+// BASALT_QUIT_AFTER_MS's timer. A constant rather than the literal 101 it used
+// to be written as at its one call site: the spinner timer below was given 101
+// too, and `SetTimer` with an id that is already in use *replaces* the timer
+// rather than failing. An app with an <ActivityIndicator> in it therefore
+// silently cancelled its own shutdown, and the only symptom was a host that
+// never exited.
+constexpr UINT_PTR kQuitAfterTimer = 101;
+
 struct Host {
   HWND window{nullptr};
   RnWin32View *root{nullptr};
@@ -259,7 +267,7 @@ void requestRepaint() {
 // Win32AnimationChoreographer.h gives about its own timer: a timer that runs
 // whether or not anything is animating wakes the process sixty times a second
 // forever, which matters more on a laptop than the frame interval does.
-constexpr UINT_PTR kSpinnerTimer = 101;
+constexpr UINT_PTR kSpinnerTimer = 102;
 bool gSpinnerTimerRunning = false;
 
 void updateSpinnerTimer() {
@@ -538,6 +546,22 @@ struct ScriptedInput {
 std::vector<ScriptedInput> gScriptedInput;
 
 constexpr UINT_PTR kScriptedInputTimerBase = 200;
+
+// Every timer id this host uses is distinct.
+//
+// `SetTimer` with an id that is already in use replaces the timer rather than
+// failing, so a collision is silent and its symptom is whatever the timer it
+// replaced was for. That happened: the spinner's repaint timer was given the
+// same id as BASALT_QUIT_AFTER_MS's, and an app with an <ActivityIndicator> in
+// it cancelled its own shutdown and hung. A static_assert cannot check the
+// scripted range against the rest, so the base is held above everything else.
+static_assert(kSecondTreeTimer != kQuitAfterTimer && kSecondTreeTimer != kSpinnerTimer &&
+                  kQuitAfterTimer != kSpinnerTimer,
+              "two timers share an id, and SetTimer would silently replace one with the other");
+static_assert(kScriptedInputTimerBase > kSecondTreeTimer &&
+                  kScriptedInputTimerBase > kQuitAfterTimer &&
+                  kScriptedInputTimerBase > kSpinnerTimer,
+              "the scripted-input ids count up from the base and must start above the rest");
 
 // The numbers in "10,20,30" -- however many there are, which is what lets one
 // parser read both a tap's pair and a drag's four.
@@ -1530,7 +1554,7 @@ int main(int argc, char **argv) {
   if (const char *quitAfter = std::getenv("BASALT_QUIT_AFTER_MS")) {
     const UINT delay = static_cast<UINT>(std::strtoul(quitAfter, nullptr, 10));
     SetTimer(
-        gHost.window, 101, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
+        gHost.window, kQuitAfterTimer, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
           KillTimer(hwnd, id);
           PostMessage(hwnd, WM_CLOSE, 0, 0);
         });
