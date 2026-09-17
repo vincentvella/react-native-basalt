@@ -14,6 +14,7 @@
 #
 #   scripts/test_all.sh              # everything available
 #   scripts/test_all.sh --quick      # skip the end-to-end and parity suites
+#   scripts/test_all.sh --host gtk   # the other host, where a machine has two
 #   BASALT_BUILD_DIR=build-x scripts/test_all.sh
 #
 # Exits non-zero if any step failed, after running all of them: one broken
@@ -26,26 +27,47 @@ cd "$root"
 
 build="${BASALT_BUILD_DIR:-build}"
 quick=0
-for argument in "$@"; do
-  case "$argument" in
+want=""
+while (( $# )); do
+  case "$1" in
     --quick) quick=1 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's|^#\ \?||'; exit 0 ;;
-    *) echo "unknown argument: $argument" >&2; exit 2 ;;
+    --host) want="${2:-}"; shift ;;
+    --host=*) want="${1#*=}" ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's|^#\ \?||'; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
 # Which host is built, which is also which platform the suites below run as.
 # No machine has more than one -- a host needs its toolkit -- except this
 # repository's own development machine, where GTK is installed on macOS; there
-# the AppKit one wins, because that is the platform the machine is.
+# the AppKit one wins by default, because that is the platform the machine is.
+#
+# `--host gtk` is for exactly that machine. Both hosts are built from one
+# directory there, and a change to the shared core has to be answered by both --
+# which until now meant driving integration_test.py by hand, so the GTK side was
+# the one that got run less.
 host=""
 platform=""
-if [[ -x "$build/basalt_appkit" ]]; then
-  host="$build/basalt_appkit"; platform="macos"
-elif [[ -x "$build/basalt_gtk" ]]; then
-  host="$build/basalt_gtk"; platform="linux"
-elif [[ -x "$build/basalt_win32.exe" || -x "$build/basalt_win32" ]]; then
-  host="$build/basalt_win32"; platform="windows"
+case "$want" in
+  ""|auto) ;;
+  appkit|macos) host="$build/basalt_appkit"; platform="macos" ;;
+  gtk|linux) host="$build/basalt_gtk"; platform="linux" ;;
+  win32|windows) host="$build/basalt_win32"; platform="windows" ;;
+  *) echo "unknown host: $want (appkit, gtk or win32)" >&2; exit 2 ;;
+esac
+if [[ -n "$host" && ! -x "$host" ]]; then
+  echo "no $want host built in $build" >&2; exit 2
+fi
+if [[ -z "$host" ]]; then
+  if [[ -x "$build/basalt_appkit" ]]; then
+    host="$build/basalt_appkit"; platform="macos"
+  elif [[ -x "$build/basalt_gtk" ]]; then
+    host="$build/basalt_gtk"; platform="linux"
+  elif [[ -x "$build/basalt_win32.exe" || -x "$build/basalt_win32" ]]; then
+    host="$build/basalt_win32"; platform="windows"
+  fi
 fi
 
 failed=()

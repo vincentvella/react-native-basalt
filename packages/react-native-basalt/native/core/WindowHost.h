@@ -84,4 +84,38 @@ void setHostWindowClosedListener(std::function<void(facebook::react::SurfaceId)>
 // The host's half: called on the UI thread, before the record is dropped.
 void hostWindowClosed(facebook::react::SurfaceId surfaceId);
 
+// ## Refusing to close
+//
+// The above is a window that *has* closed. This is a window somebody is trying
+// to close, which is a different question with a different answer: an app with
+// unsaved work wants to ask before it goes, and by the time `hostWindowClosed`
+// runs there is nothing left to ask about.
+//
+// Electron spells this `event.preventDefault()` in a `close` handler, and can,
+// because its handler runs in the main process and the answer is available the
+// moment the event is raised. Here the answer lives in JavaScript, on another
+// thread, and the window manager wants a synchronous yes or no -- so the
+// decision has to be made *before* the attempt rather than during it.
+//
+// Hence a flag rather than a callback. An app that registers a close handler
+// marks its window intercepted; the host then refuses every close the window
+// manager asks for and reports the attempt instead, and the app closes the
+// window itself when it is ready. A window with no handler is not marked and
+// closes exactly as it did before -- which matters, because that is every
+// window, and a close path that waits on JavaScript to say "go ahead" would be
+// a window that does not close when the runtime is busy.
+void setHostWindowCloseIntercepted(facebook::react::SurfaceId surfaceId, bool intercepted);
+
+// Whether this window refuses the window manager. Called on the UI thread from
+// inside a close handler, which is why it may not hop to ask anybody.
+bool hostWindowCloseIntercepted(facebook::react::SurfaceId surfaceId);
+
+// Somebody tried to close a window that is intercepted, and it did not close.
+// The module turns this into a device event; the app decides what to do and
+// calls `close()` if that is "go ahead".
+void setHostWindowCloseRequestListener(std::function<void(facebook::react::SurfaceId)> listener);
+
+// The host's half: called on the UI thread, instead of closing.
+void hostWindowCloseRequested(facebook::react::SurfaceId surfaceId);
+
 } // namespace basalt

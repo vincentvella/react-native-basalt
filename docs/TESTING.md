@@ -388,6 +388,14 @@ window, so every spec written before windows existed still means what it did.
 different paths through the host, and only that one can leave the host holding a
 record whose window is gone while the app still believes it is open.
 
+It is also the only thing an app's interception ever refuses, which is what
+makes it the instrument for `onCloseRequest`: an app closing its own window is
+not asking anybody. `1` names the app's own window, and a host whose main window
+refuses to close still has to shut down when `BASALT_QUIT_AFTER_MS` says so --
+on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
+otherwise the app would have refused the harness too and the failure would have
+been a hang rather than a test.
+
 `BASALT_DUMP_TREE` writes every window, each under a `--- window <n> ---`
 header, for the same reason it already appended the error inspector: they are
 separate trees on screen, and nesting one inside another would say something

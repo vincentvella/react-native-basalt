@@ -591,6 +591,31 @@ void shutdown() {
 //
 // Only for a window an app opened: the main window closing ends the process,
 // which applicationShouldTerminateAfterLastWindowClosed already arranges.
+// Somebody is trying to close a window: its close button, Cmd-W, or the window
+// manager. AppKit asks before it acts, which is exactly the question an app with
+// unsaved work wants to answer -- so a window that asked to be asked refuses
+// here and tells the app instead.
+//
+// Every window, including the app's own. What this does *not* cover is Cmd-Q:
+// terminating goes through applicationShouldTerminate: and never asks a window
+// whether it minds, which is its own piece of work; see plan/backlog.md.
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+  for (const auto &candidate : gHost.windows) {
+    if (candidate->window != sender) {
+      continue;
+    }
+    if (basalt::hostWindowCloseIntercepted(candidate->surfaceId)) {
+      // What happens next is the app's decision, and if that is "go ahead" it
+      // calls close() itself. See core/WindowHost.h for why the answer has to
+      // be available before the question is asked.
+      basalt::hostWindowCloseRequested(candidate->surfaceId);
+      return NO;
+    }
+    break;
+  }
+  return YES;
+}
+
 - (void)windowWillClose:(NSNotification *)notification {
   for (const auto &candidate : gHost.windows) {
     if (candidate->window != notification.object || candidate->surfaceId == kSurfaceId) {

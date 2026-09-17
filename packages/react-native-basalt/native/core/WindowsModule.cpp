@@ -36,6 +36,7 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
   methodMap_["open"] = MethodMetadata{1, open};
   methodMap_["close"] = MethodMetadata{1, close};
   methodMap_["getWindows"] = MethodMetadata{0, getWindows};
+  methodMap_["interceptClose"] = MethodMetadata{2, interceptClose};
   // What a NativeEventEmitter over this module calls; the event goes out as a
   // device event either way.
   methodMap_["addListener"] = MethodMetadata{1, noop};
@@ -50,12 +51,22 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
                       args.emplace_back(Value(static_cast<int>(surfaceId)));
                     });
   });
+
+  // Somebody tried to close a window that asked to be asked first. The window
+  // is still open; what happens next is the app's decision.
+  setHostWindowCloseRequestListener([this](facebook::react::SurfaceId surfaceId) {
+    emitDeviceEvent(kWindowCloseRequestedEvent,
+                    [surfaceId](Runtime & /*runtime*/, std::vector<Value> &args) {
+                      args.emplace_back(Value(static_cast<int>(surfaceId)));
+                    });
+  });
 }
 
 DesktopWindowsModule::~DesktopWindowsModule() {
   // The listener holds this module's emitter. Cleared on the way out, the same
   // arrangement the title bar has with its metrics listener.
   setHostWindowClosedListener(nullptr);
+  setHostWindowCloseRequestListener(nullptr);
 }
 
 Value DesktopWindowsModule::noop(Runtime & /*runtime*/,
@@ -109,6 +120,24 @@ Value DesktopWindowsModule::close(Runtime & /*runtime*/,
   if (count >= 1 && args[0].isNumber()) {
     const auto surfaceId = static_cast<facebook::react::SurfaceId>(args[0].asNumber());
     postToUiThread([surfaceId] { closeHostWindow(surfaceId); });
+  }
+  return Value::undefined();
+}
+
+Value DesktopWindowsModule::interceptClose(Runtime & /*runtime*/,
+                                           TurboModule & /*module*/,
+                                           const Value *args,
+                                           size_t count) {
+  if (count >= 1 && args[0].isNumber()) {
+    const auto surfaceId = static_cast<facebook::react::SurfaceId>(args[0].asNumber());
+    const bool intercepted = count >= 2 && args[1].isBool() && args[1].getBool();
+    // No hop. This is read from inside a close handler on the UI thread, which
+    // cannot wait for the JavaScript thread to get around to setting it -- and
+    // it is a flag behind a mutex, not a toolkit call, so there is nothing to
+    // marshal. Setting it late means one close that is not intercepted, which
+    // is a window that closes; setting it on a hop could mean a close handler
+    // reading a flag the app set several frames ago.
+    setHostWindowCloseIntercepted(surfaceId, intercepted);
   }
   return Value::undefined();
 }

@@ -41,6 +41,25 @@
  * flag would stay true after the window had gone, the next render would try to
  * close a window that closed itself, and the window could never be reopened.
  *
+ * ## `onCloseRequest`
+ *
+ *   <Window onCloseRequest={close => (dirty ? ask() : close())}>
+ *
+ * The other half of `onClose`, and the earlier one: somebody is *trying* to
+ * close the window and it has not closed. A `<Window>` with this prop refuses
+ * every close the window manager asks for and reports the attempt instead, so
+ * the app can ask "are you sure".
+ *
+ * There are two ways to then say yes, and they are not the same one written
+ * twice. Unmounting the `<Window>` is the React-shaped one and usually right --
+ * the window is a render of some state, and agreeing to close it is that state
+ * changing. The `close` the handler is handed is the other, for when the app
+ * has no such state to change, and it closes the window without `onClose`,
+ * because an app that just said yes is not waiting to be told.
+ *
+ * `onClose` is unaffected by any of this: it still means the person closed the
+ * window, which now only happens when there is no handler to refuse it.
+ *
  * `useWindow()` inside a second window's tree still reports the *active*
  * window, not the one it is in; that is a real gap and is in plan/backlog.md.
  *
@@ -51,6 +70,8 @@
 
 import * as React from 'react';
 import {AppRegistry, DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
+
+import {useCloseRequestFor} from './closeRequest';
 
 const NativeWindows = TurboModuleRegistry.get('BasaltWindows');
 
@@ -110,7 +131,7 @@ function ensureRegistered() {
   AppRegistry.registerComponent(CONTENT_COMPONENT, () => WindowContent);
 }
 
-export function Window({title, width, height, children, onClose}) {
+export function Window({title, width, height, children, onClose, onCloseRequest}) {
   const id = React.useRef(null);
   if (id.current == null) {
     id.current = nextId++;
@@ -126,6 +147,12 @@ export function Window({title, width, height, children, onClose}) {
   // The surface id the host gave us, which is what closes the window. Kept in a
   // ref rather than in state: nothing renders differently for it.
   const surfaceId = React.useRef(null);
+  // And the same id in state, which `onCloseRequest` needs. A ref changing is
+  // not a render, and the intercept has to be registered once the host has
+  // answered with an id -- which is a promise later than the effect that asked
+  // for the window. Two homes for one number, because the two readers want
+  // different things from it.
+  const [opened, setOpened] = React.useState(null);
 
   // In a ref so that the subscription below does not have to be torn down and
   // rebuilt every time an app passes a new closure, which is every render.
@@ -152,12 +179,21 @@ export function Window({title, width, height, children, onClose}) {
       // Forgotten first, so the cleanup below does not ask the host to close a
       // window that is already gone.
       surfaceId.current = null;
+      setOpened(null);
       if (onCloseRef.current != null) {
         onCloseRef.current();
       }
     });
     return () => subscription.remove();
   }, []);
+
+  // Asked before it closes, if the app wants to be. See closeRequest.js.
+  useCloseRequestFor(
+    () => opened,
+    windowId => NativeWindows.close(windowId),
+    onCloseRequest,
+    [opened],
+  );
 
   React.useEffect(() => {
     if (!isSupported) {
@@ -182,6 +218,7 @@ export function Window({title, width, height, children, onClose}) {
         return;
       }
       surfaceId.current = opened;
+      setOpened(opened);
     });
 
     return () => {

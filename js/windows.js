@@ -12,6 +12,12 @@
  * closure rather than through context, which is exactly the boundary
  * `<Window>`'s header describes.
  *
+ * Two more apps below cover being *asked* before a window closes, which is the
+ * other half: `<Window onCloseRequest>` and `useCloseRequest()`. They are
+ * separate registrations rather than more buttons on this one because each has
+ * to have a single stable answer -- a screen that both refuses and allows is a
+ * screen whose state depends on when you look.
+ *
  * @format
  */
 
@@ -19,7 +25,7 @@
 
 import * as React from 'react';
 import {AppRegistry, Platform, Pressable, StyleSheet, Text, View} from 'react-native';
-import {Window} from 'react-native-basalt';
+import {Window, useCloseRequest} from 'react-native-basalt';
 
 console.log(`Platform.OS is ${Platform.OS}`);
 console.log(`windows supported: ${Window.isSupported}`);
@@ -96,3 +102,78 @@ function App() {
 }
 
 AppRegistry.registerComponent('BasaltWindows', () => App);
+
+/**
+ * An app that says no.
+ *
+ * Both windows refuse every close: the second one through
+ * `<Window onCloseRequest>`, the app's own through `useCloseRequest()`. Neither
+ * ever calls the `close` it is handed, so neither window goes -- which is what
+ * "are you sure" looks like before anybody has answered.
+ *
+ * The app's own window matters more than it looks. Refusing it is what an app
+ * with unsaved work actually wants, and it is the case where getting the
+ * plumbing wrong means a host that cannot be shut down at all.
+ */
+function Guarded() {
+  const [asking, setAsking] = React.useState(false);
+
+  useCloseRequest(() => {
+    // Deliberately never says yes. The run ends on its own timer instead, which
+    // is the assertion: the window was asked, it refused, and the app carried
+    // on.
+    console.log('windows: the main window was asked to close, and said no');
+  });
+
+  return (
+    <View style={styles.page}>
+      <Text style={styles.label}>Guarded</Text>
+      <Window
+        title="A window that asks"
+        width={520}
+        height={360}
+        onCloseRequest={() => {
+          console.log('windows: the second window was asked to close, and said no');
+          setAsking(true);
+        }}>
+        <View style={styles.second}>
+          <Text style={styles.label}>
+            {asking ? 'Really close?' : 'Second window'}
+          </Text>
+        </View>
+      </Window>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltWindowsGuarded', () => Guarded);
+
+/**
+ * An app that asks and then says yes.
+ *
+ * The same interception, taken all the way round: the close is refused, the app
+ * hears about it, and the app closes the window itself with the `close` it was
+ * handed. Which is the half that says a guarded window can still be closed --
+ * an app that intercepts and never answers has made a window nobody can shut.
+ */
+function Confirming() {
+  return (
+    <View style={styles.page}>
+      <Text style={styles.label}>Confirming</Text>
+      <Window
+        title="A window that agrees"
+        width={520}
+        height={360}
+        onCloseRequest={close => {
+          console.log('windows: the second window was asked to close, and agreed');
+          close();
+        }}>
+        <View style={styles.second}>
+          <Text style={styles.label}>Second window</Text>
+        </View>
+      </Window>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltWindowsConfirming', () => Confirming);

@@ -49,6 +49,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 # asked about, because it differs by machine.
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_identity.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window_close.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_blobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_controls.cpp

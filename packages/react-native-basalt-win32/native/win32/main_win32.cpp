@@ -310,8 +310,19 @@ bool ensureTarget(HostWindow *made) {
 // nothing on screen moves until the window happens to be invalidated by
 // something else -- which reads as "mounting is broken" and is not.
 void requestRepaint() {
-  if (gHost.main().window != nullptr) {
-    InvalidateRect(gHost.main().window, nullptr, FALSE);
+  // Every window. This asked for the app's own and only the app's own, which
+  // was the whole truth when there was only ever one -- and afterwards meant a
+  // second window whose content changed and did not redraw until Windows
+  // happened to invalidate it for some other reason.
+  //
+  // All of them rather than the one the transaction was for, because this is
+  // called from the mount path with no surface in hand. Invalidating a window
+  // that did not change costs one WM_PAINT and is what the main window has
+  // always done for a transaction in the error inspector.
+  for (const auto &window : gHost.windows) {
+    if (window->window != nullptr) {
+      InvalidateRect(window->window, nullptr, FALSE);
+    }
   }
 }
 
@@ -987,12 +998,27 @@ void shutdown() {
   }
   gHost.choreographer.reset();
   gHost.runLoopObserverManager.reset();
-  // Before the manager it holds a raw pointer into. Nothing can reach it by
-  // now -- the message loop has already returned -- but the order is the part
-  // that stays true if that ever stops being so.
-  gHost.main().touchDispatcher.reset();
+
+  // Every window, not only the app's own -- which is what this said when there
+  // was only ever one, and did not say when there stopped being.
+  //
+  // It matters most for the Direct2D target. A record left for `gHost`'s own
+  // destructor is released at static destruction, which is after `main` has
+  // returned and after `CoUninitialize`, and releasing a COM interface once COM
+  // has been torn down is undefined rather than merely late. A second window
+  // still open at quit is exactly when that happens.
+  //
+  // The dispatchers go before the manager they hold a raw pointer into. Nothing
+  // can reach them by now -- the message loop has already returned -- but the
+  // order is the part that stays true if that ever stops being so.
+  for (const auto &window : gHost.windows) {
+    window->focusManager.reset();
+    window->touchDispatcher.reset();
+    window->target.Reset();
+  }
+  // And the roots, which the manager made and which name nothing after it goes.
+  gHost.windows.clear();
   gHost.mountingManager.reset();
-  gHost.main().target.Reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -1422,6 +1448,19 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // reported -- showing the window still open, because it is, and silencing
     // the dump at shutdown that was meant to show it gone.
     case WM_CLOSE:
+      // Somebody is trying to close this window: its caption button, Alt+F4, or
+      // the system menu. WM_CLOSE is the attempt rather than the act -- nothing
+      // is destroyed until DestroyWindow below -- which is what makes it the
+      // place a window that asked to be asked first can refuse.
+      //
+      // Every window, including the app's own: an app that wants to ask "are
+      // you sure" wants to ask hardest about the one it is running in. What
+      // happens next is its decision, and if that is "go ahead" it calls
+      // close() itself.
+      if (self != nullptr && basalt::hostWindowCloseIntercepted(self->surfaceId)) {
+        basalt::hostWindowCloseRequested(self->surfaceId);
+        return 0;
+      }
       if (self == nullptr || self->surfaceId == kSurfaceId) {
         captureBeforeTeardown();
       }
@@ -1994,7 +2033,12 @@ int main(int argc, char **argv) {
     SetTimer(
         gHost.main().window, kQuitAfterTimer, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
           KillTimer(hwnd, id);
-          PostMessage(hwnd, WM_CLOSE, 0, 0);
+          // What WM_CLOSE does, without going through WM_CLOSE. This is the
+          // harness ending the run, not a person closing a window, and an app
+          // that intercepts its own close would otherwise refuse it -- a test
+          // that asks "does refusing work" by never exiting.
+          captureBeforeTeardown();
+          DestroyWindow(hwnd);
         });
   }
 

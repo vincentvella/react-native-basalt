@@ -38,7 +38,7 @@ export {Menu} from './Menu';
 export {Window} from './Window';
 // The window itself: its size, its position, whether it fills the screen, and
 // live bounds. See useWindow.js.
-export {useWindow, windowControl} from './useWindow';
+export {useWindow, useCloseRequest, windowControl} from './useWindow';
 // The window's title bar: its title and colours, and a hidden style that lets
 // the app draw its own header. See TitleBar.js.
 export {TitleBar, useTitleBar, useTitleBarMetrics} from './TitleBar';

@@ -22,7 +22,8 @@ so notifications and the Dock icon work, and `run-linux` writes a `.desktop`
 entry; and `useDialog()`, `useWindow()`, `<Menu>` and `<Window>` cover the native file
 dialogs, the window's own geometry, the application menu and opening a second
 window, none of which React Native has an API for because a phone has none of
-them;
+them -- a window can also refuse to close and ask first, which is where an app
+with unsaved work puts the question;
 so do Reanimated, gesture-handler, expo-image and a proxy for
 `expo-notifications`. The demo app written for GTK runs on each of them
 unchanged, and `react-native run-linux`, `run-macos` and `run-windows` are one

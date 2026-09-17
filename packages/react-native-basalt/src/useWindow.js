@@ -40,6 +40,24 @@
  * three -- a tiling window manager may ignore it -- which is why `bounds`
  * reports what happened rather than what was asked for.
  *
+ * ## Refusing to close
+ *
+ *   useCloseRequest(close => {
+ *     if (unsaved) {
+ *       setAsking(true);
+ *     } else {
+ *       close();
+ *     }
+ *   });
+ *
+ * A window with a close handler stops closing on its own: every attempt -- its
+ * close button, Cmd-W, Alt+F4, the window manager -- is refused and reported,
+ * and the window goes when the app says so by calling the `close` it was
+ * handed. Which is the point: there is nowhere else to put "are you sure".
+ *
+ * On macOS this covers closing the window and not Cmd-Q, which terminates the
+ * application without asking any window whether it minds.
+ *
  * @format
  */
 
@@ -47,6 +65,8 @@
 
 import * as React from 'react';
 import {DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
+
+import {mainWindowId, useCloseRequestFor} from './closeRequest';
 
 const NativeWindow = TurboModuleRegistry.get('BasaltWindow');
 
@@ -102,6 +122,16 @@ export const windowControl = Object.freeze({
     return readBounds();
   },
 });
+
+/**
+ * Be asked before this window closes.
+ *
+ * Pass null or nothing to stop being asked, which is also what unmounting does.
+ * See the header above, and `<Window onCloseRequest>` for a second window.
+ */
+export function useCloseRequest(handler) {
+  useCloseRequestFor(mainWindowId, () => windowControl.close(), handler, []);
+}
 
 export function useWindow() {
   const [bounds, setBounds] = React.useState(readBounds);

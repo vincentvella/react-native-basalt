@@ -46,6 +46,13 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
                                          facebook::react::TurboModule &module,
                                          const facebook::jsi::Value *args,
                                          size_t count);
+  // `interceptClose(surfaceId, true)` -- this window refuses the window manager
+  // and reports the attempt instead. See core/WindowHost.h for why it is a flag
+  // set in advance rather than an answer given when asked.
+  static facebook::jsi::Value interceptClose(facebook::jsi::Runtime &runtime,
+                                             facebook::react::TurboModule &module,
+                                             const facebook::jsi::Value *args,
+                                             size_t count);
   static facebook::jsi::Value noop(facebook::jsi::Runtime &runtime,
                                    facebook::react::TurboModule &module,
                                    const facebook::jsi::Value *args,
@@ -55,5 +62,10 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
 // The device event a window's closing arrives on. Named here so the two sides
 // cannot drift.
 inline constexpr const char *kWindowClosedEvent = "basaltWindowClosed";
+
+// And the one a window's *attempted* closing arrives on: somebody tried, the
+// window is still open, and the app decides. Only ever sent for a window that
+// asked to intercept.
+inline constexpr const char *kWindowCloseRequestedEvent = "basaltWindowCloseRequested";
 
 } // namespace basalt

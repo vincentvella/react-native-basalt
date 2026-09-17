@@ -597,10 +597,14 @@ has gone unrecorded until now.
     bars.
   - **The title bar and the error inspector are the main window's.** Both are
     process-wide seams; making them per-window is its own piece of work.
-  - **A window an app opened cannot refuse to close.** Closing it from the
-    window manager tells the app through `onClose`, which is enough to keep the
-    two sides agreeing -- but there is no "are you sure", because nothing
-    reports a close *attempt*.
+  - ~~**A window an app opened cannot refuse to close.**~~ Done, and for the
+    app's own window too: `<Window onCloseRequest>` and `useCloseRequest()`. A
+    registration rather than a returned `false`, because the window manager
+    wants a synchronous answer and the handler is on another thread -- so the
+    decision has to exist before the attempt. What is left is **quitting**,
+    which is a different event from closing a window: Cmd-Q on macOS terminates
+    without asking any window whether it minds, and the Windows and GNOME
+    session-end signals are the same question. Each needs its own seam.
   - **`<Modal>` is still an in-surface overlay**, though a real window is now
     something this platform could do.
 - **Packaging is macOS and Linux only, and shallow.** `react-native run-macos`
@@ -619,10 +623,12 @@ has gone unrecorded until now.
   `toggleMaximize`, `close`, and live `bounds`. What is left is the part GTK4
   will not do at all -- `setPosition` and `center` are no-ops on Linux and
   `bounds.x` is always zero there, because `gtk_window_move` is gone and Wayland
-  has no equivalent -- plus the window's own lifecycle: nothing reports a close
-  attempt, so an app cannot ask "are you sure", and there is no minimum or
-  maximum size, no resizable flag, and no always-on-top.
-- **Window close behaviour**, which an app cannot influence. The title can be, on Windows, with the title bar's colours
+  has no equivalent -- plus the rest of the window's own lifecycle. A close
+  attempt is reported now, so an app can ask "are you sure"; there is still no
+  minimum or maximum size, no resizable flag, and no always-on-top.
+- **Window close behaviour** is an app's to influence now: `useCloseRequest()`
+  and `<Window onCloseRequest>` refuse the close and report the attempt, which
+  is where "are you sure" goes. The title can be too, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,
   `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
   react-native-basalt. Linux and macOS ignore those calls until their hosts

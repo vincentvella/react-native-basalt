@@ -2291,6 +2291,100 @@ def test_windows(bundle: Path) -> None:
         raise Failure(f"a window the person closed is still in the tree:\n{tree}")
 
 
+def test_window_close_request(bundle: Path) -> None:
+    """Being asked before a window closes, and refusing.
+
+    The other half of `onClose`, and the earlier one. `onClose` says a window
+    *has* closed; this says somebody is trying to, and it has not -- which is
+    the only place an app can put "are you sure", because by the time the window
+    has gone there is nothing left to ask about.
+
+    It cannot work the way Electron's `preventDefault` does. The handler is
+    JavaScript on another thread and the window manager wants a synchronous yes
+    or no, so the decision has to exist before the attempt: registering a
+    handler is what makes it exist, and the host then refuses every close and
+    reports it. See native/core/WindowHost.h.
+
+    Three runs, because there are three answers and a screen with more than one
+    of them is a screen whose answer depends on when you look:
+
+      refused       a second window with a handler does not close, and the app
+                    re-renders knowing it was asked.
+
+      agreed        the same interception taken all the way round -- refused,
+                    reported, and closed by the app with the `close` it was
+                    handed. Without this half, intercepting would be a way to
+                    make a window nobody can shut.
+
+      the app's own the case that matters most and breaks worst. An app with
+                    unsaved work wants to refuse *its own* window, and a host
+                    that cannot then be shut down at all is the failure. This
+                    run refuses and asserts the host still exited on its own
+                    timer.
+    """
+    app = bundle_app(bundle.parent, "windows")
+
+    def run(component: str, closing: int, run_ms: int) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            # Closes the window the way its own close button does, which is the
+            # only thing an interception ever refuses: an app closing its own
+            # window is not asking anybody. See docs/TESTING.md.
+            env["BASALT_TEST_CLOSE_WINDOW"] = str(closing)
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+                env.pop(name, None)
+            result = subprocess.run(
+                [str(HOST), str(app), component],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 90,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            tree = dump.read_text() if dump.exists() else ""
+            return tree, result.stdout + result.stderr
+
+    tree, logged = run("BasaltWindowsGuarded", 3, 11000)
+    if "the second window was asked to close, and said no" not in logged:
+        raise Failure(
+            "closing a guarded window told the app nothing. Refusing without "
+            f"reporting is a window that cannot be closed and never says why.\n"
+            f"{tail_text(logged)}"
+        )
+    if "--- window 3 ---" not in tree:
+        raise Failure(f"a window that refused to close closed anyway:\n{tree}")
+    if 'text="Really close?"' not in tree:
+        raise Failure(
+            "the window stayed open but the app did not re-render knowing it "
+            f"had been asked, which is the whole point of being told.\n{tree}"
+        )
+
+    tree, logged = run("BasaltWindowsConfirming", 3, 11000)
+    if "the second window was asked to close, and agreed" not in logged:
+        raise Failure(f"the app was never asked:\n{tail_text(logged)}")
+    if "--- window 3 ---" in tree:
+        raise Failure(
+            "the app agreed to close the window and it is still open. An "
+            f"interception that cannot be lifted is a window nobody can shut.\n{tree}"
+        )
+
+    # The app's own window. Nothing here closes it in the end -- the run stops
+    # on its own timer, which is the assertion: a host whose main window refuses
+    # to close still shuts down when the harness says so, and a host where that
+    # is not true hangs rather than fails.
+    tree, logged = run("BasaltWindowsGuarded", 1, 8000)
+    if "the main window was asked to close, and said no" not in logged:
+        raise Failure(
+            "closing the app's own window told it nothing. This is the one an "
+            f"app with unsaved work most wants to refuse.\n{tail_text(logged)}"
+        )
+    if "--- window 1 ---" not in tree and "view tag=1" not in tree:
+        raise Failure(f"the app's own window closed after refusing to:\n{tree}")
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -2315,6 +2409,7 @@ SCENARIOS = [
     ("the application menu is installed, roles and all", test_application_menu),
     ("a second window is a second React tree, and the two stay in step",
      test_windows),
+    ("a window can refuse to close, and say so", test_window_close_request),
     ("DevTools' overlay draws a highlight, and a trace update takes itself down",
      test_debugging_overlay),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),
@@ -2397,9 +2492,21 @@ def main() -> int:
         except Failure as failure:
             failed += 1
             print(f"  FAIL  {name}\n        {failure}")
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as expired:
             failed += 1
             print(f"  FAIL  {name}\n        the host did not exit")
+            # What it had said before it stopped saying anything. Without this a
+            # hang is the least informative failure there is -- `capture_output`
+            # swallows the pipes, so the report was four words and nothing else,
+            # which on a platform that only runs in CI is nothing to work from.
+            for stream, label in ((expired.stdout, "stdout"), (expired.stderr, "stderr")):
+                if not stream:
+                    continue
+                if isinstance(stream, bytes):
+                    stream = stream.decode("utf-8", "replace")
+                print(f"        --- last of the host's {label} ---")
+                for line in tail_text(stream, 20).splitlines():
+                    print(f"        {line}")
 
     total = len(SCENARIOS) - skipped
     tally = f"\n{total - failed}/{total} passed"

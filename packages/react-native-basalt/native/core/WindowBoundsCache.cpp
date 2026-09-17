@@ -14,6 +14,7 @@
 #include "WindowHost.h"
 
 #include <mutex>
+#include <set>
 #include <utility>
 
 namespace basalt {
@@ -78,6 +79,19 @@ std::function<void(facebook::react::SurfaceId)> &closedListener() {
   return value;
 }
 
+// Which windows have an app listening for close attempts, and the listener that
+// tells it about one -- the "refusing to close" half below. Declared up here
+// because `hostWindowClosed` forgets a window's interception on the way out.
+std::set<facebook::react::SurfaceId> &intercepted() {
+  static std::set<facebook::react::SurfaceId> value;
+  return value;
+}
+
+std::function<void(facebook::react::SurfaceId)> &closeRequestListener() {
+  static std::function<void(facebook::react::SurfaceId)> value;
+  return value;
+}
+
 } // namespace
 
 void setHostWindowClosedListener(std::function<void(facebook::react::SurfaceId)> listener) {
@@ -90,9 +104,49 @@ void hostWindowClosed(facebook::react::SurfaceId surfaceId) {
   {
     const std::lock_guard<std::mutex> guard(lock());
     toCall = closedListener();
+    // A window that is gone cannot refuse anything, and leaving its id behind
+    // would mark whichever window is given that surface id next. Surface ids
+    // are not reused today; relying on that would be relying on it.
+    intercepted().erase(surfaceId);
   }
   // Outside the lock: it emits a device event, and holding a lock across a call
   // into the runtime is how a deadlock is built.
+  if (toCall) {
+    toCall(surfaceId);
+  }
+}
+
+// --- Windows refusing to close ----------------------------------------------
+//
+// Here for the same reason as the rest of this file: three hosts would each
+// have written the same set and the same null check, and what differs between
+// them is only which toolkit message means "somebody is trying to close this".
+
+void setHostWindowCloseIntercepted(facebook::react::SurfaceId surfaceId, bool value) {
+  const std::lock_guard<std::mutex> guard(lock());
+  if (value) {
+    intercepted().insert(surfaceId);
+  } else {
+    intercepted().erase(surfaceId);
+  }
+}
+
+bool hostWindowCloseIntercepted(facebook::react::SurfaceId surfaceId) {
+  const std::lock_guard<std::mutex> guard(lock());
+  return intercepted().count(surfaceId) != 0;
+}
+
+void setHostWindowCloseRequestListener(std::function<void(facebook::react::SurfaceId)> listener) {
+  const std::lock_guard<std::mutex> guard(lock());
+  closeRequestListener() = std::move(listener);
+}
+
+void hostWindowCloseRequested(facebook::react::SurfaceId surfaceId) {
+  std::function<void(facebook::react::SurfaceId)> toCall;
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    toCall = closeRequestListener();
+  }
   if (toCall) {
     toCall(surfaceId);
   }
