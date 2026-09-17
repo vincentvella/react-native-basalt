@@ -647,10 +647,20 @@ has gone unrecorded until now.
   with `<Menu.Item role="copy" />`, over NSMenu and an HMENU. `Menu.isSupported`
   is false on Linux and is not a gap -- GNOME's guidelines have said to use a
   header bar with a menu button since GNOME 3, and GTK4 removed the widget.
-  What is left: no context-menu API, though the seam under it exists and the
-  developer menu uses it; no checkbox or radio items; no dynamic enabling
-  without re-rendering the whole menu; and the role labels are English, because
-  nothing here is localised.
+  Context menus are done too, on all three -- `useContextMenu().show(items,
+  where)`, which answers with the index chosen or null. That one is *more*
+  portable than the menu bar rather than less: a popup is something every
+  desktop has always had, including the one with no menu bar.
+
+  What is left: **a right-click does not open one by itself**. Every host
+  forwards a secondary click as an ordinary press, because React Native's touch
+  model has no concept of which button -- that belongs to pointer events -- so
+  an app opens a context menu from `onLongPress`, a button or a key. Carrying
+  button identity from three toolkits through the dispatchers and out to
+  JavaScript is the work, and it is the same seam pointer events would need.
+  Also: no checkbox or radio items; no submenus in a popup, which is deliberate
+  rather than missing; no dynamic enabling without re-rendering the whole menu;
+  and the role labels are English, because nothing here is localised.
 - ~~**Native file dialogs.**~~ Done on all three: `useDialog().openFile()`,
   `saveFile()` and `openFolder()`, over `GtkFileDialog`, `NSOpenPanel` /
   `NSSavePanel` and `IFileDialog`. What is left is the rest of what a desktop

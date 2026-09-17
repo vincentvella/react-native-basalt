@@ -1,9 +1,12 @@
 // `BasaltMenu`: the application menu, from JavaScript.
 //
-// One method and one event. `<Menu>` describes a menu, this installs it, and an
-// item the app owns comes back as a device event carrying its id -- which is
-// the same arrangement the title bar and the window use, for the same reason:
-// a menu item is chosen at a time nothing is waiting for it.
+// The application menu: `<Menu>` describes one, this installs it, and an item
+// the app owns comes back as a device event carrying its id -- which is the
+// same arrangement the title bar and the window use, for the same reason: a
+// menu item is chosen at a time nothing is waiting for it.
+//
+// And context menus, which are the other kind and answer differently. See
+// `showContextMenu` below.
 //
 // Roles never come back. They are handled where they are: see
 // core/MenuModel.h, and appkit/AppKitMenuBar.mm for the part that makes Cmd-C
@@ -38,6 +41,18 @@ class DesktopMenuModule : public facebook::react::TurboModule {
                                           facebook::react::TurboModule &module,
                                           const facebook::jsi::Value *args,
                                           size_t count);
+  // `showContextMenu(items, x, y)` -> a promise of the index chosen, or null
+  // when it was dismissed.
+  //
+  // A promise rather than the device event the application menu uses, and the
+  // difference is worth saying. A menu bar is installed once and its items are
+  // chosen at times nothing is waiting for; a context menu is opened by an app
+  // that is, right then, asking a question -- so the answer belongs to the call
+  // that asked it rather than to a listener somewhere else.
+  static facebook::jsi::Value showContextMenu(facebook::jsi::Runtime &runtime,
+                                              facebook::react::TurboModule &module,
+                                              const facebook::jsi::Value *args,
+                                              size_t count);
   static facebook::jsi::Value noop(facebook::jsi::Runtime &runtime,
                                    facebook::react::TurboModule &module,
                                    const facebook::jsi::Value *args,

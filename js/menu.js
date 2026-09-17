@@ -12,6 +12,10 @@
  * that renders no <Menu> at all still gets an Edit menu, because it still has
  * text fields. Type in the field and copy: without the menu, nothing happens.
  *
+ * A second app below is about the *other* kind of menu -- the one that pops up
+ * where you press. Every desktop has one, including the one with no menu bar,
+ * which is what makes it the more portable of the two.
+ *
  * @format
  */
 
@@ -21,12 +25,13 @@ import * as React from 'react';
 import {
   AppRegistry,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import {Menu} from 'react-native-basalt';
+import {Menu, useContextMenu} from 'react-native-basalt';
 
 console.log(`Platform.OS is ${Platform.OS}`);
 console.log(`menu supported: ${Menu.isSupported}`);
@@ -43,6 +48,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   chosen: {color: '#dde', fontSize: 14, height: 22},
+  button: {
+    width: 220,
+    height: 48,
+    borderRadius: 8,
+    marginBottom: 12,
+    backgroundColor: '#4285f4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {color: '#fff', fontSize: 15},
 });
 
 function App() {
@@ -91,3 +106,60 @@ function App() {
 }
 
 AppRegistry.registerComponent('BasaltMenu', () => App);
+
+/**
+ * The other kind of menu: the one that pops up where you press.
+ *
+ * Its own screen rather than another button on the one above, because the two
+ * are different shapes for different jobs -- a menu bar nests and carries
+ * roles, a popup is a list -- and a screen showing both would suggest they are
+ * the same thing spelled twice.
+ *
+ * Opened from a press rather than a right-click, which is the honest state of
+ * it: every host forwards a secondary click as an ordinary press, because React
+ * Native's touch model has no concept of which button. See useContextMenu.js.
+ */
+function Context() {
+  const menu = useContextMenu();
+  const [chosen, setChosen] = React.useState('nothing yet');
+
+  // Logged as well as rendered, because `onSelect` running is the half most
+  // callers use and a rendered string is not visible to a run that does not
+  // dump the tree.
+  const pick = label => () => {
+    console.log(`context menu selected: ${label}`);
+    setChosen(label);
+  };
+
+  const open = async where => {
+    const index = await menu.show(
+      [
+        {label: 'Copy', shortcut: 'Cmd+C', onSelect: pick('Copy')},
+        {separator: true},
+        {label: 'Rename', onSelect: pick('Rename')},
+        {label: 'Delete', enabled: false, onSelect: pick('Delete')},
+      ],
+      where,
+    );
+    // The index says a dismissal and a choice are told apart, and `null` for
+    // dismissed is the same shape the file dialogs answer a cancel with.
+    console.log(`context menu answered: ${index == null ? 'dismissed' : index}`);
+  };
+
+  return (
+    <View style={styles.page}>
+      <Text style={styles.label}>Context menu</Text>
+      <Pressable
+        style={styles.button}
+        onPress={event => {
+          console.log('context menu: opening');
+          open(event.nativeEvent);
+        }}>
+        <Text style={styles.buttonText}>Open a context menu</Text>
+      </Pressable>
+      <Text style={styles.chosen}>{`chose: ${chosen}`}</Text>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltContextMenu', () => Context);

@@ -2017,6 +2017,78 @@ def test_window(bundle: Path) -> None:
         )
 
 
+def test_context_menu(bundle: Path) -> None:
+    """The other kind of menu: the one that pops up where you press.
+
+    Runs the second app in js/menu.js. A press opens a four-entry popup --
+    a separator and a disabled item among them -- and BASALT_TEST_MENU answers
+    it, because a menu cannot be dismissed by an automated run. On macOS that is
+    not a convenience: `popUpMenuPositioningItem` runs the menu's own tracking
+    loop on the main thread, so a popup nobody closes stops the process where it
+    stands.
+
+    Two runs, because a menu has two answers and they must not be the same one:
+
+      chosen      index 2 is Rename, which is past a separator. Indexes count
+                  separators so they line up with the list that was passed in,
+                  and getting that wrong shows up as an app acting on the item
+                  above or below the one a person picked.
+
+      dismissed   null, not an index -- the shape a cancelled file dialog
+                  answers with, and for the same reason: an index is a number,
+                  and a caller checking `if (index)` would read entry zero as
+                  nothing.
+
+    Unlike the application menu this runs on all three, which is the point of it
+    existing: `Menu.isSupported` is false on GNOME, and a popup is something
+    every desktop has always had.
+    """
+    app = bundle_app(bundle.parent, "menu")
+
+    def run(answer: str) -> str:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "8000"
+        # The button is at (134, 70): 24 of padding, a 22-tall label, then a
+        # 220x48 button.
+        env["BASALT_TEST_TAP"] = "134,70"
+        env["BASALT_TEST_MENU"] = answer
+        for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                     "BASALT_TEST_SCROLL", "BASALT_TEST_CLOSE_WINDOW"):
+            env.pop(name, None)
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltContextMenu"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        return result.stdout + result.stderr
+
+    logged = run("2")
+    if "context menu: opening" not in logged:
+        raise Failure(f"the press never reached the app.\n{tail_text(logged)}")
+    if "context menu answered: 2" not in logged:
+        raise Failure(
+            "choosing entry 2 did not come back as 2. Indexes count separators, "
+            "so an off-by-one here is an app acting on the item next to the one "
+            f"a person picked.\n{tail_text(logged)}"
+        )
+    # The onSelect half: `show()` calls the chosen item's handler before it
+    # resolves, which is what most callers use instead of the index. Rename is
+    # entry 2, so this also says the index was mapped back to the right item.
+    if "context menu selected: Rename" not in logged:
+        raise Failure(
+            f"the chosen item's onSelect never ran.\n{tail_text(logged)}"
+        )
+
+    logged = run("dismiss")
+    if "context menu answered: dismissed" not in logged:
+        raise Failure(
+            "a dismissed menu did not answer null. An index is a number, and a "
+            "caller checking `if (index)` would read entry zero as nothing.\n"
+            f"{tail_text(logged)}"
+        )
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2540,6 +2612,8 @@ SCENARIOS = [
     ("a window says how big it may be, and what this desktop can do about it",
      test_window_limits),
     ("the application menu is installed, roles and all", test_application_menu),
+    ("a context menu opens where you press, and says what was chosen",
+     test_context_menu),
     ("a second window is a second React tree, and the two stay in step",
      test_windows),
     ("a window can refuse to close, and say so", test_window_close_request),

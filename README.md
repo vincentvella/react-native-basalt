@@ -20,8 +20,8 @@ should. `Alert`, `Share`, `Linking`, `Animated` with the native driver,
 -- Ctrl+D, Cmd+D on macOS -- work on all three; `run-macos` builds a real `.app`
 so notifications and the Dock icon work, and `run-linux` writes a `.desktop`
 entry; and `useDialog()`, `useWindow()`, `<Menu>` and `<Window>` cover the native file
-dialogs, the window's own geometry, the application menu and opening a second
-window, none of which React Native has an API for because a phone has none of
+dialogs, the window's own geometry, the application menu, context menus and
+opening a second window, none of which React Native has an API for because a phone has none of
 them -- a window can also refuse to close and ask first, which is where an app
 with unsaved work puts the question, and say how big it may be;
 so do Reanimated, gesture-handler, expo-image and a proxy for
