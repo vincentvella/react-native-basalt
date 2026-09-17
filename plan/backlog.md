@@ -824,9 +824,11 @@ input, `PanResponder` and command routing with them. What is left:
   accent colour and exposes nothing per instance, so `trackColor` and
   `thumbColor` do nothing on macOS. The tree dump does not print colours, so
   this is a difference in pixels rather than in behaviour.
-- **Nothing is keyboard-reachable that is not `accessible`.** A `<Switch>` is
-  pressed with the mouse and not with the keyboard, because React Native's
-  `focusable` prop never reaches this platform -- see the accessibility section.
+- **Nothing is keyboard-reachable that is not `accessible` or a control.**
+  React Native's `focusable` prop never reaches this platform -- see the
+  accessibility section -- so `accessible` is the signal, plus being a control:
+  a `<Switch>` is a Tab stop and Enter toggles it, and a disabled one is skipped.
+  Everything else an app wants in the tab order still has to say `accessible`.
 - **No dev menu item toggles Fast Refresh.** The menu has Reload, Toggle
   Element Inspector and Open Debugger; `DevSettings.setHotLoadingEnabled` is a
   no-op stub in ReactCxxPlatform, so turning Fast Refresh off means calling

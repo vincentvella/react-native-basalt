@@ -559,7 +559,21 @@ void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shad
   // because it is what <Pressable> sets on everything it renders. A hidden view
   // is not focusable whatever it says: Tab stopping on something nobody can see
   // is worse than Tab skipping it.
-  rn_view_set_focusable(view, props->accessible && !props->accessibilityElementsHidden ? TRUE : FALSE);
+  // A control is focusable whether or not the app said `accessible`.
+  //
+  // React Native's `focusable` prop never reaches this platform -- ReactCommon
+  // parses it only into Android's and tvOS's props -- so `accessible` is the
+  // signal, and <Pressable> sets it. <Switch> does not: on a phone the native
+  // control is focusable by being a control, and React Native never had to say
+  // so. On a desktop a switch that Tab skips is simply broken, so being a
+  // control is the signal here too.
+  // Disabled is excluded, which is what every desktop does: Tab skips a control
+  // that cannot be operated rather than stopping on one that does nothing.
+  const basalt::ControlState control = basalt::controlStateOf(shadowView);
+  const bool isControl = control.kind == basalt::ControlKind::Switch && !control.disabled;
+  rn_view_set_focusable(
+      view,
+      (props->accessible || isControl) && !props->accessibilityElementsHidden ? TRUE : FALSE);
 
   // accessibilityElementsHidden hides the subtree; importantForAccessibility
   // NoHideDescendants is Android's spelling of the same idea.

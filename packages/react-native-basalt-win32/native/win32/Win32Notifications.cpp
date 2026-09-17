@@ -39,11 +39,16 @@
 
 #include <shellapi.h>
 
+#include <cwchar>
 #include <mutex>
 #include <string>
 #include <vector>
 
 namespace basalt {
+
+// Win32Strings.h puts it in basalt::win32; this file is the notification seam,
+// which is plain `basalt`. PlatformServicesWin32.cpp does the same.
+using win32::widen;
 
 namespace {
 
@@ -215,7 +220,6 @@ void dismissAllNotifications() {
   if (showing().empty()) {
     return;
   }
-  const std::string identifier = showing();
   showing().clear();
 
   NOTIFYICONDATAW data{};

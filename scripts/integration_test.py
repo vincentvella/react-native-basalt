@@ -1686,6 +1686,25 @@ def test_controls(bundle: Path) -> None:
             f"{tree}"
         )
 
+    # --- a switch is reachable from the keyboard -----------------------------
+    #
+    # React Native's `focusable` prop never reaches this platform, so
+    # `accessible` is the signal -- and <Switch> does not set it, because on a
+    # phone the native control is focusable by being a control. On a desktop a
+    # switch Tab skips is broken, so being a control is the signal here too.
+    tree, logged = run(9000, BASALT_TEST_FOCUS="tab;activate")
+
+    if "switch one -> true" not in logged:
+        raise Failure(
+            "Tab did not reach a <Switch>, or Enter did not toggle it.\n"
+            f"{tail_text(logged)}"
+        )
+    # The disabled one is not a stop. Every desktop skips a control that cannot
+    # be operated rather than stopping on one that does nothing.
+    for line in tree.splitlines():
+        if "control=switch:on:disabled" in line and "focusable" in line:
+            raise Failure(f"a disabled <Switch> is in the tab order:\n{line}")
+
     # --- the modal opens, and Escape asks the app to close it ----------------
     _, logged = run(9000, BASALT_TEST_TAP="114,226", BASALT_TEST_FOCUS="escape")
 

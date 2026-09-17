@@ -5,8 +5,10 @@
 
 #include <windows.h>
 
+#include <knownfolders.h>
 #include <objbase.h>
 #include <propkey.h>
+#include <propsys.h>
 #include <propvarutil.h>
 #include <shlobj.h>
 #include <shobjidl.h>

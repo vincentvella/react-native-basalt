@@ -150,6 +150,12 @@ bool Win32FocusManager::activateFocused() {
   // True whether or not anything is listening: the key belongs to the focused
   // view either way, and letting it travel on because a view between a Remove
   // and its Delete has no emitter would deliver it somewhere else.
+  // A <Switch> is toggled from here too. It listens for no click -- React
+  // Native's is a controlled component driven by its own native control -- so
+  // without this a switch that Tab reaches is one Enter cannot work. The same
+  // call the touch path makes, and a no-op for every view that is not a switch.
+  mountingManager_->pressedView(focusedTag_);
+
   const auto emitter = mountingManager_->eventEmitterForTag(focusedTag_);
   if (emitter == nullptr) {
     return true;

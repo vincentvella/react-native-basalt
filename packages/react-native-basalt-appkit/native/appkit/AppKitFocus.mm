@@ -97,7 +97,15 @@ bool AppKitFocusManager::activate(RnAppKitView *view) {
 }
 
 bool AppKitFocusManager::activateFocused() {
-  return focusedTag_ != 0 && dispatchClick(focusedTag_);
+  if (focusedTag_ == 0) {
+    return false;
+  }
+  // A <Switch> is toggled from here too. It listens for no click -- React
+  // Native's is a controlled component driven by its own native control -- so
+  // without this a switch that Tab reaches is one Enter cannot work. The same
+  // call the touch path makes, and a no-op for every view that is not a switch.
+  mountingManager_->pressedView(focusedTag_);
+  return dispatchClick(focusedTag_);
 }
 
 bool AppKitFocusManager::dispatchClick(Tag tag) {
