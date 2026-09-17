@@ -435,6 +435,15 @@ so anything importing them dies at startup.
   (phase 26) and `AccessibilityInfo.js` (phase 32) all did this, each found by an
   app failing rather than by review. Worth checking for deliberately the next
   time a module misbehaves.
+- **Notifications on macOS need a person.** The implementation is real --
+  `UNUserNotificationCenter`, behind the bundle check that keeps an unbundled
+  host from raising `bundleProxyForCurrentProcess is nil` -- and the first send
+  asks for authorisation. Whether a banner appears then depends on someone
+  granting it, which needs a real launch and a real prompt; an automated run
+  gets "Notifications are not allowed for this application" and cannot do
+  anything about it. What *is* asserted is that a bundled host answers
+  `granted` where an unbundled one answers `denied`, and that the send is
+  accepted.
 - ~~**`ShareModule`**~~ is done on all three, and it took a JavaScript override
   as well as a module: `Share.js` branches on `Platform.OS` being exactly
   `android` or `ios` and rejects with "Unsupported platform" otherwise, so no
@@ -578,6 +587,16 @@ has gone unrecorded until now.
 
 - **More than one window.** The host creates exactly one and mounts one surface
   in it. Fabric supports multiple surfaces; nothing above it does.
+- **Packaging is macOS and Linux only, and shallow.** `react-native run-macos`
+  builds a real `.app` -- `Info.plist`, an identifier, declared URL schemes, and
+  an ad-hoc signature, which macOS requires before it will grant notification
+  permission at all. What it does not do is an icon (`.icns` needs `iconutil`),
+  a real signing identity, notarisation, or a `.dmg`. `run-linux` writes a
+  `.desktop` file and does not install it -- putting a file in
+  `~/.local/share/applications` is a change to the session that a build command
+  should not make on its own -- and there is no `.deb`, `.rpm` or Flatpak.
+  Windows has neither a Start Menu shortcut nor an AppUserModelID yet, which is
+  what its notifications are waiting on.
 - **Window size, position, fullscreen and close behaviour**, none of which an
   app can influence. The title can be, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,

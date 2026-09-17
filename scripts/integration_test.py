@@ -1437,6 +1437,36 @@ class NotificationService:
         return self.log.read_text() if self.log.exists() else ""
 
 
+def packaged_host(build: Path) -> Path:
+    """The host as the platform's own idea of an application, where that differs.
+
+    macOS is the one that differs and the one this exists for: an executable
+    with no bundle around it has no bundle identifier, and
+    `UNUserNotificationCenter` refuses a process without one -- so the same code
+    answers `denied` out of a build directory and `granted` inside a `.app`.
+    Running the bundled copy is the only way a scenario can see the second.
+
+    Everything else returns the host it was given, because on Linux and Windows
+    nothing about where the executable sits decides anything.
+    """
+    if PLATFORM != "macos":
+        return HOST
+
+    node = subprocess.run(
+        ["node", "-e",
+         "const {packageApp} = require(process.argv[1]);"
+         "process.stdout.write(packageApp({"
+         "platform: 'macos', hostBinary: process.argv[2],"
+         "outputDir: process.argv[3], projectRoot: process.argv[4]}).launchPath);",
+         str(REPO / "packages/react-native-basalt/cli/packageApp.js"),
+         str(HOST), str(build / "app"), str(REPO / "js")],
+        cwd=REPO, capture_output=True, text=True, timeout=120,
+    )
+    if node.returncode != 0:
+        raise Failure(f"could not package the host:\n{node.stderr}")
+    return Path(node.stdout.strip())
+
+
 def test_notifications(bundle: Path) -> None:
     """An app using `expo-notifications` gets answers rather than an exception.
 
@@ -1471,6 +1501,7 @@ def test_notifications(bundle: Path) -> None:
         raise Skipped("needs BASALT_EXPO_APP naming an app with expo-notifications")
 
     app = bundle_app(bundle.parent, "notifications")
+    host = packaged_host(bundle.parent)
 
     env = dict(os.environ)
     env["BASALT_QUIT_AFTER_MS"] = "8000"
@@ -1483,18 +1514,22 @@ def test_notifications(bundle: Path) -> None:
         # A session bus with a daemon on it where one can be had, so that the
         # send itself is exercised rather than only the refusal. Without it the
         # host reports why it cannot, which is the other half worth asserting.
-        if service.available():
+        #
+        # Linux only, even on a machine that has dbus installed: it is the only
+        # host that sends over D-Bus, and a daemon listening beside a macOS run
+        # proves nothing except that it was listening.
+        if PLATFORM == "linux" and service.available():
             with service:
                 env["DBUS_SESSION_BUS_ADDRESS"] = service.address or ""
                 result = subprocess.run(
-                    [str(HOST), str(app), "BasaltNotifications"],
+                    [str(host), str(app), "BasaltNotifications"],
                     cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
                 )
                 sent = service.saw()
         else:
             sent = ""
             result = subprocess.run(
-                [str(HOST), str(app), "BasaltNotifications"],
+                [str(host), str(app), "BasaltNotifications"],
                 cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
             )
 
@@ -1535,7 +1570,14 @@ def test_notifications(bundle: Path) -> None:
                 f"one notification was sent and {said.get('presented')} are presented"
             )
         # What the daemon actually received, which is the only thing that says
-        # the D-Bus call was made and carried the app's words.
+        # the D-Bus call was made and carried the app's words. Only Linux has
+        # one: macOS hands the request to UNUserNotificationCenter, where what
+        # happens next depends on a permission a person grants in System
+        # Settings and an automated run cannot. What the macOS run does assert
+        # is everything above -- that a bundled host answers `granted` where an
+        # unbundled one cannot, and that the send was accepted.
+        if PLATFORM != "linux" or not sent:
+            return
         if "Notify" not in sent:
             raise Failure(f"the notification service was never asked to show one:\n{sent}")
         if "A notification from a desktop" not in sent:

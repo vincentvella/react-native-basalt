@@ -444,3 +444,139 @@ test('a development run names the Metro config to install before starting Metro'
 
   fs.rmSync(project, {recursive: true, force: true});
 });
+
+// ---------------------------------------------------------------------------
+// Packaging: turning the host binary into what each desktop calls an app
+// ---------------------------------------------------------------------------
+
+const packageApp = require(
+  path.join(REPO, 'packages/react-native-basalt/cli/packageApp.js'),
+);
+
+/** A throwaway project directory with the given files in it. */
+function projectWith(files) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-package-'));
+  for (const [name, contents] of Object.entries(files)) {
+    fs.writeFileSync(path.join(root, name), contents);
+  }
+  return root;
+}
+
+test('an app that names itself is not given a derived identifier', () => {
+  const root = projectWith({
+    'app.json': JSON.stringify({
+      name: 'demo',
+      displayName: 'The Demo',
+      basalt: {identifier: 'com.example.demo', scheme: 'demo'},
+    }),
+  });
+  const config = packageApp.readAppConfig(root);
+  assert.strictEqual(config.name, 'The Demo');
+  assert.strictEqual(config.identifier, 'com.example.demo');
+  assert.deepStrictEqual(config.schemes, ['demo']);
+});
+
+test('an app that names nothing still gets a usable identifier', () => {
+  // Derived rather than absent, and deliberately recognisable: an app shipping
+  // as com.basalt.<slug> should be able to tell that nobody chose it.
+  const root = projectWith({'app.json': JSON.stringify({name: 'My App'})});
+  const config = packageApp.readAppConfig(root);
+  assert.strictEqual(config.identifier, 'com.basalt.my-app');
+  assert.deepStrictEqual(config.schemes, []);
+});
+
+test('the Info.plist carries the identity macOS needs to notify', () => {
+  const config = {
+    name: 'The Demo',
+    identifier: 'com.example.demo',
+    schemes: ['demo', 'demo2'],
+    version: '2.1.0',
+  };
+  const plist = packageApp.infoPlist(config, 'basalt_appkit');
+  // The identifier is the whole point: without one UNUserNotificationCenter
+  // raises rather than failing. See appkit/AppKitNotifications.mm.
+  assert.match(plist, /<key>CFBundleIdentifier<\/key>\s*<string>com\.example\.demo<\/string>/);
+  assert.match(plist, /<key>CFBundleExecutable<\/key>\s*<string>basalt_appkit<\/string>/);
+  assert.match(plist, /<string>2\.1\.0<\/string>/);
+  // Both schemes, so a link opens the app.
+  assert.match(plist, /<string>demo<\/string>/);
+  assert.match(plist, /<string>demo2<\/string>/);
+});
+
+test('a name with an ampersand in it does not produce broken XML', () => {
+  const plist = packageApp.infoPlist(
+    {name: 'Ben & Co', identifier: 'com.example.benco', schemes: [], version: '1.0.0'},
+    'basalt_appkit',
+  );
+  assert.match(plist, /<string>Ben &amp; Co<\/string>/);
+  assert.doesNotMatch(plist, /<string>Ben & Co<\/string>/);
+});
+
+test('packaging for macOS returns the executable inside the bundle', {
+  skip: process.platform !== 'darwin' ? 'needs macOS, for codesign' : false,
+}, () => {
+  const root = projectWith({'app.json': JSON.stringify({name: 'demo'})});
+  const binary = path.join(root, 'basalt_appkit');
+  fs.writeFileSync(binary, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(binary, 0o755);
+
+  const out = path.join(root, 'build');
+  const result = packageApp.packageApp({
+    platform: 'macos',
+    hostBinary: binary,
+    outputDir: out,
+    projectRoot: root,
+  });
+
+  // What is launched has to be the copy *inside* the bundle: NSBundle.mainBundle
+  // comes from where the executable sits, so running the original would be
+  // running an unbundled process with a bundle sitting beside it.
+  assert.strictEqual(
+    result.launchPath,
+    path.join(out, 'demo.app', 'Contents', 'MacOS', 'basalt_appkit'),
+  );
+  assert.ok(fs.existsSync(path.join(out, 'demo.app', 'Contents', 'Info.plist')));
+  assert.ok(fs.existsSync(result.launchPath));
+});
+
+test('packaging for Linux writes a desktop entry and launches the binary itself', () => {
+  const root = projectWith({
+    'app.json': JSON.stringify({name: 'demo', basalt: {identifier: 'com.example.demo', scheme: 'demo'}}),
+  });
+  const binary = path.join(root, 'basalt_gtk');
+  fs.writeFileSync(binary, '');
+
+  const out = path.join(root, 'build');
+  const result = packageApp.packageApp({
+    platform: 'linux',
+    hostBinary: binary,
+    outputDir: out,
+    projectRoot: root,
+  });
+
+  // Unlike macOS, nothing about where the binary sits decides anything, so the
+  // original is what runs.
+  assert.strictEqual(result.launchPath, binary);
+  const entry = fs.readFileSync(result.desktopPath, 'utf8');
+  assert.match(entry, /^Name=demo$/m);
+  assert.match(entry, new RegExp('^Exec=' + binary + ' %U$', 'm'));
+  // The scheme, which is what makes a link open the app.
+  assert.match(entry, /^MimeType=x-scheme-handler\/demo;$/m);
+});
+
+test('packaging for Windows changes nothing, because the host does it', () => {
+  const root = projectWith({'app.json': JSON.stringify({name: 'demo'})});
+  const binary = path.join(root, 'basalt_win32.exe');
+  fs.writeFileSync(binary, '');
+  const result = packageApp.packageApp({
+    platform: 'windows',
+    hostBinary: binary,
+    outputDir: path.join(root, 'build'),
+    projectRoot: root,
+  });
+  // A Start Menu shortcut carrying an AppUserModelID needs IPropertyStore,
+  // which is COM; win32/Win32Packaging.h does it at startup instead.
+  assert.strictEqual(result.launchPath, binary);
+  assert.strictEqual(result.appPath, undefined);
+  assert.strictEqual(result.desktopPath, undefined);
+});

@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const {bundleWithAssets, writeExpoAppConfig} = require('./bundleWithAssets');
+const {packageApp} = require('./packageApp');
 const {isPortTaken, startMetro} = require('./metro');
 
 const DEFAULT_PORT = 8081;
@@ -662,6 +663,34 @@ async function runDesktop(_argv, context, options, target) {
     hostBinary = resolveHost(projectRoot, options, target);
   }
   const moduleName = resolveModuleName(projectRoot, options);
+
+  // The binary becomes an application before it is run, on every run rather
+  // than only for a release.
+  //
+  // That is not thoroughness, it is the only way the two agree: on macOS
+  // `NSBundle.mainBundle` comes from where the executable sits, so a host run
+  // out of a build directory has no bundle identifier and cannot notify, while
+  // the same code inside a `.app` can. Packaging only for release would mean a
+  // feature that works in production and not in development, which is the worse
+  // half of a difference between them. See cli/packageApp.js.
+  const packaged = packageApp({
+    platform: target.platform,
+    hostBinary,
+    outputDir: path.resolve(projectRoot, 'build'),
+    projectRoot,
+  });
+  hostBinary = packaged.launchPath;
+  if (packaged.appPath != null) {
+    console.log(`==> ${path.relative(projectRoot, packaged.appPath)}`);
+  }
+  if (packaged.desktopPath != null) {
+    const relative = path.relative(projectRoot, packaged.desktopPath);
+    console.log(
+      `==> wrote ${relative}\n` +
+        `    install it to give this app its own name and icon on notifications:\n` +
+        `      desktop-file-install --dir="$HOME/.local/share/applications" ${relative}`,
+    );
+  }
 
   // Named relative to the project so that the message is readable, but passed
   // to the host as an absolute path, since it runs with the project as its

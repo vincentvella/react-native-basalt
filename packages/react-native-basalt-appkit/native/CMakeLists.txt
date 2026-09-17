@@ -146,6 +146,11 @@ if(TARGET basalt_core)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)
   target_link_libraries(basalt_appkit_mounting PUBLIC "-framework CoreText" "-framework ImageIO")
+  # UserNotifications, for AppKitNotifications.mm. Safe to link into every
+  # build: the framework is present since 10.14 and the code behind it refuses
+  # to run at all without a bundle identifier, which is the thing that actually
+  # decides whether notifications work. See that file.
+  target_link_libraries(basalt_appkit_mounting PUBLIC "-framework UserNotifications")
 
   # -------------------------------------------------------------------------
   # basalt_appkit — a ReactHost, Hermes, and one surface in an NSWindow.
