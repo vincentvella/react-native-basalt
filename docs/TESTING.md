@@ -274,75 +274,43 @@ provide — JavaScript, React, Fabric, the mounting manager, GTK — can only be
 exercised by running the whole thing, and before the dump the only way to check
 the result was to look at a screenshot.
 
-Current scenarios:
+What the scenarios are is not listed here, and deliberately: `SCENARIOS` at the
+bottom of `scripts/integration_test.py` is the list, and every one of them has a
+docstring saying what it asserts and why that is the thing worth asserting. A
+copy in this file was five entries long while the suite had twenty, which is
+what a hand-maintained list of something the code already states turns into.
 
-1. **Initial render.** React produced text, the image loaded and decoded, all
-   24 rows exist, the ScrollView clips, and it starts at the top.
-2. **`scrollToEnd`.** The offset moved, and `onScroll` reached React, whose
-   rendered label agrees with the widget tree. The tap deliberately lands on the
-   button's *label*, so passing also means a touch on a child bubbled to the
-   `Pressable` that handles it.
-3. **Scroll away and back.** `scrollTo({y: 0})` returns to the top and the label
-   follows.
-4. **Type into a `<TextInput>`.** The field is focused through a button rather
-   than by tapping it, so this covers the `focus` command too. Passing means the
-   characters reached React: the value is controlled, so what ends up in the
-   widget is only there because `onChange` went up and the new value came back
-   down. The demo echoes it into a sibling `<Text>`, which is what the scenario
-   actually asserts on.
-5. **Fast Refresh.** Starts its own Metro on port 8099, runs the host in dev
-   mode against it, edits `js/index.js` while the app is on screen, and checks
-   the new text is in the tree the host dumps. This is the only scenario that
-   runs in dev mode at all, which is why it exists: "development still works"
-   was being taken on trust, and a wrong claim about it reached the README.
+What is worth writing down is what is not in the code.
 
-   It needs a React Native checkout. `scripts/metro.sh` looks for one beside
-   the repo; set `RN_DIR` if it is somewhere else, as CI does.
+**They read coordinates from each app's own layout.** Most tap fixed points --
+`js/index.js` for the demo, and its own file for each of the apps written for a
+scenario. Change a demo's spacing and the coordinates need changing too. The
+alternative, searching the dumped tree for a button by its label and tapping its
+centre, would be more robust and is worth doing; the reason it has not been is
+that a wrong coordinate fails loudly and immediately.
 
-   It edits a tracked file, and restores it after the host has exited — not
-   before, because putting the original back while the app still has a Metro
-   connection triggers a second refresh that undoes the edit before the tree is
-   dumped. That failure looks exactly like Fast Refresh being broken. A `kill
-   -9` of the test would leave the demo edited; nothing softer will.
+**Several apps set fixed heights on their labels for this reason.** Text
+measurement is the one thing Pango, Core Text and DirectWrite will never agree
+on, so an app whose rows are positioned by measured text has different
+coordinates on each host. A `height` on a label is what keeps one set of taps
+working on all three.
 
-   **It does not run in CI.** Metro on a GitHub runner never notices an edit:
-   the file changes on disk with a fresh mtime, a newly requested bundle still
-   carries the old text, and Metro's log is empty of complaint. `fs.watch` sees
-   the same edit on the same runner, the inotify limits are generous, both
-   sides run the same Node, neither has watchman, and CI's directory layout
-   reproduces green in a local VM — so it is the runner, not this repo, and
-   chasing it further was costing more than it was worth. `BASALT_SKIP_FAST_REFRESH`
-   turns it off and CI sets it; the scenario reports itself as skipped rather
-   than quietly passing. It does run, and pass, on macOS and on Linux in a VM.
-   `plan/backlog.md` lists what to try next, starting with installing watchman
-   on the runner, since both sides currently fall back to the same node watcher
-   and that is the part under suspicion.
+**Fast Refresh is the only scenario that runs in dev mode**, which is why it
+exists: "development still works" was being taken on trust, and a wrong claim
+about it reached the README. It starts its own Metro on port 8099, edits
+`js/index.js` while the app is on screen, and restores the file after the host
+has exited -- not before, because putting the original back while the app still
+has a Metro connection triggers a second refresh that undoes the edit before the
+tree is dumped, which looks exactly like Fast Refresh being broken. A `kill -9`
+of the test would leave the demo edited; nothing softer will.
 
-   It rewrites the edit every ten seconds until the refresh arrives. That is
-   not paranoia: a file watcher that has not finished attaching does not queue
-   anything, the event is simply never delivered, and nothing re-crawls. Metro
-   watches the React Native checkout, some eight thousand directories, and that
-   takes markedly longer on a cold CI machine than on a warm laptop. Everything
-   cheaper was ruled out first — `fs.watch` sees edits on the runner, its
-   inotify limits are generous, and neither CI nor a development machine has
-   watchman, so both run the same node watcher.
-
-   It waits on the host's log rather than on sleeps, and asks the host to quit
-   with `SIGTERM` once the refresh has landed. The first version used a fixed
-   budget and failed in CI, where Metro is cold and a rebuild takes longer than
-   a developer's warm one. Two things it needs to know before it edits
-   anything, both learned the hard way: that the app is up, and that the bundle
-   it is running came from Metro. The host falls back to the on-disk bundle
-   when Metro is slow to answer, and that bundle is a production one, so an
-   edit would never reach it — reported, unhelpfully, as Metro never pushing an
-   update. So the scenario builds the bundle over HTTP before starting the
-   host, and then confirms a `__DEV__` bundle is what evaluated by watching for
-   the LogBox TurboModule request that only a dev bundle makes.
-
-The scenarios read coordinates from the demo's layout in `js/index.js`. Change
-the demo's spacing and the coordinates need changing too — the alternative,
-searching the dumped tree for a button by its label and tapping its centre,
-would be more robust and is worth doing if this list grows.
+**It does not run in CI.** Metro on a GitHub runner never notices an edit: the
+file changes on disk with a fresh mtime, a newly requested bundle still carries
+the old text, and Metro's log is empty of complaint. `fs.watch` sees the same
+edit on the same runner, the inotify limits are already generous, both sides run
+the same Node, and the upstream Watchman build reports `"watcher": "inotify"`
+over exactly the root Metro was given and changes nothing. `BASALT_SKIP_FAST_REFRESH`
+turns it off there. It passes on developer machines, on macOS and on Linux.
 
 ## Input: real events, and where they are not
 
