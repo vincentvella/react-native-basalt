@@ -165,6 +165,18 @@ struct HostWindow {
   ComPtr<ID2D1HwndRenderTarget> target;
   std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
   std::unique_ptr<basalt::Win32FocusManager> focusManager;
+  // The app is closing this window, so WM_DESTROY is not news.
+  //
+  // Both closes end in `DestroyWindow` and so both raise WM_DESTROY, and the
+  // handler there is the one that tells JavaScript a window closed *itself* and
+  // tears the record down. Without this, an app closing a window ran that too:
+  // a second `stopSurface`, a `basaltWindowClosed` nobody closed, and a second
+  // deferred teardown that destroyed an already-destroyed root -- which is an
+  // access violation at exit rather than a warning.
+  //
+  // AppKit has the same hazard and answers it the same way, by nilling the
+  // delegate before `close`. Windows has no delegate to nil.
+  bool closingFromApp{false};
 };
 
 struct Host {
@@ -1475,6 +1487,11 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         PostQuitMessage(0);
         return 0;
       }
+      // The app is already taking this window down; `closeHostWindow` is
+      // mid-teardown and everything below is its job. See `closingFromApp`.
+      if (self->closingFromApp) {
+        return 0;
+      }
       // Closed by the person rather than by the app: its own close button, or
       // Alt+F4. Without this the host keeps a record whose HWND is gone -- a
       // dangling handle rather than a stale flag -- and the `<Window>` that
@@ -1685,6 +1702,10 @@ void closeHostWindow(facebook::react::SurfaceId surfaceId) {
       // root the mutations named. DestroyWindow takes any <TextInput> peer
       // parented to it with it, which is why nothing here frees one by hand.
       going->target.Reset();
+      // Before DestroyWindow, because DestroyWindow sends WM_DESTROY on this
+      // thread and synchronously: the handler runs before the call returns, and
+      // has to know this is the app's own doing.
+      going->closingFromApp = true;
       // Null when WM_DESTROY got here first, which is a window the person
       // closed rather than the app.
       if (going->window != nullptr) {
