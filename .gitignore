@@ -26,3 +26,8 @@ examples/*/node_modules/
 
 # `run-linux` writes the detached packager log here.
 .basalt/
+
+# Python leaves these beside any script it imports; the integration suite is
+# imported directly when running a single scenario.
+__pycache__/
+*.pyc
