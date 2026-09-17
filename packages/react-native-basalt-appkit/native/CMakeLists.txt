@@ -143,6 +143,8 @@ if(TARGET basalt_core)
     appkit/AppKitTitleBar.mm
     # A window's size, position and full-screen state; see core/WindowControl.h.
     appkit/AppKitWindowControl.mm
+    # The application menu; see core/MenuModel.h for why the three differ.
+    appkit/AppKitMenuBar.mm
     appkit/AppKitWindowModule.mm)
   target_compile_options(basalt_appkit_mounting PRIVATE -Wall -Wextra -fobjc-arc)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)

@@ -39,6 +39,7 @@ APPS=(
   "modules:BasaltModules"
   "controls:BasaltControls"
   "dialogs:BasaltDialogs"
+  "menu:BasaltMenu"
   # js/window.js is deliberately absent: its tree prints the window's own
   # size, which differs between a host that was given one and a host whose
   # window manager had an opinion. That is a property of the machine rather

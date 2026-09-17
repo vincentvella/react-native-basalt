@@ -40,7 +40,10 @@
 #include "AppIdentity.h"
 #include "DevMenu.h"
 #include "DialogModule.h"
+#include "MenuModel.h"
+#include "MenuModule.h"
 #include "Win32MountingManager.h"
+#include "Win32MenuBar.h"
 #include "Win32Packaging.h"
 #include "WindowControl.h"
 #include "Win32RunLoopObserver.h"
@@ -396,6 +399,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopDialogModule::kModuleName) {
           return std::make_shared<basalt::DesktopDialogModule>(jsInvoker);
         }
+        // The application menu, which on macOS is also what makes Cmd-C reach
+        // a text field. See core/MenuModel.h.
+        if (name == basalt::DesktopMenuModule::kModuleName) {
+          return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }
@@ -477,6 +485,29 @@ std::shared_ptr<const ContextContainer> makeContextContainer() {
   // MessageQueueThreadFactoryKey is deliberately left unset: ReactHost then
   // installs MessageQueueThreadImpl, a real threaded queue.
   return contextContainer;
+}
+
+// BASALT_DUMP_MENU: write the application menu that is actually installed to a
+// file on the way out.
+//
+// Read back from the platform rather than from the model that was sent, which
+// is the point: it says a description became a real menu -- and it is the only
+// way an automated run can see a menu bar at all, since a menu cannot be opened
+// without a person. Written even when it is empty, because "this platform has
+// no menu bar" is exactly what a test on Linux is asserting.
+void dumpMenuIfRequested() {
+  const char *path = std::getenv("BASALT_DUMP_MENU");
+  if (path == nullptr) {
+    return;
+  }
+  const std::string described = basalt::describeApplicationMenu();
+  std::FILE *file = std::fopen(path, "wb");
+  if (file == nullptr) {
+    std::fprintf(stderr, "could not write the menu dump to %s\n", path);
+    return;
+  }
+  std::fwrite(described.data(), 1, described.size(), file);
+  std::fclose(file);
 }
 
 // BASALT_DUMP_TREE: write the view tree to a file on the way out, so an
@@ -821,6 +852,7 @@ void captureBeforeTeardown() {
   }
   captured = true;
   dumpTreeIfRequested();
+  dumpMenuIfRequested();
   snapshotIfRequested();
 }
 
@@ -1162,6 +1194,13 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // all: on GTK and AppKit the widget is the view and the toolkit routes this
     // without a host in the middle.
     case WM_COMMAND:
+      // The application menu, first: its items arrive here with a null lParam,
+      // which is how a menu command is told from a control's notification. See
+      // win32/Win32MenuBar.h.
+      if (lparam == 0 && HIWORD(wparam) == 0 &&
+          basalt::win32::handleMenuCommand(static_cast<unsigned int>(LOWORD(wparam)))) {
+        return 0;
+      }
       // A field taking focus is the other half of the focus rule: the peer is a
       // real window and holds real Win32 focus, so whichever painted view was
       // wearing the ring has to give it up. Only one of the two kinds of focus

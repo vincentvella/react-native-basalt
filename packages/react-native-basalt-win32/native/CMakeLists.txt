@@ -214,6 +214,8 @@ if(TARGET basalt_core)
     win32/Win32TitleBar.cpp
     # A window's size, position and full-screen state; see core/WindowControl.h.
     win32/Win32WindowControl.cpp
+    # The application menu; see core/MenuModel.h for why the three differ.
+    win32/Win32MenuBar.cpp
     win32/Win32WindowModule.cpp)
   target_compile_options(basalt_win32_mounting PRIVATE ${BASALT_WIN32_WARNINGS})
   target_include_directories(basalt_win32_mounting PUBLIC win32)

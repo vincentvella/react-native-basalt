@@ -34,6 +34,8 @@
 #include "DevMenu.h"
 #include "WindowControl.h"
 #include "DialogModule.h"
+#include "MenuModel.h"
+#include "MenuModule.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
@@ -279,6 +281,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopDialogModule::kModuleName) {
           return std::make_shared<basalt::DesktopDialogModule>(jsInvoker);
         }
+        // The application menu, which on macOS is also what makes Cmd-C reach
+        // a text field. See core/MenuModel.h.
+        if (name == basalt::DesktopMenuModule::kModuleName) {
+          return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }
@@ -370,6 +377,30 @@ std::shared_ptr<const ContextContainer> makeContextContainer() {
 // automated run can assert on what React actually produced rather than on a
 // screenshot. The same idea as BASALT_DUMP_TREE, and the prefixes should
 // eventually be one; see plan/20-macos-host.md.
+// BASALT_DUMP_MENU: write the application menu that is actually installed to a
+// file on the way out.
+//
+// Read back from AppKit rather than from the model that was sent, which is the
+// point: it says a description became a real NSMenu with the shortcuts the
+// platform attached to its roles -- and it is the only way an automated run can
+// see a menu bar at all, since a menu cannot be opened without a person.
+void dumpMenuIfRequested() {
+  const char *path = getenv("BASALT_DUMP_MENU");
+  if (path == nullptr) {
+    return;
+  }
+  const std::string described = basalt::describeApplicationMenu();
+  NSString *text = [NSString stringWithUTF8String:described.c_str()];
+  NSError *error = nil;
+  [text != nil ? text : @"" writeToFile:[NSString stringWithUTF8String:path]
+                              atomically:YES
+                                encoding:NSUTF8StringEncoding
+                                   error:&error];
+  if (error != nil) {
+    NSLog(@"could not write the menu dump: %@", error.localizedDescription);
+  }
+}
+
 void dumpTreeIfRequested() {
   const char *path = getenv("BASALT_DUMP_TREE");
   if (path == nullptr || gHost.root == nil) {
@@ -460,6 +491,7 @@ void endAnyOpenSheets() {
 void shutdown() {
   // Before the surface stops, which tears the tree down.
   dumpTreeIfRequested();
+  dumpMenuIfRequested();
 
   if (gHost.choreographer != nullptr) {
     gHost.choreographer->detach();
@@ -563,20 +595,19 @@ void shutdown() {
 
 @end
 
-// A minimal main menu. Without one an unbundled binary has no Quit item and no
-// Cmd-Q, which makes the host impossible to close except by killing it -- and
-// killing it skips applicationWillTerminate, so the teardown path below would
-// never run.
+// The application menu an app gets before it has asked for one.
+//
+// Not a courtesy, and not only about Quit. AppKit gives the main menu every key
+// event before the responder chain sees it, so a host with no Edit menu has no
+// working Cmd-C: `copy:` never reaches the field editor of whichever text field
+// has focus. This host had exactly one Quit item until core/MenuModel.h
+// existed, and copy, cut, paste, undo and select-all did nothing in every
+// <TextInput> on macOS as a result.
+//
+// An empty model is the default; see appkit/AppKitMenuBar.mm for what it
+// contains and why each item is in it.
 static void installMainMenu(void) {
-  NSMenu *menuBar = [[NSMenu alloc] init];
-  NSMenuItem *appItem = [[NSMenuItem alloc] init];
-  [menuBar addItem:appItem];
-
-  NSMenu *appMenu = [[NSMenu alloc] init];
-  [appMenu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
-  appItem.submenu = appMenu;
-
-  NSApp.mainMenu = menuBar;
+  basalt::setApplicationMenu(basalt::MenuModel{}, nullptr);
 }
 
 int main(int argc, const char *argv[]) {

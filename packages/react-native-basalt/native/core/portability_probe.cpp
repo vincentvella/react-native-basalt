@@ -22,6 +22,7 @@
 #include "PlatformConstantsModule.h"
 #include "SourceCodeModule.h"
 #include "PlatformServices.h"
+#include "MenuModel.h"
 #include "Notifications.h"
 #include "WindowControl.h"
 #include "StatusBarModule.h"
@@ -111,6 +112,16 @@ void setWindowSize(double, double) {}
 void setWindowPosition(double, double) {}
 void centerWindow() {}
 void setWindowFullScreen(bool) {}
+
+// The application menu, stubbed the same way. A platform with no menu bar
+// answers exactly this, which is also what GTK answers for real.
+bool applicationMenuSupported() {
+  return false;
+}
+void setApplicationMenu(const MenuModel &, std::function<void(int)>) {}
+std::string describeApplicationMenu() {
+  return {};
+}
 
 void postDelayed(double, std::function<void()>) {}
 void postToUiThread(std::function<void()>) {}

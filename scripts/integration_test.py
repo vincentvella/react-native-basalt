@@ -1914,6 +1914,24 @@ def test_file_dialogs(bundle: Path) -> None:
         raise Failure(f"expected all three to report a cancel, got {sorted(cancelled)}")
 
 
+def has_window_manager() -> bool:
+    """Whether anything on this display would honour a full-screen request.
+
+    Every EWMH-compliant window manager sets `_NET_SUPPORTING_WM_CHECK` on the
+    root window, and a bare X server -- which is what Xvfb is without one --
+    has nobody to set it. Answers false when `xprop` is missing too: it cannot
+    be told from "no window manager" and both mean the same thing here.
+    """
+    try:
+        result = subprocess.run(
+            ["xprop", "-root", "-notype", "_NET_SUPPORTING_WM_CHECK"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and "window id" in result.stdout
+
+
 def test_window(bundle: Path) -> None:
     """The window an app is in, which React Native has no API for.
 
@@ -1977,11 +1995,105 @@ def test_window(bundle: Path) -> None:
         raise Failure(f"setSize(700, 500) was not reported back: {reported}")
 
     if not any("fullScreen=true" in line for line in reported):
+        # A window manager is what makes a window full screen; the application
+        # only asks. CI runs the Linux host under Xvfb, which has no window
+        # manager at all, so the request is not refused so much as unheard --
+        # and asserting it there would be asserting something about the runner.
+        #
+        # Checked rather than assumed: where there *is* a window manager this
+        # must pass, and a silent skip would hide the case this scenario exists
+        # for. `_NET_SUPPORTING_WM_CHECK` is the property every EWMH-compliant
+        # window manager sets on the root window.
+        if PLATFORM == "linux" and not has_window_manager():
+            print(
+                "        (no window manager, so the full-screen half of this "
+                "scenario could not run)"
+            )
+            return
         raise Failure(
             "setFullScreen(true) was never reported. On two of the three hosts "
             "this is not a resize, so a host watching only for resizes misses "
             f"it entirely.\n{reported}"
         )
+
+
+def test_application_menu(bundle: Path) -> None:
+    """The application menu, and the thing its absence quietly broke.
+
+    Runs js/menu.js, which describes a File menu of its own and an Edit menu
+    built entirely out of roles, and dumps whatever menu the platform actually
+    installed.
+
+    Read back from the platform rather than compared against what was sent,
+    which is the point: it says a description became a real NSMenu or HMENU,
+    with the shortcuts the platform attached to its roles. It is also the only
+    way an automated run can see a menu bar -- a menu cannot be opened without
+    a person, and BASALT_TEST_MENU answers popups rather than bars.
+
+    The Edit menu is the half that matters and the half that is invisible. On
+    macOS AppKit routes every key equivalent through the main menu before the
+    responder chain sees it, so `role="copy"` is what makes Cmd-C reach a text
+    field at all -- and this host shipped with a one-item Quit menu until the
+    menu model existed, which meant copy, cut, paste, undo and select-all did
+    nothing in every <TextInput> on macOS. This is what would catch that coming
+    back.
+
+    Linux asserts the opposite and asserts it deliberately: GNOME's guidelines
+    have said to use a header bar with a menu button since GNOME 3 and GTK4
+    removed the menu bar widget, so `Menu.isSupported` is false there and the
+    dump is empty. That is a platform answering honestly rather than a gap.
+    """
+    app = bundle_app(bundle.parent, "menu")
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "menu.txt"
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "7000"
+        env["BASALT_DUMP_MENU"] = str(dump)
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                     "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+            env.pop(name, None)
+
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltMenu"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=150,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        menu = dump.read_text() if dump.exists() else ""
+
+    both = result.stdout + result.stderr
+    supported = "menu supported: true" in both
+    if not supported and "menu supported: false" not in both:
+        raise Failure(f"the app never said whether menus are supported:\n{tail_text(both)}")
+
+    if not supported:
+        # The honest answer, not a gap. See the docstring.
+        if menu.strip() != "":
+            raise Failure(
+                "this platform reports no application menu and installed one "
+                f"anyway:\n{menu}"
+            )
+        return
+
+    # The app's own menu, with its own items.
+    for expected in ("File", "New", "Open", "Edit"):
+        if expected not in menu:
+            raise Failure(f"no {expected!r} in the installed menu:\n{menu}")
+
+    # The roles, which the platform filled in: neither the label nor the
+    # shortcut came from the app.
+    for role in ("Copy", "Paste", "Undo", "Select All"):
+        if role not in menu:
+            raise Failure(
+                f"no {role!r} in the installed menu. A role is meant to arrive "
+                f"with the platform's own word for it.\n{menu}"
+            )
+
+    # Disabled is carried through, which is the one item property a menu can
+    # get wrong without anyone noticing until they click it.
+    if "(disabled)" not in menu:
+        raise Failure(f"an item disabled by the app was installed enabled:\n{menu}")
 
 
 SCENARIOS = [
@@ -2005,6 +2117,7 @@ SCENARIOS = [
      test_file_dialogs),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
+    ("the application menu is installed, roles and all", test_application_menu),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]

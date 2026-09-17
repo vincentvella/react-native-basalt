@@ -131,6 +131,8 @@ if(TARGET basalt_core)
     gtk/GtkTitleBar.cpp
     # A window's size and full-screen state; see core/WindowControl.h.
     gtk/GtkWindowControl.cpp
+    # The application menu; see core/MenuModel.h for why the three differ.
+    gtk/GtkMenuBar.cpp
     gtk/GtkWindowModule.cpp
     # Linux's implementation of core/FontRegistry.h.
     gtk/FontRegistryFontconfig.cpp

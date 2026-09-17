@@ -29,6 +29,10 @@ export {default as Platform} from './overrides/Platform';
 // The native file dialogs, which React Native has no API for: a phone has none.
 // See useDialog.js.
 export {useDialog, dialog} from './useDialog';
+// The application menu. On macOS it is also what makes Cmd-C reach a text
+// field, which is why an app gets one whether or not it renders a <Menu>. See
+// Menu.js.
+export {Menu} from './Menu';
 // The window itself: its size, its position, whether it fills the screen, and
 // live bounds. See useWindow.js.
 export {useWindow, windowControl} from './useWindow';

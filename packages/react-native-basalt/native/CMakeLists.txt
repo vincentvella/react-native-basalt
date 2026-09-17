@@ -158,6 +158,9 @@ if(DEFINED RN_DIR)
     core/DevMenu.cpp
     # The native file dialogs, which React Native has no API for at all.
     core/DialogModule.cpp
+    # The application menu: the description, and the JavaScript boundary. What
+    # each platform does with it is in its own MenuBar file.
+    core/MenuModule.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp

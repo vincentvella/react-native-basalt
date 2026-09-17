@@ -22,6 +22,8 @@
 #include "DevMenu.h"
 #include "WindowControl.h"
 #include "DialogModule.h"
+#include "MenuModel.h"
+#include "MenuModule.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
@@ -663,6 +665,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopDialogModule::kModuleName) {
           return std::make_shared<basalt::DesktopDialogModule>(jsInvoker);
         }
+        // The application menu, which on macOS is also what makes Cmd-C reach
+        // a text field. See core/MenuModel.h.
+        if (name == basalt::DesktopMenuModule::kModuleName) {
+          return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }
@@ -1031,6 +1038,27 @@ void onActivate(GtkApplication *app, gpointer data) {
   }
 }
 
+// BASALT_DUMP_MENU: write the application menu that is actually installed to a
+// file on the way out.
+//
+// Read back from the platform rather than from the model that was sent, which
+// is the point: it says a description became a real menu -- and it is the only
+// way an automated run can see a menu bar at all, since a menu cannot be opened
+// without a person. Written even when it is empty, because "this platform has
+// no menu bar" is exactly what a test on Linux is asserting.
+void dumpMenuIfRequested() {
+  const char *path = g_getenv("BASALT_DUMP_MENU");
+  if (path == nullptr) {
+    return;
+  }
+  const std::string described = basalt::describeApplicationMenu();
+  GError *error = nullptr;
+  if (!g_file_set_contents(path, described.c_str(), static_cast<gssize>(described.size()), &error)) {
+    g_warning("could not write the menu dump: %s", error != nullptr ? error->message : "?");
+    g_clear_error(&error);
+  }
+}
+
 // BASALT_DUMP_TREE: write the widget tree to a file on the way out, so an
 // automated run can assert on what React actually produced rather than on a
 // screenshot. See docs/TESTING.md.
@@ -1067,6 +1095,7 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
 
   // Before the surface stops, which tears the tree down.
   dumpTreeIfRequested(host);
+  dumpMenuIfRequested();
 
   if (host->choreographer != nullptr) {
     host->choreographer->detach();

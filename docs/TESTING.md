@@ -408,6 +408,13 @@ does with a path cannot be reached without a path. `BASALT_TEST_FILE_DIALOG`
 answers one -- `cancel`, or a list of paths separated by `:` (`;` on Windows,
 where a path starts `C:\` and a colon would cut every one of them in two).
 
+A menu *bar* cannot be reached by any of them, because a menu cannot be opened
+without a person. `BASALT_DUMP_MENU` writes the menu the platform actually
+installed instead -- read back from AppKit or from the HMENU rather than from
+the description that was sent, so it says a `<Menu>` became a real menu with the
+shortcuts the platform attached to its roles. It is written even when it is
+empty, because "this platform has no menu bar" is what a test on Linux asserts.
+
 The wheel has its own: `BASALT_TEST_SCROLL` takes `"x,y,lines"` triples
 separated by `;` -- a wheel over a point, in surface-root coordinates, positive
 lines scrolling down, which is the direction `contentOffset` reads. Each host

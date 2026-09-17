@@ -611,7 +611,14 @@ has gone unrecorded until now.
   `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
   react-native-basalt. Linux and macOS ignore those calls until their hosts
   implement them.
-- **Menus**, both a menu bar and context menus.
+- **Menus.** The application menu is done where a platform has one: `<Menu>`
+  with `<Menu.Item role="copy" />`, over NSMenu and an HMENU. `Menu.isSupported`
+  is false on Linux and is not a gap -- GNOME's guidelines have said to use a
+  header bar with a menu button since GNOME 3, and GTK4 removed the widget.
+  What is left: no context-menu API, though the seam under it exists and the
+  developer menu uses it; no checkbox or radio items; no dynamic enabling
+  without re-rendering the whole menu; and the role labels are English, because
+  nothing here is localised.
 - ~~**Native file dialogs.**~~ Done on all three: `useDialog().openFile()`,
   `saveFile()` and `openFolder()`, over `GtkFileDialog`, `NSOpenPanel` /
   `NSSavePanel` and `IFileDialog`. What is left is the rest of what a desktop
