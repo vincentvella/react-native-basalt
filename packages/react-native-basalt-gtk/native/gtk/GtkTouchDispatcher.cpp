@@ -64,6 +64,10 @@ GtkTouchDispatcher::GtkTouchDispatcher(GtkMountingManager *mountingManager, RnVi
   g_signal_connect(clickGesture_, "released", G_CALLBACK(onReleased), this);
   g_signal_connect(clickGesture_, "cancel", G_CALLBACK(onCancelled), this);
   gtk_widget_add_controller(GTK_WIDGET(surfaceRoot_), GTK_EVENT_CONTROLLER(clickGesture_));
+  // Weak, so it becomes NULL when the widget takes it down rather than
+  // dangling. The destructor has to reach these and cannot know which went
+  // first; see there.
+  g_object_add_weak_pointer(G_OBJECT(clickGesture_), reinterpret_cast<gpointer *>(&clickGesture_));
 
   motionController_ = gtk_event_controller_motion_new();
   g_signal_connect(motionController_, "motion", G_CALLBACK(onMotion), this);
@@ -71,12 +75,37 @@ GtkTouchDispatcher::GtkTouchDispatcher(GtkMountingManager *mountingManager, RnVi
   // that was hovered when the pointer left the window stays hovered forever.
   g_signal_connect(motionController_, "leave", G_CALLBACK(onPointerLeft), this);
   gtk_widget_add_controller(GTK_WIDGET(surfaceRoot_), motionController_);
+  g_object_add_weak_pointer(G_OBJECT(motionController_),
+                            reinterpret_cast<gpointer *>(&motionController_));
 }
 
 GtkTouchDispatcher::~GtkTouchDispatcher() {
-  // gtk_widget_add_controller took ownership, so the controllers die with the
-  // widget. Removing them explicitly would be wrong if the root is already gone,
-  // and unnecessary if it is not.
+  // Disconnect, which this used to think was unnecessary.
+  //
+  // `gtk_widget_add_controller` takes ownership, so the controllers do die with
+  // the widget -- but they outlive *this*, because the dispatcher is reset
+  // before the window is destroyed. Both teardown paths do it in that order:
+  // `closeHostWindow` resets the dispatcher and then calls
+  // `gtk_window_destroy`, and `shutdown` does the same. In between, destroying
+  // the window unmaps it, which makes GTK deliver a leave crossing to a
+  // controller whose callback still holds this pointer.
+  //
+  // That is a segfault in `dispatchHoverLeave` reading a mounting manager
+  // through freed memory, and it is what the crash report said.
+  //
+  // Weak pointers rather than a flag, because either object may already be
+  // gone: a widget destroyed first takes its controllers with it and NULLs
+  // these, and there is then nothing to disconnect.
+  if (clickGesture_ != nullptr) {
+    g_signal_handlers_disconnect_by_data(clickGesture_, this);
+    g_object_remove_weak_pointer(G_OBJECT(clickGesture_),
+                                 reinterpret_cast<gpointer *>(&clickGesture_));
+  }
+  if (motionController_ != nullptr) {
+    g_signal_handlers_disconnect_by_data(motionController_, this);
+    g_object_remove_weak_pointer(G_OBJECT(motionController_),
+                                 reinterpret_cast<gpointer *>(&motionController_));
+  }
 }
 
 // ---------------------------------------------------------------------------

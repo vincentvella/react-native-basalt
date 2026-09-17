@@ -32,6 +32,10 @@ GtkFocusManager::GtkFocusManager(GtkMountingManager *mountingManager, RnView *su
   gtk_event_controller_set_propagation_phase(keyController_, GTK_PHASE_BUBBLE);
   g_signal_connect(keyController_, "key-pressed", G_CALLBACK(onKeyPressed), this);
   gtk_widget_add_controller(GTK_WIDGET(surfaceRoot_), keyController_);
+  // Weak, so it becomes NULL when the widget takes it down rather than
+  // dangling. See the destructor.
+  g_object_add_weak_pointer(G_OBJECT(keyController_),
+                            reinterpret_cast<gpointer *>(&keyController_));
 
   // The root may or may not be in a window yet, depending on the order the host
   // built things in, so both are handled rather than one being assumed.
@@ -47,8 +51,20 @@ GtkFocusManager::~GtkFocusManager() {
   if (surfaceRoot_ != nullptr && RN_IS_VIEW(surfaceRoot_)) {
     g_signal_handlers_disconnect_by_data(surfaceRoot_, this);
   }
-  // The key controller belongs to the widget, which outlives this or is already
-  // gone; either way removing it here would be wrong.
+  // The key controller belongs to the widget, and that is exactly why it has to
+  // be disconnected: it outlives *this*, because both teardown paths reset the
+  // focus manager before destroying the window. A key press delivered in
+  // between would call `onKeyPressed` with a freed pointer.
+  //
+  // The dispatcher next door had the same hazard and it was not theoretical --
+  // a leave crossing between the two crashed in `dispatchHoverLeave`. Weak
+  // pointer rather than a flag, because the widget may have gone first and
+  // taken the controller with it.
+  if (keyController_ != nullptr) {
+    g_signal_handlers_disconnect_by_data(keyController_, this);
+    g_object_remove_weak_pointer(G_OBJECT(keyController_),
+                                 reinterpret_cast<gpointer *>(&keyController_));
+  }
 }
 
 void GtkFocusManager::onRootChanged(GObject * /*widget*/, GParamSpec * /*spec*/, gpointer userData) {
