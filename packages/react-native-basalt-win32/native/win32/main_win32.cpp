@@ -641,7 +641,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus };
+  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus, Close };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -652,10 +652,11 @@ struct ScriptedInput {
   // content down. The sign is the one BASALT_TEST_SCROLL takes on the other
   // hosts, not the one WM_MOUSEWHEEL uses.
   double lines{0};
-  // Which window the point is in. A tap may name one -- "x,y@3" -- because each
+  // Which window this is about. A tap may name one -- "x,y@3" -- because each
   // window has its own touch dispatcher, and the app's would happily hit-test a
-  // tree that is not on screen. Defaults to the app's own, so every spec
-  // written before windows existed still means what it did.
+  // tree that is not on screen; a Close names the window to close. Defaults to
+  // the app's own, so every spec written before windows existed still means
+  // what it did.
   facebook::react::SurfaceId surfaceId{kSurfaceId};
   // Type only. Default-initialised explicitly, so that the three kinds that do
   // not carry text can leave it out of a designated initialiser.
@@ -837,6 +838,23 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                    "BASALT_TEST_TYPE: \"%s\"%s\n",
                    action.text.c_str(),
                    typed ? "" : " -- no field has focus");
+      break;
+    }
+
+    case ScriptedInput::Kind::Close: {
+      // The window manager's close, not the app's: WM_CLOSE is what the caption
+      // button sends, so the host's own handling runs exactly as it would for a
+      // person. Which is the whole point -- an app closing a window and a
+      // person closing one take different paths, and only one of them can leave
+      // the host holding a record whose HWND is gone.
+      HostWindow *closing = gHost.windowFor(action.surfaceId);
+      std::fprintf(stderr,
+                   "BASALT_TEST_CLOSE_WINDOW: %d%s\n",
+                   static_cast<int>(action.surfaceId),
+                   closing != nullptr ? "" : " -- no such window");
+      if (closing != nullptr && closing->window != nullptr) {
+        PostMessage(closing->window, WM_CLOSE, 0, 0);
+      }
       break;
     }
   }
@@ -1397,8 +1415,16 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
     // Before DestroyWindow, which takes every <TextInput>'s peer with it. See
     // captureBeforeTeardown.
+    //
+    // The app's own window only. A second window closing is not teardown, and
+    // capturing there would be worse than pointless: `captureBeforeTeardown`
+    // latches, so the dump taken as the window went would be the one the run
+    // reported -- showing the window still open, because it is, and silencing
+    // the dump at shutdown that was meant to show it gone.
     case WM_CLOSE:
-      captureBeforeTeardown();
+      if (self == nullptr || self->surfaceId == kSurfaceId) {
+        captureBeforeTeardown();
+      }
       DestroyWindow(hwnd);
       return 0;
 
@@ -1926,9 +1952,10 @@ int main(int argc, char **argv) {
   // different paths through the host and only one of them can leave a record
   // whose window is gone, which is why it is worth being able to drive.
   if (const char *closing = std::getenv("BASALT_TEST_CLOSE_WINDOW")) {
-    gScriptedCloseSurfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(closing));
     scriptedDelayMs = scheduleScriptedInput(
-        ScriptedInput{.kind = ScriptedInput::Kind::CloseWindow}, scriptedDelayMs);
+        ScriptedInput{.kind = ScriptedInput::Kind::Close,
+                      .surfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(closing))},
+        scriptedDelayMs);
   }
 
   // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,
