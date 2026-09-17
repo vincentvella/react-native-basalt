@@ -75,6 +75,71 @@ void setWindowBoundsListener(std::function<void(const WindowBounds &)> listener)
 // listening yet.
 void notifyWindowBoundsChanged();
 
+// How big the window is allowed to be, in logical pixels.
+//
+// Zero means "no limit" in either direction, which is the default and is also
+// how an app clears one. Not part of `WindowBounds`: bounds are what the window
+// *is* and these are what it may become, and an app restoring a remembered
+// layout wants the first without being told the second.
+struct WindowSizeLimits {
+  double minWidth{0.0};
+  double minHeight{0.0};
+  double maxWidth{0.0};
+  double maxHeight{0.0};
+};
+
+// Set the limits and apply them. Portable: the storing is identical everywhere
+// and only `applyWindowSizeLimits` differs.
+void setWindowMinimumSize(double width, double height);
+void setWindowMaximumSize(double width, double height);
+
+// What is in force, readable from any thread. Windows answers WM_GETMINMAXINFO
+// from this, which is a message rather than a call and so cannot be given them.
+WindowSizeLimits windowSizeLimits();
+
+// Clamp a requested size to the limits this platform says it enforces.
+//
+// Portable, and applied before every `setWindowSize`, because the toolkits do
+// not agree on whether a programmatic resize is subject to the same limits a
+// dragged corner is. AppKit's `setFrame:` clamps down to the maximum and not up
+// to the minimum, which is a resize that lands outside a limit an app set and
+// the window manager would have refused -- found by the test for exactly that.
+//
+// Filtered by `windowCapabilities()` rather than applied unconditionally, so
+// that what an app is told and what it gets stay the same thing: a desktop that
+// reports `maximumSize: false` does not quietly enforce one here.
+void constrainToWindowSizeLimits(double &width, double &height);
+
+// Tell the window manager about the limits above. Called on the UI thread, with
+// the new values already stored.
+void applyWindowSizeLimits();
+
+// Whether the person may resize the window at all.
+void setWindowResizable(bool resizable);
+
+// Whether it floats above other applications' windows. Not "above everything":
+// no desktop lets an ordinary application outrank a screen lock or a system
+// alert, and none of these ask it to.
+void setWindowAlwaysOnTop(bool alwaysOnTop);
+
+// Which of the above this desktop actually does.
+//
+// Answered rather than documented, because two of these are not gaps and will
+// not be filled. GTK4 removed `gtk_window_set_geometry_hints` and
+// `gtk_window_set_keep_above`, and Wayland has no protocol for either: a client
+// there does not know where it is, does not place itself, and does not outrank
+// its neighbours. An app that asks can put its "always on top" switch away on
+// the platform that has no such thing, which is better than a switch that lies.
+struct WindowCapabilities {
+  bool position{false};
+  bool minimumSize{false};
+  bool maximumSize{false};
+  bool resizable{false};
+  bool alwaysOnTop{false};
+};
+
+WindowCapabilities windowCapabilities();
+
 // The last bounds the host reported, readable from any thread.
 //
 // `windowBounds()` cannot be: it asks the toolkit, and a TurboModule method

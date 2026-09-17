@@ -1451,6 +1451,51 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
     }
 
+    // How big this window may be. Windows asks rather than being told, which is
+    // why the limits live in core and are read here: there is nowhere to have
+    // passed them in. See core/WindowControl.h.
+    //
+    // The numbers are the *frame*, and an app's are its content -- so each is
+    // adjusted outwards by whatever the border and caption cost, the same
+    // correction `setWindowSize` makes in the other direction.
+    case WM_GETMINMAXINFO: {
+      // The app's own window only. The limits are one set of numbers for one
+      // window, because `useWindow()` is about the window an app is in --
+      // answering this for every window would make Windows the one host where a
+      // limit set for one applied to all of them. Per-window geometry is its
+      // own piece of work and is in plan/backlog.md.
+      if (self != nullptr && self->surfaceId != kSurfaceId) {
+        break;
+      }
+      const basalt::WindowSizeLimits limits = basalt::windowSizeLimits();
+      if (limits.minWidth <= 0.0 && limits.minHeight <= 0.0 && limits.maxWidth <= 0.0 &&
+          limits.maxHeight <= 0.0) {
+        break;
+      }
+      RECT frame{0, 0, 0, 0};
+      AdjustWindowRectEx(&frame,
+                         static_cast<DWORD>(GetWindowLongW(hwnd, GWL_STYLE)),
+                         FALSE,
+                         static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE)));
+      const LONG extraWidth = frame.right - frame.left;
+      const LONG extraHeight = frame.bottom - frame.top;
+
+      auto *bounds = reinterpret_cast<MINMAXINFO *>(lparam);
+      if (limits.minWidth > 0.0) {
+        bounds->ptMinTrackSize.x = static_cast<LONG>(limits.minWidth) + extraWidth;
+      }
+      if (limits.minHeight > 0.0) {
+        bounds->ptMinTrackSize.y = static_cast<LONG>(limits.minHeight) + extraHeight;
+      }
+      if (limits.maxWidth > 0.0) {
+        bounds->ptMaxTrackSize.x = static_cast<LONG>(limits.maxWidth) + extraWidth;
+      }
+      if (limits.maxHeight > 0.0) {
+        bounds->ptMaxTrackSize.y = static_cast<LONG>(limits.maxHeight) + extraHeight;
+      }
+      return 0;
+    }
+
     // Before DestroyWindow, which takes every <TextInput>'s peer with it. See
     // captureBeforeTeardown.
     //

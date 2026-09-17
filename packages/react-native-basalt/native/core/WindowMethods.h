@@ -42,6 +42,35 @@ facebook::jsi::Value windowSetFullScreen(facebook::jsi::Runtime &runtime,
                                          const facebook::jsi::Value *args,
                                          size_t count);
 
+// `setMinimumSize(width, height)` and `setMaximumSize(width, height)`. Zero in
+// either direction clears that limit.
+facebook::jsi::Value windowSetMinimumSize(facebook::jsi::Runtime &runtime,
+                                          facebook::react::TurboModule &module,
+                                          const facebook::jsi::Value *args,
+                                          size_t count);
+facebook::jsi::Value windowSetMaximumSize(facebook::jsi::Runtime &runtime,
+                                          facebook::react::TurboModule &module,
+                                          const facebook::jsi::Value *args,
+                                          size_t count);
+
+// `setResizable(boolean)` and `setAlwaysOnTop(boolean)`.
+facebook::jsi::Value windowSetResizable(facebook::jsi::Runtime &runtime,
+                                        facebook::react::TurboModule &module,
+                                        const facebook::jsi::Value *args,
+                                        size_t count);
+facebook::jsi::Value windowSetAlwaysOnTop(facebook::jsi::Runtime &runtime,
+                                          facebook::react::TurboModule &module,
+                                          const facebook::jsi::Value *args,
+                                          size_t count);
+
+// `getCapabilities()` -> which of the above this desktop does. Read during
+// render, so it answers without a thread hop -- it is five booleans a platform
+// knows at compile time, not a question for the window manager.
+facebook::jsi::Value windowGetCapabilities(facebook::jsi::Runtime &runtime,
+                                           facebook::react::TurboModule &module,
+                                           const facebook::jsi::Value *args,
+                                           size_t count);
+
 // `getBounds()` -> `{x, y, width, height, fullScreen, maximized}`.
 facebook::jsi::Value windowGetBounds(facebook::jsi::Runtime &runtime,
                                      facebook::react::TurboModule &module,

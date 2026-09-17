@@ -36,8 +36,9 @@ export {Menu} from './Menu';
 // A second window, which is a second surface and so a second React root. See
 // Window.js for what that costs and what it does not.
 export {Window} from './Window';
-// The window itself: its size, its position, whether it fills the screen, and
-// live bounds. See useWindow.js.
+// The window itself: its size, how big it may be, its position, whether it
+// fills the screen, live bounds, and being asked before it closes. See
+// useWindow.js.
 export {useWindow, useCloseRequest, windowControl} from './useWindow';
 // The window's title bar: its title and colours, and a hidden style that lets
 // the app draw its own header. See TitleBar.js.

@@ -1,7 +1,8 @@
 // The Linux half of core/WindowControl.h.
 //
-// GTK4 is the most opinionated of the three desktops about this, and two of the
-// four functions are shaped by what it will not do.
+// GTK4 is the most opinionated of the three desktops about this, and several of
+// these functions are shaped by what it will not do. `windowCapabilities()` is
+// how an app finds that out without reading this file.
 //
 // **A window cannot be positioned.** `gtk_window_move` is gone in GTK4 and
 // nothing replaced it: on Wayland a client has no idea where its window is and
@@ -15,6 +16,14 @@
 // client has; the compositor may ignore it. That is also true of the other two
 // desktops in a tiling window manager, and the answer is the same: ask, and
 // report what actually happened through the bounds listener.
+//
+// **A window has no maximum size and does not float.**
+// `gtk_window_set_geometry_hints` and `gtk_window_set_keep_above` were both
+// removed in GTK4, for the same reason as `gtk_window_move`: Wayland has no
+// protocol for either, and an API that worked on X11 alone would be one that
+// silently does nothing half the time -- which is the thing GTK4 decided not to
+// ship. A minimum *is* expressible, because it is a property of the widget
+// rather than a request to the compositor.
 
 #include "WindowControl.h"
 
@@ -107,5 +116,45 @@ void setWindowFullScreen(bool fullScreen) {
   }
 }
 
+
+void applyWindowSizeLimits() {
+  GtkWindow *target = window();
+  if (target == nullptr) {
+    return;
+  }
+  // The minimum only, and through the widget rather than the window manager:
+  // GTK works out a toplevel's minimum from what its content needs, and this is
+  // how a client adds to that. -1 is GTK's "no request", which is what a
+  // cleared limit means.
+  const WindowSizeLimits limits = windowSizeLimits();
+  gtk_widget_set_size_request(GTK_WIDGET(target),
+                              limits.minWidth > 0.0 ? static_cast<int>(limits.minWidth) : -1,
+                              limits.minHeight > 0.0 ? static_cast<int>(limits.minHeight) : -1);
+  // The maximum is dropped rather than approximated. A window that enforced one
+  // by resizing itself back down would fight the person dragging its corner,
+  // which is worse than not having the feature; `windowCapabilities()` says so
+  // instead.
+}
+
+void setWindowResizable(bool resizable) {
+  GtkWindow *target = window();
+  if (target != nullptr) {
+    gtk_window_set_resizable(target, resizable ? TRUE : FALSE);
+  }
+}
+
+void setWindowAlwaysOnTop(bool /*alwaysOnTop*/) {
+  // Nothing to do, and that is the answer rather than a gap. See the header.
+}
+
+WindowCapabilities windowCapabilities() {
+  WindowCapabilities capabilities;
+  capabilities.position = false;
+  capabilities.minimumSize = true;
+  capabilities.maximumSize = false;
+  capabilities.resizable = true;
+  capabilities.alwaysOnTop = false;
+  return capabilities;
+}
 
 } // namespace basalt

@@ -37,7 +37,14 @@ Value windowSetSize(Runtime & /*runtime*/,
   if (twoNumbers(args, count)) {
     const double first = args[0].asNumber();
     const double second = args[1].asNumber();
-    onUiThread([first, second] { setWindowSize(first, second); });
+    onUiThread([first, second] {
+      // Clamped here rather than left to the toolkit, which is the only way the
+      // three agree. See core/WindowControl.h.
+      double width = first;
+      double height = second;
+      constrainToWindowSizeLimits(width, height);
+      setWindowSize(width, height);
+    });
   }
   return Value::undefined();
 }
@@ -74,6 +81,69 @@ Value windowSetFullScreen(Runtime & /*runtime*/,
     onUiThread([fullScreen] { setWindowFullScreen(fullScreen); });
   }
   return Value::undefined();
+}
+
+Value windowSetMinimumSize(Runtime & /*runtime*/,
+                           TurboModule & /*module*/,
+                           const Value *args,
+                           size_t count) {
+  if (twoNumbers(args, count)) {
+    const double width = args[0].asNumber();
+    const double height = args[1].asNumber();
+    // The store is portable and thread-safe; what needs the UI thread is the
+    // applying, which is why the hop wraps the whole call rather than half of
+    // it. See core/WindowControl.h.
+    onUiThread([width, height] { setWindowMinimumSize(width, height); });
+  }
+  return Value::undefined();
+}
+
+Value windowSetMaximumSize(Runtime & /*runtime*/,
+                           TurboModule & /*module*/,
+                           const Value *args,
+                           size_t count) {
+  if (twoNumbers(args, count)) {
+    const double width = args[0].asNumber();
+    const double height = args[1].asNumber();
+    onUiThread([width, height] { setWindowMaximumSize(width, height); });
+  }
+  return Value::undefined();
+}
+
+Value windowSetResizable(Runtime & /*runtime*/,
+                         TurboModule & /*module*/,
+                         const Value *args,
+                         size_t count) {
+  if (count >= 1 && args[0].isBool()) {
+    const bool resizable = args[0].asBool();
+    onUiThread([resizable] { setWindowResizable(resizable); });
+  }
+  return Value::undefined();
+}
+
+Value windowSetAlwaysOnTop(Runtime & /*runtime*/,
+                           TurboModule & /*module*/,
+                           const Value *args,
+                           size_t count) {
+  if (count >= 1 && args[0].isBool()) {
+    const bool onTop = args[0].asBool();
+    onUiThread([onTop] { setWindowAlwaysOnTop(onTop); });
+  }
+  return Value::undefined();
+}
+
+Value windowGetCapabilities(Runtime &runtime,
+                            TurboModule & /*module*/,
+                            const Value * /*args*/,
+                            size_t /*count*/) {
+  const WindowCapabilities capabilities = windowCapabilities();
+  Object result(runtime);
+  result.setProperty(runtime, "position", capabilities.position);
+  result.setProperty(runtime, "minimumSize", capabilities.minimumSize);
+  result.setProperty(runtime, "maximumSize", capabilities.maximumSize);
+  result.setProperty(runtime, "resizable", capabilities.resizable);
+  result.setProperty(runtime, "alwaysOnTop", capabilities.alwaysOnTop);
+  return Value(runtime, result);
 }
 
 Value windowGetBounds(Runtime &runtime,

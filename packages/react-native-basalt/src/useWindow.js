@@ -40,6 +40,24 @@
  * three -- a tiling window manager may ignore it -- which is why `bounds`
  * reports what happened rather than what was asked for.
  *
+ * ## How big it may be, and where it sits
+ *
+ *   window.setMinimumSize(400, 300);
+ *   window.setMaximumSize(1200, 900);   // 0 in either direction clears a limit
+ *   window.setResizable(false);
+ *   window.setAlwaysOnTop(true);
+ *
+ * Two of these do nothing on Linux, and that is settled rather than pending:
+ * GTK4 removed `gtk_window_set_geometry_hints` and `gtk_window_set_keep_above`
+ * because Wayland has no protocol for either. So rather than have an app read
+ * this paragraph, `window.capabilities` answers:
+ *
+ *   {position, minimumSize, maximumSize, resizable, alwaysOnTop}
+ *
+ * all true on macOS and Windows; on Linux, `minimumSize` and `resizable`. An
+ * app can put its "always on top" switch away on the desktop that has no such
+ * thing, which is better than a switch that lies.
+ *
  * ## Refusing to close
  *
  *   useCloseRequest(close => {
@@ -82,6 +100,30 @@ const NO_BOUNDS = Object.freeze({
   maximized: false,
 });
 
+// What this desktop actually does, which is not the same list everywhere.
+//
+// All false on a host with no window module, so an app that checks before
+// offering a control gets the right answer rather than an exception.
+const NO_CAPABILITIES = Object.freeze({
+  position: false,
+  minimumSize: false,
+  maximumSize: false,
+  resizable: false,
+  alwaysOnTop: false,
+});
+
+function readCapabilities() {
+  if (NativeWindow?.getCapabilities == null) {
+    return NO_CAPABILITIES;
+  }
+  return NativeWindow.getCapabilities() ?? NO_CAPABILITIES;
+}
+
+// Asked once. These are five booleans a platform knows at compile time, not a
+// question for the window manager, and re-reading them on every render would be
+// a JSI call per frame for an answer that cannot change.
+const capabilities = readCapabilities();
+
 function readBounds() {
   if (NativeWindow?.getBounds == null) {
     return NO_BOUNDS;
@@ -118,8 +160,25 @@ export const windowControl = Object.freeze({
   close() {
     NativeWindow?.close?.();
   },
+  setMinimumSize(width, height) {
+    NativeWindow?.setMinimumSize?.(width, height);
+  },
+  setMaximumSize(width, height) {
+    NativeWindow?.setMaximumSize?.(width, height);
+  },
+  setResizable(resizable) {
+    NativeWindow?.setResizable?.(resizable !== false);
+  },
+  setAlwaysOnTop(alwaysOnTop) {
+    NativeWindow?.setAlwaysOnTop?.(alwaysOnTop === true);
+  },
   getBounds() {
     return readBounds();
+  },
+  getCapabilities() {
+    // The cached answer, so that the imperative half and the hook cannot
+    // disagree about a thing that does not change.
+    return capabilities;
   },
 });
 
@@ -148,5 +207,5 @@ export function useWindow() {
     return () => subscription.remove();
   }, []);
 
-  return React.useMemo(() => ({...windowControl, bounds}), [bounds]);
+  return React.useMemo(() => ({...windowControl, bounds, capabilities}), [bounds]);
 }

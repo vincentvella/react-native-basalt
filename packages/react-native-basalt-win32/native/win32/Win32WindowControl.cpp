@@ -180,5 +180,79 @@ void setWindowFullScreen(bool fullScreen) {
                SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 }
 
+void applyWindowSizeLimits() {
+  HWND target = window();
+  if (target == nullptr) {
+    return;
+  }
+  // Nothing to set. Windows asks rather than being told: WM_GETMINMAXINFO
+  // arrives whenever the window manager wants the answer, and the host replies
+  // from `windowSizeLimits()`. All this does is make it ask again, so that a
+  // limit set while the window is already too big takes effect now rather than
+  // the next time somebody drags a corner.
+  RECT frame{};
+  if (!GetWindowRect(target, &frame)) {
+    return;
+  }
+  SetWindowPos(target,
+               nullptr,
+               frame.left,
+               frame.top,
+               frame.right - frame.left,
+               frame.bottom - frame.top,
+               SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+void setWindowResizable(bool resizable) {
+  HWND target = window();
+  if (target == nullptr) {
+    return;
+  }
+  LONG style = GetWindowLongW(target, GWL_STYLE);
+  // The sizing border and the maximise button together. Leaving the button on a
+  // window that cannot be sized would be an enabled control that does nothing,
+  // which is the same mistake as a greyed-out one that works.
+  if (resizable) {
+    style |= (WS_THICKFRAME | WS_MAXIMIZEBOX);
+  } else {
+    style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+  }
+  SetWindowLongW(target, GWL_STYLE, style);
+  // SWP_FRAMECHANGED, or the border is recalculated only the next time
+  // something else moves the window -- so the style changes and the frame does
+  // not, until it suddenly does.
+  SetWindowPos(target,
+               nullptr,
+               0,
+               0,
+               0,
+               0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE |
+                   SWP_FRAMECHANGED);
+}
+
+void setWindowAlwaysOnTop(bool alwaysOnTop) {
+  HWND target = window();
+  if (target == nullptr) {
+    return;
+  }
+  SetWindowPos(target,
+               alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
+               0,
+               0,
+               0,
+               0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+WindowCapabilities windowCapabilities() {
+  WindowCapabilities capabilities;
+  capabilities.position = true;
+  capabilities.minimumSize = true;
+  capabilities.maximumSize = true;
+  capabilities.resizable = true;
+  capabilities.alwaysOnTop = true;
+  return capabilities;
+}
 
 } // namespace basalt

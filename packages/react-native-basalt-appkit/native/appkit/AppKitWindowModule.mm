@@ -62,6 +62,14 @@ AppKitWindowModule::AppKitWindowModule(std::shared_ptr<facebook::react::CallInvo
   methodMap_["setPosition"] = MethodMetadata{2, windowSetPosition};
   methodMap_["center"] = MethodMetadata{0, windowCenter};
   methodMap_["setFullScreen"] = MethodMetadata{1, windowSetFullScreen};
+  // How big it may be, whether it may be resized at all, and whether it floats.
+  // Not every desktop does every one of these; `getCapabilities` is how an app
+  // finds out rather than guessing. See core/WindowControl.h.
+  methodMap_["setMinimumSize"] = MethodMetadata{2, windowSetMinimumSize};
+  methodMap_["setMaximumSize"] = MethodMetadata{2, windowSetMaximumSize};
+  methodMap_["setResizable"] = MethodMetadata{1, windowSetResizable};
+  methodMap_["setAlwaysOnTop"] = MethodMetadata{1, windowSetAlwaysOnTop};
+  methodMap_["getCapabilities"] = MethodMetadata{0, windowGetCapabilities};
   methodMap_["getBounds"] = MethodMetadata{0, windowGetBounds};
   // What a NativeEventEmitter over this module calls; the events go out as
   // device events either way.

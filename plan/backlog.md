@@ -594,7 +594,9 @@ has gone unrecorded until now.
   - **`useWindow()` inside a second window reports the active window**, not the
     one it is in. A TurboModule has no idea which surface called it, which is
     the same gap that would have to be closed for per-window menus or title
-    bars.
+    bars. The size limits are the sharpest version: they are one set of numbers
+    for one window, so Windows answers WM_GETMINMAXINFO for the app's own window
+    and no other, to keep the three hosts saying the same thing.
   - **The title bar and the error inspector are the main window's.** Both are
     process-wide seams; making them per-window is its own piece of work.
   - ~~**A window an app opened cannot refuse to close.**~~ Done, and for the
@@ -623,12 +625,20 @@ has gone unrecorded until now.
   `toggleMaximize`, `close`, and live `bounds`. What is left is the part GTK4
   will not do at all -- `setPosition` and `center` are no-ops on Linux and
   `bounds.x` is always zero there, because `gtk_window_move` is gone and Wayland
-  has no equivalent -- plus the rest of the window's own lifecycle. A close
-  attempt is reported now, so an app can ask "are you sure"; there is still no
-  minimum or maximum size, no resizable flag, and no always-on-top.
+  has no equivalent. The rest of the lifecycle is done: a close attempt is
+  reported, so an app can ask "are you sure", and `setMinimumSize`,
+  `setMaximumSize`, `setResizable` and `setAlwaysOnTop` are there with
+  `capabilities` saying which of them this desktop actually does -- on Linux the
+  maximum and always-on-top are `false`, because GTK4 removed both calls and
+  Wayland has no protocol for either.
 - **Window close behaviour** is an app's to influence now: `useCloseRequest()`
   and `<Window onCloseRequest>` refuse the close and report the attempt, which
-  is where "are you sure" goes. The title can be too, on Windows, with the title bar's colours
+  is where "are you sure" goes. So is how big it may be -- a minimum, a maximum,
+  a resizable flag and always-on-top, with `capabilities` answering which of
+  those this desktop does. What is left of the lifecycle is **quitting**, which
+  is a different event from closing a window: Cmd-Q, and the Windows and GNOME
+  session-end signals, each need their own seam.
+  The title can be influenced too, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,
   `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
   react-native-basalt. Linux and macOS ignore those calls until their hosts

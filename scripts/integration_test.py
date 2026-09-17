@@ -2017,6 +2017,137 @@ def test_window(bundle: Path) -> None:
         )
 
 
+def test_window_limits(bundle: Path) -> None:
+    """How big the window may be, and the fact that it is not the same list
+    everywhere.
+
+    Runs the second app in js/window.js: a minimum of 500x400, a maximum of
+    800x600, and two buttons that ask for sizes outside both. A size is a
+    request; a limit is what the window manager answers it with.
+
+    Two halves, and the first is the one that runs everywhere.
+
+      capabilities   what this desktop says it does. Asserted against what each
+                     host actually implements, because the whole point of
+                     answering is that an app can trust the answer -- a
+                     `capabilities` that said "yes" and then did nothing would
+                     be worse than no capabilities at all. macOS and Windows do
+                     all five. Linux does the minimum and the resizable flag,
+                     and does not do position, maximum size or always-on-top:
+                     GTK4 removed `gtk_window_set_geometry_hints` and
+                     `gtk_window_set_keep_above` because Wayland has no protocol
+                     for either, so those two are settled rather than pending.
+
+      clamping       that a request outside a limit comes back clamped. Only
+                     where the platform claims the limit, and only where there
+                     is a window manager to enforce it -- CI runs the Linux host
+                     under Xvfb, which has neither.
+
+    `setResizable` and `setAlwaysOnTop` are called and not asserted, which is
+    the honest limit rather than an oversight: neither is observable from inside
+    the app. A window that cannot be resized is still whatever size it is, and
+    one that floats is still where it was. What this says about them is that the
+    native path runs on all three without taking the host with it.
+    """
+    app = bundle_app(bundle.parent, "window")
+
+    # The same layout as the app above: 24 of padding, a 22-tall label, then a
+    # 48-tall row. The buttons are 150 wide from x=24, so their middles are
+    # x=99 and x=261 at y=70.
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "12000"
+    env["BASALT_TEST_TAP"] = "99,70;261,70"
+    for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                 "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltWindowLimits"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=150,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+    logged = result.stdout + result.stderr
+
+    if "window flags: resizable and always-on-top reached the host" not in logged:
+        raise Failure(
+            "setResizable or setAlwaysOnTop did not return. Neither can be "
+            "asserted from inside the app; that they run at all is what this "
+            f"checks.\n{tail_text(logged)}"
+        )
+
+    said = [line for line in logged.splitlines() if "window capabilities: " in line]
+    if not said:
+        raise Failure(f"the app never asked what the window can do.\n{tail_text(logged)}")
+    answer = said[-1].split("window capabilities: ", 1)[1].strip()
+
+    # What each host actually implements. Spelled out rather than derived, so
+    # that a host quietly losing one of these fails here.
+    expected = {
+        "macos": "position=true minimumSize=true maximumSize=true resizable=true "
+                 "alwaysOnTop=true",
+        "windows": "position=true minimumSize=true maximumSize=true resizable=true "
+                   "alwaysOnTop=true",
+        "linux": "position=false minimumSize=true maximumSize=false resizable=true "
+                 "alwaysOnTop=false",
+    }[PLATFORM]
+    if answer != expected:
+        raise Failure(
+            f"this host describes itself as\n  {answer}\nand the platform does\n"
+            f"  {expected}\nAn app that trusts `capabilities` and gets a no-op is "
+            "worse off than one with no capabilities at all."
+        )
+
+    if PLATFORM == "linux" and not has_window_manager():
+        print(
+            "        (no window manager, so the clamping half of this scenario "
+            "could not run)"
+        )
+        return
+
+    # What the window became after each request, rather than every size it has
+    # ever been. The window opens at 900x700 and a limit set afterwards does not
+    # reach back and shrink it -- no desktop does that, and neither does
+    # Electron -- so the sizes before the first request are not evidence of
+    # anything. What is being asserted is that a request made while a limit is
+    # in force comes back inside it.
+    def after(request: str) -> tuple[float, float] | None:
+        _, marker, rest = logged.partition(f"window asked for {request}")
+        if not marker:
+            raise Failure(f"the app never asked for {request}.\n{tail_text(logged)}")
+        for line in rest.splitlines():
+            if "window limited bounds: " not in line:
+                continue
+            size = line.split("window limited bounds: ", 1)[1].strip()
+            width, _, height = size.partition("x")
+            return float(width), float(height)
+        return None
+
+    # Asking for 300x200 against a minimum of 500x400.
+    smaller = after("300x200")
+    if smaller is None:
+        raise Failure(f"asking for 300x200 changed nothing.\n{tail_text(logged)}")
+    if smaller[0] < 500 or smaller[1] < 400:
+        raise Failure(
+            f"setSize(300, 200) against a minimum of 500x400 gave {smaller}. "
+            "AppKit's setFrame: clamps down to a maximum and not up to a "
+            "minimum, which is why this is applied in core rather than left to "
+            "the toolkit."
+        )
+
+    if "maximumSize=true" in expected:
+        # Asking for 1400x1100 against a maximum of 800x600. Allowed to come
+        # back smaller -- a display that cannot fit 800x600 is a window manager
+        # doing its job -- but never larger.
+        larger = after("1400x1100")
+        if larger is None:
+            raise Failure(f"asking for 1400x1100 changed nothing.\n{tail_text(logged)}")
+        if larger[0] > 800 or larger[1] > 600:
+            raise Failure(
+                f"setSize(1400, 1100) against a maximum of 800x600 gave {larger}."
+            )
+
+
 def test_application_menu(bundle: Path) -> None:
     """The application menu, and the thing its absence quietly broke.
 
@@ -2406,6 +2537,8 @@ SCENARIOS = [
      test_file_dialogs),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
+    ("a window says how big it may be, and what this desktop can do about it",
+     test_window_limits),
     ("the application menu is installed, roles and all", test_application_menu),
     ("a second window is a second React tree, and the two stay in step",
      test_windows),

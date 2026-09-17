@@ -113,6 +113,15 @@ void setWindowSize(double, double) {}
 void setWindowPosition(double, double) {}
 void centerWindow() {}
 void setWindowFullScreen(bool) {}
+void applyWindowSizeLimits() {}
+void setWindowResizable(bool) {}
+void setWindowAlwaysOnTop(bool) {}
+WindowCapabilities windowCapabilities() {
+  // A platform with no window manager does none of them, which is the honest
+  // answer rather than a convenient one: this probe exists to say what a new
+  // port owes, and four falses is the starting position.
+  return WindowCapabilities{};
+}
 
 // The application menu, stubbed the same way. A platform with no menu bar
 // answers exactly this, which is also what GTK answers for real.

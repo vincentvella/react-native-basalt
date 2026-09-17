@@ -108,5 +108,65 @@ void setWindowFullScreen(bool fullScreen) {
   }
 }
 
+void applyWindowSizeLimits() {
+  @autoreleasepool {
+    NSWindow *target = window();
+    if (target == nil) {
+      return;
+    }
+    const WindowSizeLimits limits = windowSizeLimits();
+    // `contentMinSize` and `contentMaxSize` rather than `minSize`/`maxSize`:
+    // those are the frame, which includes the title bar, and an app asking for
+    // a minimum of 400x300 means 400x300 of its own content -- the same
+    // distinction `setWindowSize` already makes.
+    target.contentMinSize = NSMakeSize(limits.minWidth > 0.0 ? limits.minWidth : 0.0,
+                                       limits.minHeight > 0.0 ? limits.minHeight : 0.0);
+    // No maximum is CGFLOAT_MAX rather than zero, which would be a window that
+    // cannot be any size at all.
+    target.contentMaxSize = NSMakeSize(limits.maxWidth > 0.0 ? limits.maxWidth : CGFLOAT_MAX,
+                                       limits.maxHeight > 0.0 ? limits.maxHeight : CGFLOAT_MAX);
+  }
+}
+
+void setWindowResizable(bool resizable) {
+  @autoreleasepool {
+    NSWindow *target = window();
+    if (target == nil) {
+      return;
+    }
+    // A bit in the style mask, which is also what draws the zoom button: a
+    // window that cannot be resized should not offer to be.
+    if (resizable) {
+      target.styleMask |= NSWindowStyleMaskResizable;
+    } else {
+      target.styleMask &= ~NSWindowStyleMaskResizable;
+    }
+  }
+}
+
+void setWindowAlwaysOnTop(bool alwaysOnTop) {
+  @autoreleasepool {
+    NSWindow *target = window();
+    if (target == nil) {
+      return;
+    }
+    // Floating, not one of the higher levels. `NSFloatingWindowLevel` puts a
+    // window above other applications and still below the things that are
+    // supposed to outrank an application -- a screen lock, a system alert -- and
+    // asking for more than that is asking to be the bug report.
+    target.level = alwaysOnTop ? NSFloatingWindowLevel : NSNormalWindowLevel;
+  }
+}
+
+WindowCapabilities windowCapabilities() {
+  // The one desktop where every one of these is real.
+  WindowCapabilities capabilities;
+  capabilities.position = true;
+  capabilities.minimumSize = true;
+  capabilities.maximumSize = true;
+  capabilities.resizable = true;
+  capabilities.alwaysOnTop = true;
+  return capabilities;
+}
 
 } // namespace basalt

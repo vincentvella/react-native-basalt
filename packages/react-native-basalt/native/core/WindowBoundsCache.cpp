@@ -43,6 +43,70 @@ void setWindowBoundsListener(std::function<void(const WindowBounds &)> value) {
   listener() = std::move(value);
 }
 
+// --- How big it may be ------------------------------------------------------
+//
+// Stored here rather than three times, and stored at all rather than simply
+// handed to the toolkit, because Windows answers WM_GETMINMAXINFO -- a message
+// that arrives whenever the window manager feels like asking, with nowhere to
+// have passed the numbers in.
+
+namespace {
+
+WindowSizeLimits &limits() {
+  static WindowSizeLimits value;
+  return value;
+}
+
+} // namespace
+
+void setWindowMinimumSize(double width, double height) {
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    // Negatives are the same as zero: "no limit". An app clearing a constraint
+    // is more likely to pass 0 than -1, and neither should be a window that
+    // cannot be smaller than minus one pixel.
+    limits().minWidth = width > 0.0 ? width : 0.0;
+    limits().minHeight = height > 0.0 ? height : 0.0;
+  }
+  applyWindowSizeLimits();
+}
+
+void setWindowMaximumSize(double width, double height) {
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    limits().maxWidth = width > 0.0 ? width : 0.0;
+    limits().maxHeight = height > 0.0 ? height : 0.0;
+  }
+  applyWindowSizeLimits();
+}
+
+void constrainToWindowSizeLimits(double &width, double &height) {
+  // `inForce` rather than `limits`, which is the name of the storage next door.
+  const WindowSizeLimits inForce = windowSizeLimits();
+  const WindowCapabilities able = windowCapabilities();
+  if (able.minimumSize) {
+    if (inForce.minWidth > 0.0 && width < inForce.minWidth) {
+      width = inForce.minWidth;
+    }
+    if (inForce.minHeight > 0.0 && height < inForce.minHeight) {
+      height = inForce.minHeight;
+    }
+  }
+  if (able.maximumSize) {
+    if (inForce.maxWidth > 0.0 && width > inForce.maxWidth) {
+      width = inForce.maxWidth;
+    }
+    if (inForce.maxHeight > 0.0 && height > inForce.maxHeight) {
+      height = inForce.maxHeight;
+    }
+  }
+}
+
+WindowSizeLimits windowSizeLimits() {
+  const std::lock_guard<std::mutex> guard(lock());
+  return limits();
+}
+
 WindowBounds lastKnownWindowBounds() {
   const std::lock_guard<std::mutex> guard(lock());
   return cache();
