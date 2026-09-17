@@ -31,6 +31,8 @@
 
 #pragma once
 
+#include "ControlMetrics.h"
+
 #include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/mounting/ShadowView.h>
 
@@ -107,19 +109,9 @@ std::string describeControl(const ControlState &state);
 
 // --- Metrics -----------------------------------------------------------------
 //
-// Constants rather than each toolkit's intrinsic size, so that a layout built
-// against one desktop is the same on the other two.
-
-// React Native's <Switch> size on iOS, which is what app layouts are written
-// against. GTK's and AppKit's own switches are smaller and would reflow a
-// screen that fits on a Mac and not on Linux.
-inline constexpr float kSwitchWidth = 51.0F;
-inline constexpr float kSwitchHeight = 31.0F;
-
-// <ActivityIndicator>'s two sizes, which React Native's JavaScript also writes
-// into the view's style -- these are for the drawing, not for the layout.
-inline constexpr float kSpinnerSmall = 20.0F;
-inline constexpr float kSpinnerLarge = 36.0F;
+// kSwitchWidth, kSwitchHeight, kSpinnerSmall and kSpinnerLarge are in
+// ControlMetrics.h next door, because the Windows view layer draws a switch and
+// a spinner and cannot include this file; see its header.
 
 // How far a scroll view has to be pulled past its top before a <RefreshControl>
 // fires. React Native's iOS control uses roughly this.

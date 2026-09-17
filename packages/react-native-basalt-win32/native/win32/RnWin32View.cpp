@@ -1,5 +1,6 @@
 #include "RnWin32View.h"
 
+#include "ControlMetrics.h"
 #include "FocusRing.h"
 #include "RnWin32Image.h"
 #include "RnWin32TextLayout.h"
@@ -496,7 +497,10 @@ void RnWin32View::paintControl(ID2D1RenderTarget *target) const {
     // Eight dots around a circle, the leading one opaque and the rest fading
     // behind it. The same shape GtkSpinner and NSProgressIndicator draw, which
     // matters because these three hosts are screenshotted side by side.
-    const float diameter = std::min({controlStyle_.large ? 36.0f : 20.0f, frame_.width, frame_.height});
+    const float diameter = std::min(
+        {controlStyle_.large ? basalt::kSpinnerLarge : basalt::kSpinnerSmall,
+         frame_.width,
+         frame_.height});
     if (diameter <= 0.0f) {
       return;
     }
@@ -533,12 +537,12 @@ void RnWin32View::paintControl(ID2D1RenderTarget *target) const {
     return;
   }
 
-  // A switch: a rounded track with a circular thumb at one end. Sized from the
-  // constants in core/DesktopControls.h -- which are also what the shadow node
-  // measures to -- and centred, so a <Switch> given a bigger box keeps its
-  // shape rather than stretching.
-  const float width = std::min(51.0f, frame_.width);
-  const float height = std::min(31.0f, frame_.height);
+  // A switch: a rounded track with a circular thumb at one end. Sized from
+  // core/ControlMetrics.h -- the same numbers the shadow node measures to --
+  // and centred, so a <Switch> given a bigger box keeps its shape rather than
+  // stretching.
+  const float width = std::min(basalt::kSwitchWidth, frame_.width);
+  const float height = std::min(basalt::kSwitchHeight, frame_.height);
   if (width <= 0.0f || height <= 0.0f) {
     return;
   }
