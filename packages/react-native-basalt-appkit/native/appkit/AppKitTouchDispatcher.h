@@ -20,6 +20,7 @@
 
 #include "AppKitMountingManager.h"
 #include "HoverTracker.h"
+#include "PointerButtons.h"
 
 #include <react/renderer/components/view/TouchEventEmitter.h>
 #include <react/renderer/graphics/Point.h>
@@ -50,6 +51,10 @@ class AppKitTouchDispatcher {
   // event delivery and nothing else, so it proves hit testing, emitter lookup
   // and event-beat delivery, but not that AppKit routes clicks here.
   void synthesiseTap(double x, double y);
+  // The same, with a button. BASALT_TEST_SECONDARY_TAP is what needs it: a
+  // right-click cannot be injected any other way, and it is the one click whose
+  // whole point is that it does *not* press what it lands on.
+  void synthesiseTap(double x, double y, basalt::PointerButton button);
 
   // A press, a run of moves, and a release. The same reason as synthesiseTap,
   // one step further: a gesture recogniser cannot be exercised by a tap at all
@@ -64,9 +69,12 @@ class AppKitTouchDispatcher {
 
   // The main-thread half, called by the view that received the mouse event.
   // Public because the Objective-C trampoline has to reach them.
-  void dispatchTouchStart(double x, double y);
+  // `button` decides whether this presses anything. Only the primary one drives
+  // the touch model; a secondary or middle click produces a pointer event and
+  // nothing else. See core/PointerButtons.h.
+  void dispatchTouchStart(double x, double y, basalt::PointerButton button);
   void dispatchTouchMove(double x, double y);
-  void dispatchTouchEnd(double x, double y);
+  void dispatchTouchEnd(double x, double y, basalt::PointerButton button);
   void dispatchTouchCancel();
 
   // The hover half. Separate from dispatchTouchMove because the two answer
@@ -92,6 +100,15 @@ class AppKitTouchDispatcher {
 
   // A pointerMove at the view under the cursor. The only pointer event a host
   // emits for hover; see core/HoverTracker.h.
+  // A press or a release as a pointer event, which is the only form a
+  // non-primary click arrives in.
+  void emitPointerButton(bool down,
+                         facebook::react::Tag target,
+                         double originX,
+                         double originY,
+                         double x,
+                         double y,
+                         basalt::PointerButton button);
   void emitPointerMove(
       facebook::react::Tag target, double originX, double originY, double x, double y);
 

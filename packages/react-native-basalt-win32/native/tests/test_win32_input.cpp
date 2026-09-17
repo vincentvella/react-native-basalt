@@ -15,6 +15,8 @@
 
 #include "TestHarness.h"
 
+#include "PointerButtons.h"
+
 #include "Gestures.h"
 #include "Win32MountingManager.h"
 #include "Win32TouchDispatcher.h"
@@ -160,7 +162,7 @@ TEST(win32_a_move_before_a_press_is_ignored) {
   EXPECT(!dispatcher.isDown());
   // An end with no start is a no-op too, which is the case the host hits when
   // a WM_LBUTTONUP arrives after the surface was torn down.
-  dispatcher.dispatchTouchEnd(10, 10);
+  dispatcher.dispatchTouchEnd(10, 10, basalt::PointerButton::Primary);
   dispatcher.dispatchTouchCancel();
   EXPECT(!dispatcher.isDown());
 
@@ -178,15 +180,15 @@ TEST(win32_a_press_is_only_outstanding_between_down_and_up) {
 
   Win32TouchDispatcher dispatcher(&manager, root);
   EXPECT(!dispatcher.isDown());
-  dispatcher.dispatchTouchStart(50, 60);
+  dispatcher.dispatchTouchStart(50, 60, basalt::PointerButton::Primary);
   EXPECT(dispatcher.isDown());
   dispatcher.dispatchTouchMove(60, 70);
   EXPECT(dispatcher.isDown());
-  dispatcher.dispatchTouchEnd(60, 70);
+  dispatcher.dispatchTouchEnd(60, 70, basalt::PointerButton::Primary);
   EXPECT(!dispatcher.isDown());
 
   // Outside the surface entirely: nothing was hit, so nothing is down.
-  dispatcher.dispatchTouchStart(5000, 5000);
+  dispatcher.dispatchTouchStart(5000, 5000, basalt::PointerButton::Primary);
   EXPECT(!dispatcher.isDown());
 
   manager.destroySurfaceRoot(kSurfaceId);
@@ -196,9 +198,9 @@ TEST(win32_a_press_is_only_outstanding_between_down_and_up) {
 // creating the window and starting the surface.
 TEST(win32_a_press_with_no_surface_is_a_no_op) {
   Win32TouchDispatcher dispatcher(nullptr, nullptr);
-  dispatcher.dispatchTouchStart(10, 10);
+  dispatcher.dispatchTouchStart(10, 10, basalt::PointerButton::Primary);
   dispatcher.dispatchTouchMove(20, 20);
-  dispatcher.dispatchTouchEnd(20, 20);
+  dispatcher.dispatchTouchEnd(20, 20, basalt::PointerButton::Primary);
   EXPECT(!dispatcher.isDown());
 }
 
@@ -295,10 +297,10 @@ TEST(win32_an_activated_gesture_takes_the_pointer) {
   basalt::gestures().attach(1, 10);
 
   Win32TouchDispatcher dispatcher(&manager, root);
-  dispatcher.dispatchTouchStart(50, 50);
+  dispatcher.dispatchTouchStart(50, 50, basalt::PointerButton::Primary);
   EXPECT(!dispatcher.isDown());
 
-  dispatcher.dispatchTouchEnd(50, 50);
+  dispatcher.dispatchTouchEnd(50, 50, basalt::PointerButton::Primary);
 
   manager.destroySurfaceRoot(kSurfaceId);
 }

@@ -13,6 +13,8 @@
 
 #include "TestHarness.h"
 
+#include "PointerButtons.h"
+
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
 #import "RnAppKitView.h"
@@ -270,7 +272,7 @@ TEST(a_move_before_a_press_is_ignored) {
     // the state it must not enter is private, so this pins the behaviour that
     // an end with no start is also a no-op.
     dispatcher.dispatchTouchMove(10, 10);
-    dispatcher.dispatchTouchEnd(10, 10);
+    dispatcher.dispatchTouchEnd(10, 10, basalt::PointerButton::Primary);
     dispatcher.dispatchTouchCancel();
 
     manager.destroySurfaceRoot(kSurfaceId);

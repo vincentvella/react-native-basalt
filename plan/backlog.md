@@ -652,15 +652,14 @@ has gone unrecorded until now.
   portable than the menu bar rather than less: a popup is something every
   desktop has always had, including the one with no menu bar.
 
-  What is left: **a right-click does not open one by itself**. Every host
-  forwards a secondary click as an ordinary press, because React Native's touch
-  model has no concept of which button -- that belongs to pointer events -- so
-  an app opens a context menu from `onLongPress`, a button or a key. Carrying
-  button identity from three toolkits through the dispatchers and out to
-  JavaScript is the work, and it is the same seam pointer events would need.
-  Also: no checkbox or radio items; no submenus in a popup, which is deliberate
-  rather than missing; no dynamic enabling without re-rendering the whole menu;
-  and the role labels are English, because nothing here is localised.
+  A right-click opens one now, on all three: a secondary click arrives as
+  `onPointerDown` with `button === 2` and does *not* fire `onPress`, which is
+  what it means on every desktop. See core/PointerButtons.h.
+
+  What is left: no checkbox or radio items; no submenus in a popup, which is
+  deliberate rather than missing; no dynamic enabling without re-rendering the
+  whole menu; and the role labels are English, because nothing here is
+  localised.
 - ~~**Native file dialogs.**~~ Done on all three: `useDialog().openFile()`,
   `saveFile()` and `openFolder()`, over `GtkFileDialog`, `NSOpenPanel` /
   `NSSavePanel` and `IFileDialog`. What is left is the rest of what a desktop
@@ -1043,6 +1042,21 @@ them: `FlatList`, `SectionList`, `Animated` with a native driver, `SafeAreaView`
 - **The cxx `NetworkingModule` does not mention blobs at all**, so
   `responseType: 'blob'` has no response path to hook and `addNetworkingHandler`
   has nothing to register with.
+
+- **`BaseViewConfig` registers `onPointerDown`, `onPointerUp` and
+  `onPointerCancel` and does not declare them.** All three are in
+  `bubblingEventTypes` with their bubbled and captured names, and supported the
+  whole way down -- `propsConversions.h` parses them into `ViewProps::events`,
+  `PointerEventsProcessor` handles them, `TouchEventEmitter::onPointerDown`
+  dispatches one. What is missing is their line in `validAttributes`, which
+  lists the five hover-ish pointer props and stops. So React never sends the
+  prop, the bit is never set, `shouldEmitPointerEvent` returns false, and the
+  event is dropped in C++ -- silently, and only for the three left out.
+
+  Costs a phone nothing, because a phone has no button to press. Costs a desktop
+  the ability to answer a right-click at all, which is what found it. Worked
+  around in `src/overrides/BaseViewConfig.js`, which is React Native's own file
+  plus six keys and goes away when upstream adds them.
 
 - **`ReactInstanceConfig` has no `platform` field.** `DevServerHelper` builds
   every bundle URL with `constexpr DEFAULT_PLATFORM = "android"`, so every

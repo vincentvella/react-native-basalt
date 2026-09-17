@@ -46,6 +46,7 @@
 #include "Win32MountingManager.h"
 #include "Win32MenuBar.h"
 #include "Win32Packaging.h"
+#include "PointerButtons.h"
 #include "WindowControl.h"
 #include "WindowHost.h"
 #include "Win32RunLoopObserver.h"
@@ -1229,17 +1230,33 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // Mouse coordinates arrive in client-area pixels, which are the surface
     // root's own coordinates: WM_SIZE sizes the root to the client rectangle,
     // so the two spaces are the same one and nothing has to be converted.
-    case WM_LBUTTONDOWN: {
+    // Each button is its own message on Windows, which is why there are six of
+    // these rather than one with a parameter. Only the primary one captures or
+    // presses anything; see core/PointerButtons.h.
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN: {
       if (self == nullptr || self->touchDispatcher == nullptr) {
         break;
       }
+      const basalt::PointerButton button = message == WM_LBUTTONDOWN
+          ? basalt::PointerButton::Primary
+          : (message == WM_RBUTTONDOWN ? basalt::PointerButton::Secondary
+                                       : basalt::PointerButton::Middle);
       // Capture, or a drag that leaves the window stops being reported and the
       // release never arrives -- which leaves the responder system believing a
       // finger is still down and swallows every press after it. AppKit and GTK
       // route a drag back to the view that took the press for free; here it has
       // to be asked for.
-      SetCapture(hwnd);
-      self->touchDispatcher->dispatchTouchStart(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      //
+      // Only for the button that can drag. A secondary click produces a pointer
+      // event and is over; capturing the mouse for it would take the pointer
+      // away from everything else for no reason.
+      if (basalt::isPressButton(button)) {
+        SetCapture(hwnd);
+      }
+      self->touchDispatcher->dispatchTouchStart(
+          GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), button);
       return 0;
     }
 
@@ -1307,15 +1324,26 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       }
       return 0;
 
-    case WM_LBUTTONUP: {
-      if (gHost.main().touchDispatcher == nullptr) {
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONUP: {
+      // `self`, not `gHost.main()`. This reached for the app's own window even
+      // when the message was for another one, so a release in a second window
+      // ended a touch in the first -- and left the second believing a finger
+      // was still down, which swallows every press after it.
+      if (self == nullptr || self->touchDispatcher == nullptr) {
         break;
       }
+      const basalt::PointerButton button = message == WM_LBUTTONUP
+          ? basalt::PointerButton::Primary
+          : (message == WM_RBUTTONUP ? basalt::PointerButton::Secondary
+                                     : basalt::PointerButton::Middle);
       // The end first: ReleaseCapture sends WM_CAPTURECHANGED synchronously,
       // and that is a cancel. Releasing first would turn every ordinary click
       // into a cancelled touch, which is a press that never fires.
-      gHost.main().touchDispatcher->dispatchTouchEnd(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
-      if (GetCapture() == hwnd) {
+      self->touchDispatcher->dispatchTouchEnd(
+          GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), button);
+      if (basalt::isPressButton(button) && GetCapture() == hwnd) {
         ReleaseCapture();
       }
       return 0;

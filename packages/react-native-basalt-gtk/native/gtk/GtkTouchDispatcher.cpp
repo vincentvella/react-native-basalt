@@ -56,9 +56,9 @@ PointerEvent hoverEvent(double x, double y, double originX, double originY) {
 GtkTouchDispatcher::GtkTouchDispatcher(GtkMountingManager *mountingManager, RnView *surfaceRoot)
     : mountingManager_(mountingManager), surfaceRoot_(surfaceRoot) {
   clickGesture_ = gtk_gesture_click_new();
-  // Button 0 means every button. React Native has no concept of a right click
-  // in its touch model, so they all arrive as touches; which button it was
-  // belongs to pointer events, not here.
+  // Button 0 means every button, which is still what this wants -- but they no
+  // longer all arrive as touches. The gesture is asked which one it was and
+  // only the primary presses anything; see core/PointerButtons.h.
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(clickGesture_), 0);
   g_signal_connect(clickGesture_, "pressed", G_CALLBACK(onPressed), this);
   g_signal_connect(clickGesture_, "released", G_CALLBACK(onReleased), this);
@@ -83,20 +83,35 @@ GtkTouchDispatcher::~GtkTouchDispatcher() {
 // GTK callbacks
 // ---------------------------------------------------------------------------
 
-void GtkTouchDispatcher::onPressed(GtkGestureClick * /*gesture*/,
+// GTK counts buttons from 1: 1 is primary, 2 is the wheel, 3 is secondary.
+// Anything above that -- a mouse with side buttons -- is nothing this has an
+// answer for, and treating it as primary would make a thumb button press
+// things.
+basalt::PointerButton buttonOf(GtkGestureClick *gesture) {
+  switch (gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture))) {
+    case 1:
+      return basalt::PointerButton::Primary;
+    case 2:
+      return basalt::PointerButton::Middle;
+    default:
+      return basalt::PointerButton::Secondary;
+  }
+}
+
+void GtkTouchDispatcher::onPressed(GtkGestureClick *gesture,
                                    int /*count*/,
                                    double x,
                                    double y,
                                    gpointer userData) {
-  static_cast<GtkTouchDispatcher *>(userData)->dispatchTouchStart(x, y);
+  static_cast<GtkTouchDispatcher *>(userData)->dispatchTouchStart(x, y, buttonOf(gesture));
 }
 
-void GtkTouchDispatcher::onReleased(GtkGestureClick * /*gesture*/,
+void GtkTouchDispatcher::onReleased(GtkGestureClick *gesture,
                                     int /*count*/,
                                     double x,
                                     double y,
                                     gpointer userData) {
-  static_cast<GtkTouchDispatcher *>(userData)->dispatchTouchEnd(x, y);
+  static_cast<GtkTouchDispatcher *>(userData)->dispatchTouchEnd(x, y, buttonOf(gesture));
 }
 
 void GtkTouchDispatcher::onCancelled(GtkGesture * /*gesture*/,
@@ -119,8 +134,12 @@ void GtkTouchDispatcher::onPointerLeft(GtkEventControllerMotion * /*controller*/
 }
 
 void GtkTouchDispatcher::synthesiseTap(double x, double y) {
-  dispatchTouchStart(x, y);
-  dispatchTouchEnd(x, y);
+  synthesiseTap(x, y, basalt::PointerButton::Primary);
+}
+
+void GtkTouchDispatcher::synthesiseTap(double x, double y, basalt::PointerButton button) {
+  dispatchTouchStart(x, y, button);
+  dispatchTouchEnd(x, y, button);
 }
 
 void GtkTouchDispatcher::synthesiseHover(double x, double y) {
@@ -132,13 +151,13 @@ void GtkTouchDispatcher::synthesiseHover(double x, double y) {
 }
 
 void GtkTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps) {
-  dispatchTouchStart(fromX, fromY);
+  dispatchTouchStart(fromX, fromY, basalt::PointerButton::Primary);
   const int count = steps < 1 ? 1 : steps;
   for (int step = 1; step <= count; step++) {
     const double progress = static_cast<double>(step) / count;
     dispatchTouchMove(fromX + (toX - fromX) * progress, fromY + (toY - fromY) * progress);
   }
-  dispatchTouchEnd(toX, toY);
+  dispatchTouchEnd(toX, toY, basalt::PointerButton::Primary);
 }
 
 // ---------------------------------------------------------------------------
@@ -296,21 +315,48 @@ std::vector<basalt::HitView> hitChain(RnView *root, double x, double y) {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-void GtkTouchDispatcher::dispatchTouchStart(double x, double y) {
-  if (!basalt::gestures().empty()) {
-    basalt::gestures().pointerDown(
-        hitChain(surfaceRoot_, x, y), x, y, basalt::monotonicMilliseconds());
-  }
+void GtkTouchDispatcher::dispatchTouchStart(double x, double y, basalt::PointerButton button) {
+  // The innermost view, and where inside it the press landed. Needed for the
+  // pointer event whichever button it was; PointerEventsProcessor walks up from
+  // there itself.
+  Tag target = 0;
+  double originX = 0;
+  double originY = 0;
+  walkHitChain(surfaceRoot_, x, y, [&](int tag, double viewX, double viewY) {
+    if (target == 0) {
+      target = static_cast<Tag>(tag);
+      originX = viewX;
+      originY = viewY;
+    }
+  });
 
-  const Tag target = hitTestTag(surfaceRoot_, x, y);
-  g_debug("touch start at (%.0f, %.0f) -> tag %d%s",
+  g_debug("touch start at (%.0f, %.0f) button %d -> tag %d%s",
           x,
           y,
+          static_cast<int>(button),
           static_cast<int>(target),
           mountingManager_->eventEmitterForTag(target) != nullptr ? "" : " (no emitter)");
   if (target == 0) {
     return;
   }
+
+  // Every button produces a pointer event, which is where `button` can be said
+  // at all.
+  emitPointerButton(true, target, originX, originY, x, y, button);
+
+  // Only the primary one goes any further. A secondary click is not a press --
+  // the web fires no `click` for one and no desktop treats it as an activation
+  // -- so it must not reach the responder system, a gesture handler, or
+  // `onPress`. See core/PointerButtons.h.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
+  if (!basalt::gestures().empty()) {
+    basalt::gestures().pointerDown(
+        hitChain(surfaceRoot_, x, y), x, y, basalt::monotonicMilliseconds());
+  }
+
   activeTarget_ = target;
   isDown_ = true;
   emit(TouchKind::Start, target, x, y);
@@ -337,7 +383,32 @@ void GtkTouchDispatcher::dispatchTouchMove(double x, double y) {
   emit(TouchKind::Move, activeTarget_, x, y);
 }
 
-void GtkTouchDispatcher::dispatchTouchEnd(double x, double y) {
+void GtkTouchDispatcher::dispatchTouchEnd(double x, double y, basalt::PointerButton button) {
+  // The release half of the pointer event, for every button. Reported against
+  // whatever is under the pointer now rather than what was under it on press,
+  // which is what a release means when nothing was captured.
+  {
+    Tag over = 0;
+    double originX = 0;
+    double originY = 0;
+    walkHitChain(surfaceRoot_, x, y, [&](int tag, double viewX, double viewY) {
+      if (over == 0) {
+        over = static_cast<Tag>(tag);
+        originX = viewX;
+        originY = viewY;
+      }
+    });
+    if (over != 0) {
+      emitPointerButton(false, over, originX, originY, x, y, button);
+    }
+  }
+
+  // And nothing else for a button that never pressed anything -- there is no
+  // touch to end, no gesture to finish and no <Switch> to toggle.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
   if (!basalt::gestures().empty()) {
     basalt::gestures().pointerUp(x, y, basalt::monotonicMilliseconds());
   }
@@ -419,6 +490,30 @@ void GtkTouchDispatcher::dispatchHoverLeave() {
   // on it are never seen by an app, and zero is the honest answer for a
   // position that no longer exists.
   emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void GtkTouchDispatcher::emitPointerButton(bool down,
+                                          facebook::react::Tag target,
+                                          double originX,
+                                          double originY,
+                                          double x,
+                                          double y,
+                                          basalt::PointerButton button) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  PointerEvent event = hoverEvent(x, y, originX, originY);
+  event.button = static_cast<int>(button);
+  // Held *during* the event, which is a different number from `button` in the
+  // same event: on release nothing is held any more. See core/PointerButtons.h.
+  event.buttons = down ? static_cast<int>(basalt::buttonsMaskFor(button)) : 0;
+  if (down) {
+    emitter->onPointerDown(event);
+  } else {
+    emitter->onPointerUp(event);
+  }
 }
 
 void GtkTouchDispatcher::emitPointerMove(

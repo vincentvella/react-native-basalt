@@ -108,8 +108,12 @@ Win32TouchDispatcher::Win32TouchDispatcher(
     : mountingManager_(mountingManager), surfaceRoot_(surfaceRoot) {}
 
 void Win32TouchDispatcher::synthesiseTap(double x, double y) {
-  dispatchTouchStart(x, y);
-  dispatchTouchEnd(x, y);
+  synthesiseTap(x, y, basalt::PointerButton::Primary);
+}
+
+void Win32TouchDispatcher::synthesiseTap(double x, double y, basalt::PointerButton button) {
+  dispatchTouchStart(x, y, button);
+  dispatchTouchEnd(x, y, button);
 }
 
 void Win32TouchDispatcher::synthesiseHover(double x, double y) {
@@ -122,13 +126,13 @@ void Win32TouchDispatcher::synthesiseHover(double x, double y) {
 
 void Win32TouchDispatcher::synthesiseDrag(
     double fromX, double fromY, double toX, double toY, int steps) {
-  dispatchTouchStart(fromX, fromY);
+  dispatchTouchStart(fromX, fromY, basalt::PointerButton::Primary);
   const int count = steps < 1 ? 1 : steps;
   for (int step = 1; step <= count; step++) {
     const double progress = static_cast<double>(step) / count;
     dispatchTouchMove(fromX + (toX - fromX) * progress, fromY + (toY - fromY) * progress);
   }
-  dispatchTouchEnd(toX, toY);
+  dispatchTouchEnd(toX, toY, basalt::PointerButton::Primary);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,19 +148,47 @@ Tag hitTestTag(RnWin32View *root, double x, double y) {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-void Win32TouchDispatcher::dispatchTouchStart(double x, double y) {
+void Win32TouchDispatcher::dispatchTouchStart(double x, double y, basalt::PointerButton button) {
   if (surfaceRoot_ == nullptr) {
     return;
   }
+
+  // The innermost view, and where inside it the press landed. Needed for the
+  // pointer event whichever button it was; PointerEventsProcessor walks up from
+  // there itself.
+  Tag target = 0;
+  double originX = 0;
+  double originY = 0;
+  for (const auto &view : hitChain(surfaceRoot_, x, y)) {
+    target = static_cast<Tag>(view.tag);
+    originX = view.originX;
+    originY = view.originY;
+    break;
+  }
+  if (target == 0) {
+    return;
+  }
+
+  // Every button produces a pointer event, which is where `button` can be said
+  // at all.
+  emitPointerButton(true, target, originX, originY, x, y, button);
+
+  // Only the primary one goes any further. A secondary click is not a press --
+  // the web fires no `click` for one and no desktop treats it as an activation
+  // -- so it must not reach the responder system, a gesture handler, or
+  // `onPress`. See core/PointerButtons.h.
+  //
+  // This host was the odd one out in the other direction: it handled only
+  // WM_LBUTTONDOWN, so a right-click did nothing whatsoever.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
   if (!basalt::gestures().empty()) {
     basalt::gestures().pointerDown(
         hitChain(surfaceRoot_, x, y), x, y, basalt::monotonicMilliseconds());
   }
 
-  const Tag target = hitTestTag(surfaceRoot_, x, y);
-  if (target == 0) {
-    return;
-  }
   activeTarget_ = target;
   isDown_ = true;
   emit(TouchKind::Start, target, x, y);
@@ -183,7 +215,24 @@ void Win32TouchDispatcher::dispatchTouchMove(double x, double y) {
   emit(TouchKind::Move, activeTarget_, x, y);
 }
 
-void Win32TouchDispatcher::dispatchTouchEnd(double x, double y) {
+void Win32TouchDispatcher::dispatchTouchEnd(double x, double y, basalt::PointerButton button) {
+  // The release half of the pointer event, for every button. Reported against
+  // whatever is under the pointer now rather than what was under it on press,
+  // which is what a release means when nothing was captured.
+  if (surfaceRoot_ != nullptr) {
+    for (const auto &view : hitChain(surfaceRoot_, x, y)) {
+      emitPointerButton(
+          false, static_cast<Tag>(view.tag), view.originX, view.originY, x, y, button);
+      break;
+    }
+  }
+
+  // And nothing else for a button that never pressed anything -- there is no
+  // touch to end, no gesture to finish and no <Switch> to toggle.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
   if (!basalt::gestures().empty()) {
     basalt::gestures().pointerUp(x, y, basalt::monotonicMilliseconds());
   }
@@ -269,6 +318,30 @@ void Win32TouchDispatcher::dispatchHoverLeave() {
   // on it are never seen by an app, which is just as well -- WM_MOUSELEAVE
   // reports no position at all.
   emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void Win32TouchDispatcher::emitPointerButton(bool down,
+                                            Tag target,
+                                            double originX,
+                                            double originY,
+                                            double x,
+                                            double y,
+                                            basalt::PointerButton button) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  PointerEvent event = hoverEvent(x, y, originX, originY);
+  event.button = static_cast<int>(button);
+  // Held *during* the event, which is a different number from `button` in the
+  // same event: on release nothing is held any more. See core/PointerButtons.h.
+  event.buttons = down ? static_cast<int>(basalt::buttonsMaskFor(button)) : 0;
+  if (down) {
+    emitter->onPointerDown(event);
+  } else {
+    emitter->onPointerUp(event);
+  }
 }
 
 void Win32TouchDispatcher::emitPointerMove(

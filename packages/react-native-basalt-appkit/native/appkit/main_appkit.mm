@@ -32,6 +32,7 @@
 
 #include "AppIdentity.h"
 #include "DevMenu.h"
+#include "PointerButtons.h"
 #include "WindowControl.h"
 #include "WindowHost.h"
 #include "DialogModule.h"
@@ -1150,38 +1151,56 @@ int main(int argc, const char *argv[]) {
     // second window at all -- each has its own touch dispatcher, which is the
     // whole point of them, and the main window's would happily hit-test a tree
     // that is not on screen.
+    //
+    // BASALT_TEST_SECONDARY_TAP takes the same spec and clicks the other
+    // button. Its own variable rather than a suffix on a point, because the two
+    // assert opposite things -- one presses what it lands on and the other must
+    // not -- and a scenario that mixed them in one string would be harder to
+    // read than to write.
+    void (^scheduleTaps)(const char *, basalt::PointerButton) =
+        ^(const char *taps, basalt::PointerButton button) {
+          NSString *spec = [NSString stringWithUTF8String:taps];
+          const BOOL secondary = button != basalt::PointerButton::Primary;
+          NSString *name = secondary ? @"BASALT_TEST_SECONDARY_TAP" : @"BASALT_TEST_TAP";
+          int64_t delayMs = scriptedDelayMs;
+          for (NSString *entry in [spec componentsSeparatedByString:@";"]) {
+            NSArray<NSString *> *halves = [entry componentsSeparatedByString:@"@"];
+            // Defaults to the app's own window, so every spec written before
+            // windows existed still means what it did.
+            const facebook::react::SurfaceId surfaceId =
+                halves.count > 1 ? (facebook::react::SurfaceId)halves[1].intValue : kSurfaceId;
+            NSArray<NSString *> *parts = [halves[0] componentsSeparatedByString:@","];
+            if (parts.count != 2) {
+              continue;
+            }
+            const double x = parts[0].doubleValue;
+            const double y = parts[1].doubleValue;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
+                           dispatch_get_main_queue(),
+                           ^{
+                             NSLog(@"%@: tapping (%.0f, %.0f) in window %d",
+                                   name, x, y, (int)surfaceId);
+                             HostWindow *target = gHost.windowFor(surfaceId);
+                             if (target == nullptr) {
+                               NSLog(@"%@: no window %d", name, (int)surfaceId);
+                               return;
+                             }
+                             if (target->touchDispatcher != nullptr) {
+                               target->touchDispatcher->synthesiseTap(x, y, button);
+                             }
+                           });
+            delayMs += 1000;
+          }
+          scriptedDelayMs = delayMs;
+        };
+
     if (const char *taps = getenv("BASALT_TEST_TAP")) {
-      NSString *spec = [NSString stringWithUTF8String:taps];
-      int64_t delayMs = scriptedDelayMs;
-      for (NSString *entry in [spec componentsSeparatedByString:@";"]) {
-        NSArray<NSString *> *halves = [entry componentsSeparatedByString:@"@"];
-        // Defaults to the app's own window, so every spec written before
-        // windows existed still means what it did.
-        const facebook::react::SurfaceId surfaceId =
-            halves.count > 1 ? (facebook::react::SurfaceId)halves[1].intValue : kSurfaceId;
-        NSArray<NSString *> *parts = [halves[0] componentsSeparatedByString:@","];
-        if (parts.count != 2) {
-          continue;
-        }
-        const double x = parts[0].doubleValue;
-        const double y = parts[1].doubleValue;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
-                       dispatch_get_main_queue(),
-                       ^{
-                         NSLog(@"BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d",
-                               x, y, (int)surfaceId);
-                         HostWindow *target = gHost.windowFor(surfaceId);
-                         if (target == nullptr) {
-                           NSLog(@"BASALT_TEST_TAP: no window %d", (int)surfaceId);
-                           return;
-                         }
-                         if (target->touchDispatcher != nullptr) {
-                           target->touchDispatcher->synthesiseTap(x, y);
-                         }
-                       });
-        delayMs += 1000;
-      }
-      scriptedDelayMs = delayMs;
+      scheduleTaps(taps, basalt::PointerButton::Primary);
+    }
+    // The other button, which presses nothing and arrives as a pointer event.
+    // See core/PointerButtons.h.
+    if (const char *taps = getenv("BASALT_TEST_SECONDARY_TAP")) {
+      scheduleTaps(taps, basalt::PointerButton::Secondary);
     }
 
     // BASALT_TEST_HOVER: "x,y;x,y" -- the pointer moving with no button down,

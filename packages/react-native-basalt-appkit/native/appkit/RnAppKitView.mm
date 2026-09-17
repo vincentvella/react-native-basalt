@@ -7,6 +7,8 @@
 
 #import "AppKitTextPeer.h"
 
+#include "PointerButtons.h"
+
 #include <cmath>
 
 #import "RnTextLayout.h"
@@ -1165,10 +1167,19 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     return;
   }
   const NSPoint point = [root convertPoint:event.locationInWindow fromView:nil];
+  // AppKit's `buttonNumber` is 0 for left, 1 for right, 2 for the wheel. W3C
+  // has the middle one and the right one the other way round, which is exactly
+  // the kind of thing worth converting once rather than comparing twice.
+  int button = 0;
+  switch (event.buttonNumber) {
+    case 0: button = (int)basalt::PointerButton::Primary; break;
+    case 1: button = (int)basalt::PointerButton::Secondary; break;
+    default: button = (int)basalt::PointerButton::Middle; break;
+  }
   switch (kind) {
-    case 'd': [handler rnMouseDownAt:point]; break;
+    case 'd': [handler rnMouseDownAt:point button:button]; break;
     case 'm': [handler rnMouseDraggedTo:point]; break;
-    case 'u': [handler rnMouseUpAt:point]; break;
+    case 'u': [handler rnMouseUpAt:point button:button]; break;
     case 'h': [handler rnMouseMovedTo:point]; break;
     default: break;
   }
@@ -1253,9 +1264,10 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   [self forwardMouse:event kind:'u'];
 }
 
-// Every button, because React Native's touch model has no concept of which one
-// -- that belongs to pointer events. The same choice the GTK side makes by
-// setting its click gesture to button 0.
+// Every button, and which one it was now travels with it. React Native's touch
+// model still has no concept of one -- that belongs to pointer events -- so a
+// secondary click arrives as a pointer event and presses nothing, which is what
+// it means on every desktop. See core/PointerButtons.h.
 - (void)rightMouseDown:(NSEvent *)event {
   [self forwardMouse:event kind:'d'];
 }

@@ -305,16 +305,25 @@ gboolean quitOnSignal(gpointer data) {
 // second window at all -- each has its own touch dispatcher, which is the whole
 // point of them, and the main window's would happily hit-test a tree that is
 // not on screen.
+//
+// BASALT_TEST_SECONDARY_TAP takes the same spec and clicks the other button.
+// Its own variable rather than a suffix on a point, because the two assert
+// opposite things -- one presses what it lands on and the other must not -- and
+// a scenario that mixed them in one string would be harder to read than to
+// write.
 struct PendingTap {
   Host *host;
   double x;
   double y;
   facebook::react::SurfaceId surfaceId;
+  basalt::PointerButton button;
 };
 
 gboolean fireTestTap(gpointer data) {
   std::unique_ptr<PendingTap> tap{static_cast<PendingTap *>(data)};
-  g_message("BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d",
+  const bool secondary = tap->button != basalt::PointerButton::Primary;
+  g_message("%s: tapping (%.0f, %.0f) in window %d",
+            secondary ? "BASALT_TEST_SECONDARY_TAP" : "BASALT_TEST_TAP",
             tap->x,
             tap->y,
             static_cast<int>(tap->surfaceId));
@@ -324,7 +333,7 @@ gboolean fireTestTap(gpointer data) {
     return G_SOURCE_REMOVE;
   }
   if (target->touchDispatcher != nullptr) {
-    target->touchDispatcher->synthesiseTap(tap->x, tap->y);
+    target->touchDispatcher->synthesiseTap(tap->x, tap->y, tap->button);
   }
   return G_SOURCE_REMOVE;
 }
@@ -354,9 +363,11 @@ void parseTestPoint(const char *text,
 }
 
 // Returns the delay after the last tap, so typing can be scheduled behind it.
-guint scheduleTestTaps(Host *host, const char *spec) {
+guint scheduleTestTaps(Host *host,
+                       const char *spec,
+                       guint delayMs,
+                       basalt::PointerButton button) {
   char **points = g_strsplit(spec, ";", -1);
-  guint delayMs = 1500;
   for (char **point = points; *point != nullptr; ++point) {
     if (**point == '\0') {
       continue;
@@ -366,7 +377,7 @@ guint scheduleTestTaps(Host *host, const char *spec) {
     facebook::react::SurfaceId surfaceId = kSurfaceId;
     parseTestPoint(*point, &x, &y, &surfaceId);
     if (x >= 0.0 && y >= 0.0) {
-      g_timeout_add(delayMs, fireTestTap, new PendingTap{host, x, y, surfaceId});
+      g_timeout_add(delayMs, fireTestTap, new PendingTap{host, x, y, surfaceId, button});
       delayMs += 1000;
     }
   }
@@ -405,7 +416,11 @@ guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
                                    // Hover has no per-window form: the pointer
                                    // is one thing, and a second window's hover
                                    // is a feature nothing has asked for yet.
-                                   kSurfaceId});
+                                   kSurfaceId,
+                                   // Nor a button: a hovering pointer presses
+                                   // nothing, and this field is only read by
+                                   // the tap path.
+                                   basalt::PointerButton::Primary});
       delayMs += 1000;
     }
     g_strfreev(parts);
@@ -1218,7 +1233,13 @@ void onActivate(GtkApplication *app, gpointer data) {
 
   guint scriptedDelayMs = 1500;
   if (const char *taps = g_getenv("BASALT_TEST_TAP")) {
-    scriptedDelayMs = scheduleTestTaps(host, taps);
+    scriptedDelayMs = scheduleTestTaps(host, taps, scriptedDelayMs, basalt::PointerButton::Primary);
+  }
+  // BASALT_TEST_SECONDARY_TAP: the other button, which presses nothing and
+  // arrives as a pointer event. See core/PointerButtons.h.
+  if (const char *taps = g_getenv("BASALT_TEST_SECONDARY_TAP")) {
+    scriptedDelayMs =
+        scheduleTestTaps(host, taps, scriptedDelayMs, basalt::PointerButton::Secondary);
   }
   if (const char *hovers = g_getenv("BASALT_TEST_HOVER")) {
     scriptedDelayMs = scheduleTestHovers(host, hovers, scriptedDelayMs);

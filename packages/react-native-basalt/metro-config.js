@@ -84,7 +84,6 @@ const SELF_IMPORTING_SHIMS = [
   path.join('Libraries', 'Components', 'DrawerAndroid', 'DrawerLayoutAndroid.js'),
   path.join('Libraries', 'Components', 'ToastAndroid', 'ToastAndroid.js'),
   path.join('Libraries', 'Image', 'Image.js'),
-  path.join('Libraries', 'NativeComponent', 'BaseViewConfig.js'),
   path.join('Libraries', 'Network', 'RCTNetworking.js'),
   path.join('Libraries', 'StyleSheet', 'PlatformColorValueTypes.js'),
   path.join('Libraries', 'Utilities', 'BackHandler.js'),
@@ -126,6 +125,15 @@ const UPSTREAM_PREFIX = 'react-native-basalt/upstream/';
  * platforms stays exactly one string. See src/overrides/createPlatform.js.
  */
 const PLATFORM_OVERRIDES = [
+  [
+    // React Native's own file plus three props it registers and never declares:
+    // `onPointerDown`, `onPointerUp` and `onPointerCancel` are in
+    // `bubblingEventTypes` and parsed by ReactCommon, but missing from
+    // `validAttributes` -- so React never sends them and the event is dropped
+    // in C++. It was in SELF_IMPORTING_SHIMS until a right-click needed one.
+    path.join('Libraries', 'NativeComponent', 'BaseViewConfig.js'),
+    path.join(OVERRIDE_DIR, 'BaseViewConfig.js'),
+  ],
   [
     path.join('Libraries', 'Utilities', 'Platform.js'),
     platform => path.join(OVERRIDE_DIR, `Platform.${platform}.js`),

@@ -47,13 +47,18 @@
  * at times nothing is waiting for; a context menu is opened by an app that is,
  * right then, asking a question.
  *
- * ## What is missing
+ * ## A right-click
  *
- * A right-click does not open one by itself. Every host forwards a secondary
- * click as an ordinary press -- React Native's touch model has no concept of
- * which button, because that belongs to pointer events -- so an app opens this
- * from `onLongPress`, a button, or a key. Carrying button identity through the
- * touch model on three hosts is its own piece of work; see plan/backlog.md.
+ *   <View
+ *     onPointerDown={e => e.nativeEvent.button === 2 && menu.show(items, e.nativeEvent)}
+ *   />
+ *
+ * A secondary click arrives as `onPointerDown` with W3C's `button === 2`, and
+ * does *not* fire `onPress` -- on any of the three. So the same view can be a
+ * button and have a context menu, which is what a desktop expects.
+ *
+ * `onLongPress` still works and is what a touch-first app should use. See
+ * native/core/PointerButtons.h for what each toolkit had to be told.
  *
  * @format
  */

@@ -40,10 +40,14 @@ NS_ASSUME_NONNULL_BEGIN
 //
 // Points arrive in the handler's own coordinates, which is the surface root's,
 // which is what React Native calls the page.
+//
+// `button` is W3C's numbering rather than AppKit's selector-per-button, because
+// that is what a pointer event carries and what decides whether the click
+// presses anything at all. See core/PointerButtons.h.
 @protocol RnAppKitInputHandler <NSObject>
-- (void)rnMouseDownAt:(NSPoint)point;
+- (void)rnMouseDownAt:(NSPoint)point button:(int)button;
 - (void)rnMouseDraggedTo:(NSPoint)point;
-- (void)rnMouseUpAt:(NSPoint)point;
+- (void)rnMouseUpAt:(NSPoint)point button:(int)button;
 // The pointer moving with no button down, and the pointer leaving the surface.
 // Not part of React Native's touch model -- a finger that is not touching does
 // not exist -- but it is what W3C pointer events call hover, and what

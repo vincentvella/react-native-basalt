@@ -2045,16 +2045,18 @@ def test_context_menu(bundle: Path) -> None:
     """
     app = bundle_app(bundle.parent, "menu")
 
-    def run(answer: str) -> str:
+    def press(variable: str, answer: str) -> str:
         env = dict(os.environ)
         env["BASALT_QUIT_AFTER_MS"] = "8000"
         # The button is at (134, 70): 24 of padding, a 22-tall label, then a
         # 220x48 button.
-        env["BASALT_TEST_TAP"] = "134,70"
+        env[variable] = "134,70"
         env["BASALT_TEST_MENU"] = answer
-        for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
-                     "BASALT_TEST_SCROLL", "BASALT_TEST_CLOSE_WINDOW"):
-            env.pop(name, None)
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE",
+                     "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL",
+                     "BASALT_TEST_CLOSE_WINDOW"):
+            if name != variable:
+                env.pop(name, None)
         result = subprocess.run(
             [str(HOST), str(app), "BasaltContextMenu"],
             cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
@@ -2062,6 +2064,12 @@ def test_context_menu(bundle: Path) -> None:
         _remember_output(result.stderr)
         check_output(result.stderr, result.returncode)
         return result.stdout + result.stderr
+
+    def run(answer: str) -> str:
+        return press("BASALT_TEST_TAP", answer)
+
+    def run_secondary(answer: str) -> str:
+        return press("BASALT_TEST_SECONDARY_TAP", answer)
 
     logged = run("2")
     if "context menu: opening" not in logged:
@@ -2079,6 +2087,29 @@ def test_context_menu(bundle: Path) -> None:
         raise Failure(
             f"the chosen item's onSelect never ran.\n{tail_text(logged)}"
         )
+
+    # A real right-click. The button number reaches `onPointerDown` as W3C's 2,
+    # and -- the half that matters -- `onPress` does not fire: the same view is
+    # a button and has a context menu, which is what a desktop expects.
+    #
+    # Every host used to get this wrong in its own way. GTK set its click
+    # gesture to button 0 and AppKit forwarded rightMouseDown: like mouseDown:,
+    # so on both a right-click *activated* whatever it landed on; Windows
+    # handled only WM_LBUTTONDOWN, so a right-click there did nothing at all.
+    logged = run_secondary("2")
+    if "context menu: opening from a right-click" not in logged:
+        raise Failure(
+            "a right-click did not reach onPointerDown with button 2.\n"
+            f"{tail_text(logged)}"
+        )
+    if "context menu: opening\n" in logged or "context menu: opening\r" in logged:
+        raise Failure(
+            "a right-click fired onPress as well. A secondary click is not an "
+            "activation on any desktop, and a view that is both a button and a "
+            f"context-menu target would do two things at once.\n{tail_text(logged)}"
+        )
+    if "context menu selected: Rename" not in logged:
+        raise Failure(f"the right-click menu chose nothing.\n{tail_text(logged)}")
 
     logged = run("dismiss")
     if "context menu answered: dismissed" not in logged:

@@ -16,9 +16,9 @@
 
 @implementation RnAppKitInputTarget
 
-- (void)rnMouseDownAt:(NSPoint)point {
+- (void)rnMouseDownAt:(NSPoint)point button:(int)button {
   if (_dispatcher != nullptr) {
-    _dispatcher->dispatchTouchStart(point.x, point.y);
+    _dispatcher->dispatchTouchStart(point.x, point.y, static_cast<basalt::PointerButton>(button));
   }
 }
 
@@ -28,9 +28,9 @@
   }
 }
 
-- (void)rnMouseUpAt:(NSPoint)point {
+- (void)rnMouseUpAt:(NSPoint)point button:(int)button {
   if (_dispatcher != nullptr) {
-    _dispatcher->dispatchTouchEnd(point.x, point.y);
+    _dispatcher->dispatchTouchEnd(point.x, point.y, static_cast<basalt::PointerButton>(button));
   }
 }
 
@@ -111,8 +111,12 @@ AppKitTouchDispatcher::~AppKitTouchDispatcher() {
 }
 
 void AppKitTouchDispatcher::synthesiseTap(double x, double y) {
-  dispatchTouchStart(x, y);
-  dispatchTouchEnd(x, y);
+  synthesiseTap(x, y, basalt::PointerButton::Primary);
+}
+
+void AppKitTouchDispatcher::synthesiseTap(double x, double y, basalt::PointerButton button) {
+  dispatchTouchStart(x, y, button);
+  dispatchTouchEnd(x, y, button);
 }
 
 void AppKitTouchDispatcher::synthesiseHover(double x, double y) {
@@ -124,13 +128,13 @@ void AppKitTouchDispatcher::synthesiseHover(double x, double y) {
 }
 
 void AppKitTouchDispatcher::synthesiseDrag(double fromX, double fromY, double toX, double toY, int steps) {
-  dispatchTouchStart(fromX, fromY);
+  dispatchTouchStart(fromX, fromY, basalt::PointerButton::Primary);
   const int count = steps < 1 ? 1 : steps;
   for (int step = 1; step <= count; step++) {
     const double progress = static_cast<double>(step) / count;
     dispatchTouchMove(fromX + (toX - fromX) * progress, fromY + (toY - fromY) * progress);
   }
-  dispatchTouchEnd(toX, toY);
+  dispatchTouchEnd(toX, toY, basalt::PointerButton::Primary);
 }
 
 // ---------------------------------------------------------------------------
@@ -178,16 +182,47 @@ std::vector<basalt::HitView> hitChain(RnAppKitView *root, double x, double y) {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-void AppKitTouchDispatcher::dispatchTouchStart(double x, double y) {
+// The innermost view under a point, and where inside it that point is. The
+// pointer event wants both whichever button it was; PointerEventsProcessor
+// walks up from there itself.
+static Tag targetUnder(RnAppKitView *surfaceRoot, double x, double y, NSPoint *origin) {
+  RnAppKitView *hit = RnAppKitHitTest(surfaceRoot, x, y);
+  for (NSView *view = hit; view != nil; view = view.superview) {
+    if ([view isKindOfClass:[RnAppKitView class]]) {
+      *origin = [view convertPoint:NSZeroPoint toView:surfaceRoot];
+      return static_cast<Tag>(((RnAppKitView *)view).rnTag);
+    }
+    if (view == surfaceRoot) {
+      break;
+    }
+  }
+  return 0;
+}
+
+void AppKitTouchDispatcher::dispatchTouchStart(double x, double y, basalt::PointerButton button) {
+  NSPoint origin = NSZeroPoint;
+  const Tag target = targetUnder(surfaceRoot_, x, y, &origin);
+  if (target == 0) {
+    return;
+  }
+
+  // Every button produces a pointer event, which is where `button` can be said
+  // at all.
+  emitPointerButton(true, target, origin.x, origin.y, x, y, button);
+
+  // Only the primary one goes any further. A secondary click is not a press --
+  // the web fires no `click` for one and no desktop treats it as an activation
+  // -- so it must not reach the responder system, a gesture handler, or
+  // `onPress`. See core/PointerButtons.h.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
   if (!basalt::gestures().empty()) {
     basalt::gestures().pointerDown(
         hitChain(surfaceRoot_, x, y), x, y, basalt::monotonicMilliseconds());
   }
 
-  const Tag target = hitTestTag(surfaceRoot_, x, y);
-  if (target == 0) {
-    return;
-  }
   activeTarget_ = target;
   isDown_ = true;
   emit(TouchKind::Start, target, x, y);
@@ -214,7 +249,24 @@ void AppKitTouchDispatcher::dispatchTouchMove(double x, double y) {
   emit(TouchKind::Move, activeTarget_, x, y);
 }
 
-void AppKitTouchDispatcher::dispatchTouchEnd(double x, double y) {
+void AppKitTouchDispatcher::dispatchTouchEnd(double x, double y, basalt::PointerButton button) {
+  // The release half of the pointer event, for every button. Reported against
+  // whatever is under the pointer now rather than what was under it on press,
+  // which is what a release means when nothing was captured.
+  {
+    NSPoint origin = NSZeroPoint;
+    const Tag over = targetUnder(surfaceRoot_, x, y, &origin);
+    if (over != 0) {
+      emitPointerButton(false, over, origin.x, origin.y, x, y, button);
+    }
+  }
+
+  // And nothing else for a button that never pressed anything -- there is no
+  // touch to end, no gesture to finish and no <Switch> to toggle.
+  if (!basalt::isPressButton(button)) {
+    return;
+  }
+
   if (!basalt::gestures().empty()) {
     basalt::gestures().pointerUp(x, y, basalt::monotonicMilliseconds());
   }
@@ -301,6 +353,30 @@ void AppKitTouchDispatcher::dispatchHoverLeave() {
   // on it are never seen by an app, and zero is the honest answer for a
   // position that no longer exists.
   emitter->onPointerLeave(hoverEvent(0, 0, 0, 0));
+}
+
+void AppKitTouchDispatcher::emitPointerButton(bool down,
+                                             Tag target,
+                                             double originX,
+                                             double originY,
+                                             double x,
+                                             double y,
+                                             basalt::PointerButton button) {
+  const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
+      mountingManager_->eventEmitterForTag(target));
+  if (emitter == nullptr) {
+    return;
+  }
+  PointerEvent event = hoverEvent(x, y, originX, originY);
+  event.button = static_cast<int>(button);
+  // Held *during* the event, which is a different number from `button` in the
+  // same event: on release nothing is held any more. See core/PointerButtons.h.
+  event.buttons = down ? static_cast<int>(basalt::buttonsMaskFor(button)) : 0;
+  if (down) {
+    emitter->onPointerDown(event);
+  } else {
+    emitter->onPointerUp(event);
+  }
 }
 
 void AppKitTouchDispatcher::emitPointerMove(

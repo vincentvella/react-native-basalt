@@ -115,9 +115,11 @@ AppRegistry.registerComponent('BasaltMenu', () => App);
  * roles, a popup is a list -- and a screen showing both would suggest they are
  * the same thing spelled twice.
  *
- * Opened from a press rather than a right-click, which is the honest state of
- * it: every host forwards a secondary click as an ordinary press, because React
- * Native's touch model has no concept of which button. See useContextMenu.js.
+ * Opened two ways, which is the point of the second one. A right-click reaches
+ * `onPointerDown` with `button === 2` and does *not* fire `onPress` -- so the
+ * same view can be a button and have a context menu, which is what a desktop
+ * expects and what every host used to get wrong in its own way. See
+ * core/PointerButtons.h.
  */
 function Context() {
   const menu = useContextMenu();
@@ -151,6 +153,17 @@ function Context() {
       <Text style={styles.label}>Context menu</Text>
       <Pressable
         style={styles.button}
+        // A right-click, which is what a context menu is actually for. The
+        // button number is W3C's: 2 is secondary. A secondary click does not
+        // fire `onPress` -- on any of the three -- which is the whole reason
+        // this can live on the same view as a button.
+        onPointerDown={event => {
+          if (event.nativeEvent.button !== 2) {
+            return;
+          }
+          console.log('context menu: opening from a right-click');
+          open(event.nativeEvent);
+        }}
         onPress={event => {
           console.log('context menu: opening');
           open(event.nativeEvent);
