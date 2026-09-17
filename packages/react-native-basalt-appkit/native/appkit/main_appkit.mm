@@ -33,9 +33,11 @@
 #include "AppIdentity.h"
 #include "DevMenu.h"
 #include "WindowControl.h"
+#include "WindowHost.h"
 #include "DialogModule.h"
 #include "MenuModel.h"
 #include "MenuModule.h"
+#include "WindowsModule.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
@@ -113,15 +115,21 @@ constexpr int kInitialHeight = 700;
 // See js/demo.js. Only used when no module name is given.
 constexpr const char *kRenderFunctionName = "basaltRender";
 
-struct Host {
+// One window, and the surface in it.
+//
+// A window is a surface: a surface is what has a size, a layout context and a
+// root shadow node, and two windows sharing one would be two windows sharing a
+// layout. So the id a window is known by *is* its surface id. See
+// core/WindowHost.h.
+//
+// Everything here used to be a field on Host, because there was only ever one.
+// What is still on Host is what is genuinely per-process, and what this project
+// has not made per-window yet: the title bar and the error inspector are the
+// main window's.
+struct HostWindow {
+  facebook::react::SurfaceId surfaceId{0};
   NSWindow *window{nil};
   RnAppKitView *root{nil};
-
-  std::shared_ptr<basalt::AppKitMountingManager> mountingManager;
-  std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
-  std::shared_ptr<basalt::AppKitAnimationChoreographer> choreographer;
-  std::unique_ptr<basalt::AppKitTouchDispatcher> touchDispatcher;
-  std::unique_ptr<basalt::AppKitFocusManager> focusManager;
   // The window's contentView, holding the app's surface root and -- when the
   // error inspector is showing -- a second root above it.
   //
@@ -130,6 +138,38 @@ struct Host {
   // view the mutation stream did not put there would shift every later Insert
   // by one.
   NSView *container{nil};
+  std::unique_ptr<basalt::AppKitTouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::AppKitFocusManager> focusManager;
+  int scaleFactor{1};
+};
+
+struct Host {
+  // Every window, main one first. Never empty once the app has started.
+  std::vector<std::unique_ptr<HostWindow>> windows;
+
+  // The window the app was started in. Shorthand for windows.front(), which is
+  // what every part of this host that is not yet per-window uses.
+  // An empty window with null fields before there is a real one, rather than
+  // dereferencing an empty vector. Several things here run before the window
+  // exists -- a repaint request, the spinner timer -- and each one already
+  // guards on `window == nullptr`, which is exactly what this keeps true.
+  HostWindow &main() {
+    static HostWindow none;
+    return windows.empty() ? none : *windows.front();
+  }
+
+  HostWindow *windowFor(facebook::react::SurfaceId surfaceId) {
+    for (const auto &candidate : windows) {
+      if (candidate->surfaceId == surfaceId) {
+        return candidate.get();
+      }
+    }
+    return nullptr;
+  }
+
+  std::shared_ptr<basalt::AppKitMountingManager> mountingManager;
+  std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
+  std::shared_ptr<basalt::AppKitAnimationChoreographer> choreographer;
   // The error inspector's own surface root, or nil when it is not showing.
   RnAppKitView *logBoxRoot{nil};
   std::unique_ptr<ReactHost> reactHost;
@@ -146,7 +186,6 @@ struct Host {
   // whether Cmd+D opens anything. Kept because the ReactInstanceConfig it came
   // from is not.
   bool devMode{false};
-  int scaleFactor{1};
 };
 
 Host gHost;
@@ -286,6 +325,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         if (name == basalt::DesktopMenuModule::kModuleName) {
           return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
         }
+        // More than one window, which is more than one surface. See
+        // core/WindowHost.h.
+        if (name == basalt::DesktopWindowsModule::kModuleName) {
+          return std::make_shared<basalt::DesktopWindowsModule>(jsInvoker);
+        }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
         }
@@ -403,11 +447,21 @@ void dumpMenuIfRequested() {
 
 void dumpTreeIfRequested() {
   const char *path = getenv("BASALT_DUMP_TREE");
-  if (path == nullptr || gHost.root == nil) {
+  if (path == nullptr || gHost.main().root == nil) {
     return;
   }
   NSError *error = nil;
-  NSMutableString *description = [[gHost.root describeTree] mutableCopy];
+  NSMutableString *description = [[gHost.main().root describeTree] mutableCopy];
+  // Every other window, each under a header naming its surface. Appended rather
+  // than merged for the same reason the inspector is: they are separate trees
+  // on screen, and nesting one inside another would say something untrue.
+  for (const auto &other : gHost.windows) {
+    if (other->surfaceId == kSurfaceId || other->root == nil) {
+      continue;
+    }
+    [description appendFormat:@"--- window %d ---\n", (int)other->surfaceId];
+    [description appendString:[other->root describeTree]];
+  }
   // The error inspector is a second surface with a root of its own, so it is
   // invisible to a dump of the app's. Appended rather than merged, because the
   // two are siblings on screen and nesting one inside the other would say
@@ -447,11 +501,11 @@ void hideLogBoxSurface() {
 }
 
 void showLogBoxSurface(const std::string &appKey) {
-  if (gHost.reactHost == nullptr || gHost.container == nil || gHost.logBoxRoot != nil) {
+  if (gHost.reactHost == nullptr || gHost.main().container == nil || gHost.logBoxRoot != nil) {
     return;
   }
 
-  const NSSize size = gHost.container.bounds.size;
+  const NSSize size = gHost.main().container.bounds.size;
   const int width = (int)size.width;
   const int height = (int)size.height;
 
@@ -460,13 +514,13 @@ void showLogBoxSurface(const std::string &appKey) {
   // Added last, so it is above the app. AppKit paints subviews in order and
   // hit-tests them in reverse, which is what makes the inspector take the
   // presses that would otherwise reach the app behind it.
-  [gHost.container addSubview:gHost.logBoxRoot];
+  [gHost.main().container addSubview:gHost.logBoxRoot];
 
   gHost.reactHost->startSurface(kLogBoxSurfaceId,
                                 appKey,
                                 folly::dynamic::object(),
                                 constraintsFor(width, height),
-                                layoutContextFor(gHost.scaleFactor));
+                                layoutContextFor(gHost.main().scaleFactor));
 }
 
 // Closes any modal sheet before the application tries to go away.
@@ -500,8 +554,8 @@ void shutdown() {
   basalt::removeRunLoopObserver(gHost.runLoopObserver);
   gHost.runLoopObserver = nullptr;
 
-  gHost.focusManager.reset();
-  gHost.touchDispatcher.reset();
+  gHost.main().focusManager.reset();
+  gHost.main().touchDispatcher.reset();
   gHost.logBoxRoot = nil;
   if (gHost.reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
@@ -537,19 +591,33 @@ void shutdown() {
 }
 
 - (void)windowDidResize:(NSNotification *)notification {
-  (void)notification;
   if (!gHost.surfaceStarted) {
     return;
   }
-  const NSSize size = gHost.window.contentView.bounds.size;
+  // Which window resized, which is the whole of what more than one changes
+  // here. Constraining `kSurfaceId` from every window would lay the *first*
+  // window's tree out to the second window's size, and the symptom would be a
+  // first window whose content jumped whenever a second one was dragged.
+  HostWindow *resized = nullptr;
+  for (const auto &candidate : gHost.windows) {
+    if (candidate->window == notification.object) {
+      resized = candidate.get();
+      break;
+    }
+  }
+  if (resized == nullptr) {
+    return;
+  }
+
+  const NSSize size = resized->window.contentView.bounds.size;
   const int width = (int)size.width;
   const int height = (int)size.height;
   if (width <= 0 || height <= 0) {
     return;
   }
-  [gHost.root setRnFrameX:0 y:0 width:width height:height];
+  [resized->root setRnFrameX:0 y:0 width:width height:height];
   gHost.reactHost->setSurfaceConstraints(
-      kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+      resized->surfaceId, constraintsFor(width, height), layoutContextFor(resized->scaleFactor));
 
   // A <Modal> is sized from its own shadow-node state rather than from a style,
   // and React Native's C++ platform answers "what size is the screen" with
@@ -560,11 +628,12 @@ void shutdown() {
   // place that learns it.
   basalt::notifyWindowBoundsChanged();
 
-  // The inspector covers the window, so it resizes with it.
-  if (gHost.logBoxRoot != nil) {
+  // The inspector covers the main window, so it resizes with it -- and only
+  // with it: an error is about the app rather than about a window.
+  if (gHost.logBoxRoot != nil && resized->surfaceId == kSurfaceId) {
     [gHost.logBoxRoot setRnFrameX:0 y:0 width:width height:height];
     gHost.reactHost->setSurfaceConstraints(
-        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.main().scaleFactor));
   }
 }
 
@@ -576,11 +645,11 @@ void shutdown() {
   if (!gHost.surfaceStarted) {
     return;
   }
-  gHost.scaleFactor = (int)gHost.window.backingScaleFactor;
-  const NSSize size = gHost.window.contentView.bounds.size;
+  gHost.main().scaleFactor = (int)gHost.main().window.backingScaleFactor;
+  const NSSize size = gHost.main().window.contentView.bounds.size;
   gHost.reactHost->setSurfaceConstraints(kSurfaceId,
                                          constraintsFor((int)size.width, (int)size.height),
-                                         layoutContextFor(gHost.scaleFactor));
+                                         layoutContextFor(gHost.main().scaleFactor));
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
@@ -609,6 +678,163 @@ void shutdown() {
 static void installMainMenu(void) {
   basalt::setApplicationMenu(basalt::MenuModel{}, nullptr);
 }
+
+// Makes a window, a surface root for it, and the input that drives them.
+//
+// Called for the main window and for every one an app opens afterwards, which
+// is the point: the second window is not a special case of the first, it is the
+// same function with a different surface id. See core/WindowHost.h.
+//
+// The window is not shown and the surface is not started here; both are the
+// caller's business.
+HostWindow *createHostWindow(facebook::react::SurfaceId surfaceId,
+                             NSString *title,
+                             int width,
+                             int height,
+                             id<NSWindowDelegate> delegate) {
+  // The first window through here is the app's own, and the title bar belongs
+  // to it alone: it is a process-wide seam -- one title, one style -- and
+  // making it per-window is its own piece of work. See plan/backlog.md.
+  const bool isMainWindow = gHost.windows.empty();
+
+  auto owned = std::make_unique<HostWindow>();
+  HostWindow *made = owned.get();
+  made->surfaceId = surfaceId;
+
+  made->window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(0, 0, width, height)
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                          NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+                  backing:NSBackingStoreBuffered
+                    defer:NO];
+  made->window.title = title;
+  made->window.delegate = delegate;
+  // Released when closed would free the window out from under this record. The
+  // host owns every window it makes and closes them through closeHostWindow.
+  made->window.releasedWhenClosed = NO;
+  if (isMainWindow) {
+    // The title bar talks to this window from here on; see AppKitTitleBar.h.
+    basalt::titleBar().attach(made->window);
+  }
+  [made->window center];
+  made->scaleFactor = (int)made->window.backingScaleFactor;
+
+  // Fabric emits no Create for a surface root -- the root shadow node is the
+  // base of every diff, so it has to exist before the surface starts.
+  made->root = gHost.mountingManager->createSurfaceRoot(surfaceId);
+  [made->root setRnFrameX:0 y:0 width:width height:height];
+  made->container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+  made->container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  [made->container addSubview:made->root];
+  made->window.contentView = made->container;
+
+  // Input, per window. Attached to this window's root, which is where its hit
+  // testing starts -- a second window with the first one's dispatcher would
+  // deliver every press to the wrong tree.
+  made->touchDispatcher =
+      std::make_unique<basalt::AppKitTouchDispatcher>(gHost.mountingManager.get(), made->root);
+  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+  made->focusManager =
+      std::make_unique<basalt::AppKitFocusManager>(gHost.mountingManager.get(), made->root);
+
+  gHost.windows.push_back(std::move(owned));
+  return made;
+}
+
+namespace basalt {
+
+// core/WindowHost.h, on macOS.
+//
+// The surface id is allocated here rather than by JavaScript: it is Fabric's
+// number, the mounting manager keys its roots by it, and two windows racing to
+// pick one would be two windows sharing a root. Above the ids this host
+// reserves -- the app's surface is 1 and the error inspector's is 2.
+facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
+  if (gHost.reactHost == nullptr || !gHost.surfaceStarted || options.component.empty() ||
+      gHost.windows.empty()) {
+    return 0;
+  }
+
+  @autoreleasepool {
+    static facebook::react::SurfaceId nextSurfaceId = kLogBoxSurfaceId + 1;
+    const facebook::react::SurfaceId surfaceId = nextSurfaceId++;
+
+    const int width = (int)options.width;
+    const int height = (int)options.height;
+    NSString *title = [NSString stringWithUTF8String:options.title.c_str()];
+    // The same delegate the main window has: it answers windowDidResize: and
+    // windowDidMove:, both of which every window needs.
+    HostWindow *made = createHostWindow(surfaceId,
+                                        title != nil ? title : @"",
+                                        width,
+                                        height,
+                                        (id<NSWindowDelegate>)NSApp.delegate);
+
+    gHost.reactHost->startSurface(surfaceId,
+                                  options.component,
+                                  options.props,
+                                  constraintsFor(width, height),
+                                  layoutContextFor(made->scaleFactor));
+    [made->window makeKeyAndOrderFront:nil];
+    NSLog(@"opened window %d for module %s", (int)surfaceId, options.component.c_str());
+    return surfaceId;
+  }
+}
+
+void closeHostWindow(facebook::react::SurfaceId surfaceId) {
+  // The main window is not closed this way: destroying the surface an app is
+  // running in is not the same thing as closing its window, and an app that
+  // means the second should say so through `close()` on the window itself.
+  if (gHost.reactHost == nullptr || surfaceId == kSurfaceId || surfaceId == kLogBoxSurfaceId) {
+    return;
+  }
+  if (gHost.windowFor(surfaceId) == nullptr) {
+    return;
+  }
+
+  // Stopping a surface unmounts its React tree, which produces one last
+  // transaction of Remove and Delete mutations. Those arrive on the main thread
+  // afterwards, and the views they name have to still be there when they do.
+  gHost.reactHost->stopSurface(surfaceId);
+
+  // So the window goes a round trip later: out to the JavaScript thread, which
+  // is where the teardown runs, and back to this one, which is where its
+  // mutations are applied. Both queues are ordered, so anything the stop
+  // produced is ahead of this.
+  gHost.reactHost->runOnRuntimeScheduler([surfaceId](facebook::jsi::Runtime &) {
+    basalt::postToUiThread([surfaceId] {
+      HostWindow *going = gHost.windowFor(surfaceId);
+      if (going == nullptr) {
+        return;
+      }
+      // The dispatchers before the views they hold: both keep a borrowed root.
+      going->focusManager.reset();
+      going->touchDispatcher.reset();
+      going->window.delegate = nil;
+      [going->window close];
+      gHost.mountingManager->destroySurfaceRoot(surfaceId);
+
+      for (auto it = gHost.windows.begin(); it != gHost.windows.end(); ++it) {
+        if (it->get() == going) {
+          gHost.windows.erase(it);
+          break;
+        }
+      }
+      NSLog(@"closed window %d", (int)surfaceId);
+    });
+  });
+}
+
+std::vector<facebook::react::SurfaceId> hostWindows() {
+  std::vector<facebook::react::SurfaceId> open;
+  open.reserve(gHost.windows.size());
+  for (const auto &candidate : gHost.windows) {
+    open.push_back(candidate->surfaceId);
+  }
+  return open;
+}
+
+} // namespace basalt
 
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
@@ -643,38 +869,17 @@ int main(int argc, const char *argv[]) {
     RnAppKitHostDelegate *delegate = [[RnAppKitHostDelegate alloc] init];
     NSApp.delegate = delegate;
 
-    gHost.window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, kInitialWidth, kInitialHeight)
-                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
-    gHost.window.title = @"react-native-basalt — macOS";
-    gHost.window.delegate = delegate;
-    // The title bar talks to this window from here on; see AppKitTitleBar.h.
-    basalt::titleBar().attach(gHost.window);
-    [gHost.window center];
-    gHost.scaleFactor = (int)gHost.window.backingScaleFactor;
-
     // Constructed here, on the main thread: AppKitMountingManager records this
     // thread and asserts that every mutation lands back on it.
     gHost.mountingManager = std::make_shared<basalt::AppKitMountingManager>();
 
-    // Fabric emits no Create for a surface root -- the root shadow node is the
-    // base of every diff, so it has to exist before the surface starts.
-    gHost.root = gHost.mountingManager->createSurfaceRoot(kSurfaceId);
-    [gHost.root setRnFrameX:0 y:0 width:kInitialWidth height:kInitialHeight];
-    gHost.container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kInitialWidth, kInitialHeight)];
-    gHost.container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [gHost.container addSubview:gHost.root];
-    gHost.window.contentView = gHost.container;
-
-    // Input. Attached to the root, which is where hit testing starts.
-    gHost.touchDispatcher =
-        std::make_unique<basalt::AppKitTouchDispatcher>(gHost.mountingManager.get(), gHost.root);
-    // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
-    gHost.focusManager =
-        std::make_unique<basalt::AppKitFocusManager>(gHost.mountingManager.get(), gHost.root);
+    // The application's own window, which is windows.front() from here on and
+    // is what everything not yet per-window means by "the window".
+    createHostWindow(kSurfaceId,
+                     @"react-native-basalt — macOS",
+                     kInitialWidth,
+                     kInitialHeight,
+                     delegate);
 
 
     gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
@@ -813,7 +1018,7 @@ int main(int argc, const char *argv[]) {
                                   gHost.moduleName,
                                   folly::dynamic::object(),
                                   constraintsFor(kInitialWidth, kInitialHeight),
-                                  layoutContextFor(gHost.scaleFactor));
+                                  layoutContextFor(gHost.main().scaleFactor));
     gHost.mountingManager->setSurfaceSize((float)kInitialWidth, (float)kInitialHeight);
     gHost.surfaceStarted = true;
     NSLog(@"started surface %d%s%s",
@@ -821,7 +1026,7 @@ int main(int argc, const char *argv[]) {
           gHost.moduleName.empty() ? " (no module; raw Fabric script)" : " for module ",
           gHost.moduleName.c_str());
 
-    [gHost.window makeKeyAndOrderFront:nil];
+    [gHost.main().window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     // Prime the bounds cache, which `getBounds()` answers from: without this an
     // app's first render sees a window of no size, and only a later resize
@@ -865,7 +1070,7 @@ int main(int argc, const char *argv[]) {
                                           }];
 
     // The display link needs a window, which the root now has.
-    gHost.choreographer->attachToView(gHost.root);
+    gHost.choreographer->attachToView(gHost.main().root);
 
     if (gHost.moduleName.empty()) {
       NSLog(@"--- committing tree 1 from JS ---");
@@ -895,11 +1100,22 @@ int main(int argc, const char *argv[]) {
     // permission an automated run does not have. The GTK host has the same
     // escape hatch for the same reason, and the end-to-end suite on Linux uses
     // xdotool instead where it can.
+    //
+    // A point may name a window: "x,y@3" taps in the window whose surface is 3
+    // rather than in the app's own. Without it there would be no way to reach a
+    // second window at all -- each has its own touch dispatcher, which is the
+    // whole point of them, and the main window's would happily hit-test a tree
+    // that is not on screen.
     if (const char *taps = getenv("BASALT_TEST_TAP")) {
       NSString *spec = [NSString stringWithUTF8String:taps];
       int64_t delayMs = scriptedDelayMs;
-      for (NSString *point in [spec componentsSeparatedByString:@";"]) {
-        NSArray<NSString *> *parts = [point componentsSeparatedByString:@","];
+      for (NSString *entry in [spec componentsSeparatedByString:@";"]) {
+        NSArray<NSString *> *halves = [entry componentsSeparatedByString:@"@"];
+        // Defaults to the app's own window, so every spec written before
+        // windows existed still means what it did.
+        const facebook::react::SurfaceId surfaceId =
+            halves.count > 1 ? (facebook::react::SurfaceId)halves[1].intValue : kSurfaceId;
+        NSArray<NSString *> *parts = [halves[0] componentsSeparatedByString:@","];
         if (parts.count != 2) {
           continue;
         }
@@ -908,9 +1124,15 @@ int main(int argc, const char *argv[]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
                        dispatch_get_main_queue(),
                        ^{
-                         NSLog(@"BASALT_TEST_TAP: tapping (%.0f, %.0f)", x, y);
-                         if (gHost.touchDispatcher != nullptr) {
-                           gHost.touchDispatcher->synthesiseTap(x, y);
+                         NSLog(@"BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d",
+                               x, y, (int)surfaceId);
+                         HostWindow *target = gHost.windowFor(surfaceId);
+                         if (target == nullptr) {
+                           NSLog(@"BASALT_TEST_TAP: no window %d", (int)surfaceId);
+                           return;
+                         }
+                         if (target->touchDispatcher != nullptr) {
+                           target->touchDispatcher->synthesiseTap(x, y);
                          }
                        });
         delayMs += 1000;
@@ -937,8 +1159,8 @@ int main(int argc, const char *argv[]) {
                        dispatch_get_main_queue(),
                        ^{
                          NSLog(@"BASALT_TEST_HOVER: hovering (%.0f, %.0f)", x, y);
-                         if (gHost.touchDispatcher != nullptr) {
-                           gHost.touchDispatcher->synthesiseHover(x, y);
+                         if (gHost.main().touchDispatcher != nullptr) {
+                           gHost.main().touchDispatcher->synthesiseHover(x, y);
                          }
                        });
         delayMs += 1000;
@@ -968,17 +1190,17 @@ int main(int argc, const char *argv[]) {
                        dispatch_get_main_queue(),
                        ^{
                          NSLog(@"BASALT_TEST_FOCUS: %@", action);
-                         if (gHost.focusManager == nullptr &&
+                         if (gHost.main().focusManager == nullptr &&
                              ![action isEqualToString:@"escape"] &&
                              ![action isEqualToString:@"devmenu"]) {
                            return;
                          }
                          if ([action isEqualToString:@"tab"]) {
-                           gHost.focusManager->moveFocus(true);
+                           gHost.main().focusManager->moveFocus(true);
                          } else if ([action isEqualToString:@"shift-tab"]) {
-                           gHost.focusManager->moveFocus(false);
+                           gHost.main().focusManager->moveFocus(false);
                          } else if ([action isEqualToString:@"activate"]) {
-                           gHost.focusManager->activateFocused();
+                           gHost.main().focusManager->activateFocused();
                          } else if ([action isEqualToString:@"devmenu"]) {
                            // Also not a focus action. Same instrument for the
                            // same reason: a key that needs nothing focused to
@@ -1018,8 +1240,8 @@ int main(int argc, const char *argv[]) {
                                fromY,
                                toX,
                                toY);
-                         if (gHost.touchDispatcher != nullptr) {
-                           gHost.touchDispatcher->synthesiseDrag(fromX, fromY, toX, toY, 20);
+                         if (gHost.main().touchDispatcher != nullptr) {
+                           gHost.main().touchDispatcher->synthesiseDrag(fromX, fromY, toX, toY, 20);
                          }
                        });
       }
@@ -1054,7 +1276,7 @@ int main(int argc, const char *argv[]) {
                          // Through the root, which converts out of the flipped
                          // top-left space every coordinate here is in and into
                          // the window's bottom-left one.
-                         const NSPoint inWindow = [gHost.root convertPoint:NSMakePoint(x, y)
+                         const NSPoint inWindow = [gHost.main().root convertPoint:NSMakePoint(x, y)
                                                                     toView:nil];
                          for (NSEventType type :
                               {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp}) {
@@ -1063,7 +1285,7 @@ int main(int argc, const char *argv[]) {
                                                   location:inWindow
                                              modifierFlags:0
                                                  timestamp:NSProcessInfo.processInfo.systemUptime
-                                              windowNumber:gHost.window.windowNumber
+                                              windowNumber:gHost.main().window.windowNumber
                                                    context:nil
                                                eventNumber:0
                                                 clickCount:1
@@ -1100,7 +1322,7 @@ int main(int argc, const char *argv[]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
                        dispatch_get_main_queue(),
                        ^{
-                         RnAppKitView *target = RnAppKitHitTest(gHost.root, x, y);
+                         RnAppKitView *target = RnAppKitHitTest(gHost.main().root, x, y);
                          if (target == nil) {
                            NSLog(@"BASALT_TEST_SCROLL: nothing at (%.0f, %.0f)", x, y);
                            return;
@@ -1141,7 +1363,7 @@ int main(int argc, const char *argv[]) {
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
                      dispatch_get_main_queue(),
                      ^{
-                       NSResponder *responder = gHost.window.firstResponder;
+                       NSResponder *responder = gHost.main().window.firstResponder;
                        if (![responder isKindOfClass:[NSText class]]) {
                          NSLog(@"BASALT_TEST_TYPE: no text field has focus");
                          return;
@@ -1167,7 +1389,7 @@ int main(int argc, const char *argv[]) {
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayMs * NSEC_PER_MSEC),
                      dispatch_get_main_queue(),
                      ^{
-                       if (RnAppKitWriteSnapshot(gHost.root, path)) {
+                       if (RnAppKitWriteSnapshot(gHost.main().root, path)) {
                          NSLog(@"wrote a snapshot to %@", path);
                        } else {
                          NSLog(@"could not write a snapshot to %@", path);

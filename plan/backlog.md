@@ -585,8 +585,23 @@ react-native-windows already chose, or leave it to userland modules. Nothing
 here has been decided, and none of it is needed for the demo, which is why it
 has gone unrecorded until now.
 
-- **More than one window.** The host creates exactly one and mounts one surface
-  in it. Fabric supports multiple surfaces; nothing above it does.
+- ~~**More than one window.**~~ Done on all three: `<Window>` opens one, and a
+  window is a surface is a React root, which is Fabric's grain rather than a
+  simplification. What is left is what follows from that:
+  - **A second window's children do not see React context** from the tree they
+    were written in, because they are rendered in a different root. Props,
+    state and callbacks cross; a provider does not. `<Window>`'s header says so.
+  - **`useWindow()` inside a second window reports the active window**, not the
+    one it is in. A TurboModule has no idea which surface called it, which is
+    the same gap that would have to be closed for per-window menus or title
+    bars.
+  - **The title bar and the error inspector are the main window's.** Both are
+    process-wide seams; making them per-window is its own piece of work.
+  - **A window an app opened has no close button behaviour of its own.**
+    Closing it from the window manager destroys the window, and the `<Window>`
+    that opened it does not learn that it is gone.
+  - **`<Modal>` is still an in-surface overlay**, though a real window is now
+    something this platform could do.
 - **Packaging is macOS and Linux only, and shallow.** `react-native run-macos`
   builds a real `.app` -- `Info.plist`, an identifier, declared URL schemes, and
   an ad-hoc signature, which macOS requires before it will grant notification

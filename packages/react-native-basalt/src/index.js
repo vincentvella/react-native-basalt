@@ -33,6 +33,9 @@ export {useDialog, dialog} from './useDialog';
 // field, which is why an app gets one whether or not it renders a <Menu>. See
 // Menu.js.
 export {Menu} from './Menu';
+// A second window, which is a second surface and so a second React root. See
+// Window.js for what that costs and what it does not.
+export {Window} from './Window';
 // The window itself: its size, its position, whether it fills the screen, and
 // live bounds. See useWindow.js.
 export {useWindow, windowControl} from './useWindow';

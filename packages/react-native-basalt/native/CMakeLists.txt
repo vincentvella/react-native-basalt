@@ -195,6 +195,8 @@ if(DEFINED RN_DIR)
     core/WindowMethods.cpp
     # The bounds cache behind getBounds(), which cannot ask the toolkit.
     core/WindowBoundsCache.cpp
+    # Opening a second window, which is opening a second surface.
+    core/WindowsModule.cpp
     core/WorkletsModule.cpp)
   target_compile_options(basalt_core PRIVATE -Wall -Wextra)
   # The React Native version, for the version guards and PlatformConstants.

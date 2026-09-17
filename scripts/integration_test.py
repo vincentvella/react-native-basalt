@@ -2158,6 +2158,99 @@ def test_debugging_overlay(bundle: Path) -> None:
         )
 
 
+def test_windows(bundle: Path) -> None:
+    """More than one window, which is more than one React tree.
+
+    Runs js/windows.js: a counter in the first window's state, a button to open
+    a second, and the same counter rendered again over there.
+
+    A window is a surface is a React root -- that is Fabric's grain rather than
+    a decision this made -- so the second window is not the first one's tree
+    moved across. What is asserted is the three things that follow from it:
+
+      it renders        the second window has a tree of its own, under its own
+                        header in the dump.
+
+      input is routed   a tap in the second window is hit-tested against the
+                        second window's view tree. Each window has its own touch
+                        dispatcher, which is the whole point of them, and the
+                        first one's would happily hit-test a tree that is not on
+                        screen and report a press on whatever happened to be at
+                        those coordinates. `BASALT_TEST_TAP` takes "x,y@3" for
+                        exactly this.
+
+      state crosses     pressing in the second window calls a setter that lives
+                        in the first window's tree, and *both* re-render. That
+                        is the half that says `<Window>` is passing elements
+                        through rather than running something separate.
+
+    Closing is asserted too, and it is the part with a real ordering hazard
+    behind it: stopping a surface unmounts its tree, which produces one last
+    transaction of mutations, and destroying the window before those arrive
+    leaves them naming views that are gone.
+    """
+    app = bundle_app(bundle.parent, "windows")
+
+    def run(taps: str, run_ms: int) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            env["BASALT_TEST_TAP"] = taps
+            for name in ("BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS",
+                         "BASALT_TEST_SCROLL", "BASALT_TEST_MENU"):
+                env.pop(name, None)
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltWindows"],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 90,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            tree = dump.read_text() if dump.exists() else ""
+            return tree, result.stdout + result.stderr
+
+    if "windows supported: true" not in run("", 5000)[1]:
+        raise Skipped("this host cannot open a second window")
+
+    # The button that opens one is at (134, 110) in the app's own layout: 24 of
+    # padding, a 22-tall label, a 40-tall count, then 48-tall buttons.
+    #
+    # The second tap is in the *second* window, at the same place in its own
+    # layout -- which is only the same number by coincidence, and is why the
+    # window has to be named.
+    tree, logged = run("134,110;134,110@3", 11000)
+
+    if "--- window 3 ---" not in tree:
+        raise Failure(
+            "the second window opened and rendered nothing.\n"
+            f"{tail_text(logged)}\n{tree}"
+        )
+    if "counted up from the second window" not in logged:
+        raise Failure(
+            "a tap in the second window did not reach it. Each window has its "
+            "own touch dispatcher; this is what says the right one was used.\n"
+            f"{tail_text(logged)}"
+        )
+
+    # Both trees show the same number, from the one piece of state, which lives
+    # in the first window's tree and was changed from the second's.
+    counts = [line for line in tree.splitlines() if 'text="count ' in line]
+    if len(counts) != 2:
+        raise Failure(f"expected a count in each window, found {len(counts)}:\n{tree}")
+    if 'text="count 1"' not in counts[0] or 'text="count 1"' not in counts[1]:
+        raise Failure(
+            "the two windows disagree about the one piece of state they share.\n"
+            + "\n".join(counts)
+        )
+
+    # And closing takes it away again.
+    tree, logged = run("134,110;134,110", 11000)
+    if "--- window 3 ---" in tree:
+        raise Failure(f"the second window was still open after being closed:\n{tree}")
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -2180,6 +2273,8 @@ SCENARIOS = [
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("the application menu is installed, roles and all", test_application_menu),
+    ("a second window is a second React tree, and the two stay in step",
+     test_windows),
     ("DevTools' overlay draws a highlight, and a trace update takes itself down",
      test_debugging_overlay),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),

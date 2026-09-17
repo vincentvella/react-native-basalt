@@ -376,6 +376,18 @@ does with a path cannot be reached without a path. `BASALT_TEST_FILE_DIALOG`
 answers one -- `cancel`, or a list of paths separated by `:` (`;` on Windows,
 where a path starts `C:\` and a colon would cut every one of them in two).
 
+A tap may name a window: `BASALT_TEST_TAP="134,110;134,110@3"` taps in the app's
+own window and then in the window whose surface is 3. Without it a second window
+could not be reached at all -- each has its own touch dispatcher, and the app's
+would happily hit-test a tree that is not on screen and report a press on
+whatever was at those coordinates. A point with no `@` means the app's own
+window, so every spec written before windows existed still means what it did.
+
+`BASALT_DUMP_TREE` writes every window, each under a `--- window <n> ---`
+header, for the same reason it already appended the error inspector: they are
+separate trees on screen, and nesting one inside another would say something
+untrue.
+
 A menu *bar* cannot be reached by any of them, because a menu cannot be opened
 without a person. `BASALT_DUMP_MENU` writes the menu the platform actually
 installed instead -- read back from AppKit or from the HMENU rather than from

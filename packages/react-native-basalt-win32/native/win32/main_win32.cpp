@@ -42,10 +42,12 @@
 #include "DialogModule.h"
 #include "MenuModel.h"
 #include "MenuModule.h"
+#include "WindowsModule.h"
 #include "Win32MountingManager.h"
 #include "Win32MenuBar.h"
 #include "Win32Packaging.h"
 #include "WindowControl.h"
+#include "WindowHost.h"
 #include "Win32RunLoopObserver.h"
 #include "Win32Snapshot.h"
 #include "Win32Strings.h"
@@ -146,19 +148,66 @@ constexpr UINT_PTR kSecondTreeTimer = 100;
 // never exited.
 constexpr UINT_PTR kQuitAfterTimer = 101;
 
-struct Host {
+// One window, and the surface in it.
+//
+// A window is a surface: a surface is what has a size, a layout context and a
+// root shadow node, and two windows sharing one would be two windows sharing a
+// layout. So the id a window is known by *is* its surface id. See
+// core/WindowHost.h.
+//
+// The render target is here rather than on Host because a
+// ID2D1HwndRenderTarget belongs to one HWND -- painting a second window through
+// the first one's would draw into the first one.
+struct HostWindow {
+  facebook::react::SurfaceId surfaceId{0};
   HWND window{nullptr};
   RnWin32View *root{nullptr};
+  ComPtr<ID2D1HwndRenderTarget> target;
+  std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::Win32FocusManager> focusManager;
+};
+
+struct Host {
+  // Every window, main one first. Never empty once the app has started.
+  std::vector<std::unique_ptr<HostWindow>> windows;
+
+  // The window the app was started in. Shorthand for windows.front(), which is
+  // what every part of this host that is not yet per-window uses.
+  // An empty window with null fields before there is a real one, rather than
+  // dereferencing an empty vector. Several things here run before the window
+  // exists -- a repaint request, the spinner timer -- and each one already
+  // guards on `window == nullptr`, which is exactly what this keeps true.
+  HostWindow &main() {
+    static HostWindow none;
+    return windows.empty() ? none : *windows.front();
+  }
+
+  HostWindow *windowFor(facebook::react::SurfaceId surfaceId) {
+    for (const auto &candidate : windows) {
+      if (candidate->surfaceId == surfaceId) {
+        return candidate.get();
+      }
+    }
+    return nullptr;
+  }
+
+  // Which window a message is for. `hostProc` is one procedure for every window
+  // this host makes, so every message starts by asking this.
+  HostWindow *windowFor(HWND hwnd) {
+    for (const auto &candidate : windows) {
+      if (candidate->window == hwnd) {
+        return candidate.get();
+      }
+    }
+    return nullptr;
+  }
 
   ComPtr<ID2D1Factory> d2dFactory;
-  ComPtr<ID2D1HwndRenderTarget> target;
 
   std::shared_ptr<basalt::Win32MountingManager> mountingManager;
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::Win32AnimationChoreographer> choreographer;
   std::unique_ptr<ReactHost> reactHost;
-  std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
-  std::unique_ptr<basalt::Win32FocusManager> focusManager;
   // The error inspector's own surface root, or null when it is not showing.
   // Painted after the app's and hit-tested before it, which is the whole of
   // what "on top" means on a platform where a view is not a window.
@@ -231,15 +280,20 @@ LayoutContext layoutContextFor(int scaleFactor) {
 // Painting
 // ---------------------------------------------------------------------------
 
-bool ensureTarget() {
-  if (gHost.target) {
+// Per window: an ID2D1HwndRenderTarget belongs to one HWND, so each window has
+// its own and a second window cannot borrow the first's.
+bool ensureTarget(HostWindow *made) {
+  if (made == nullptr) {
+    return false;
+  }
+  if (made->target) {
     return true;
   }
-  if (!gHost.d2dFactory || gHost.window == nullptr) {
+  if (!gHost.d2dFactory || made->window == nullptr) {
     return false;
   }
   RECT client{};
-  GetClientRect(gHost.window, &client);
+  GetClientRect(made->window, &client);
   const D2D1_SIZE_U size = D2D1::SizeU(static_cast<UINT32>(client.right - client.left),
                                        static_cast<UINT32>(client.bottom - client.top));
   if (size.width == 0 || size.height == 0) {
@@ -247,8 +301,8 @@ bool ensureTarget() {
   }
   return SUCCEEDED(gHost.d2dFactory->CreateHwndRenderTarget(
       D2D1::RenderTargetProperties(),
-      D2D1::HwndRenderTargetProperties(gHost.window, size),
-      &gHost.target));
+      D2D1::HwndRenderTargetProperties(made->window, size),
+      &made->target));
 }
 
 // Asked for after every mounted transaction. Windows repaints on demand rather
@@ -256,8 +310,8 @@ bool ensureTarget() {
 // nothing on screen moves until the window happens to be invalidated by
 // something else -- which reads as "mounting is broken" and is not.
 void requestRepaint() {
-  if (gHost.window != nullptr) {
-    InvalidateRect(gHost.window, nullptr, FALSE);
+  if (gHost.main().window != nullptr) {
+    InvalidateRect(gHost.main().window, nullptr, FALSE);
   }
 }
 
@@ -283,25 +337,25 @@ constexpr UINT_PTR kSpinnerTimer = 102;
 bool gSpinnerTimerRunning = false;
 
 void updateSpinnerTimer() {
-  if (gHost.window == nullptr || gHost.root == nullptr) {
+  if (gHost.main().window == nullptr || gHost.main().root == nullptr) {
     return;
   }
-  const bool wanted = gHost.root->hasAnimatingSpinner() ||
+  const bool wanted = gHost.main().root->hasAnimatingSpinner() ||
       (gHost.logBoxRoot != nullptr && gHost.logBoxRoot->hasAnimatingSpinner());
   if (wanted == gSpinnerTimerRunning) {
     return;
   }
   gSpinnerTimerRunning = wanted;
   if (wanted) {
-    SetTimer(gHost.window, kSpinnerTimer, 16, nullptr);
+    SetTimer(gHost.main().window, kSpinnerTimer, 16, nullptr);
   } else {
-    KillTimer(gHost.window, kSpinnerTimer);
+    KillTimer(gHost.main().window, kSpinnerTimer);
   }
 }
 
 void syncPeersAndRepaint() {
   if (gHost.mountingManager != nullptr) {
-    gHost.mountingManager->syncTextInputBounds(gHost.root);
+    gHost.mountingManager->syncTextInputBounds(gHost.main().root);
   }
   updateSpinnerTimer();
   requestRepaint();
@@ -403,6 +457,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         // a text field. See core/MenuModel.h.
         if (name == basalt::DesktopMenuModule::kModuleName) {
           return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
+        }
+        // More than one window, which is more than one surface. See
+        // core/WindowHost.h.
+        if (name == basalt::DesktopWindowsModule::kModuleName) {
+          return std::make_shared<basalt::DesktopWindowsModule>(jsInvoker);
         }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
@@ -515,11 +574,22 @@ void dumpMenuIfRequested() {
 // screenshot.
 void dumpTreeIfRequested() {
   const char *path = std::getenv("BASALT_DUMP_TREE");
-  if (path == nullptr || gHost.root == nullptr) {
+  if (path == nullptr || gHost.main().root == nullptr) {
     return;
   }
   if (FILE *file = std::fopen(path, "wb")) {
-    std::string described = gHost.root->describeTree();
+    std::string described = gHost.main().root->describeTree();
+    // Every other window, each under a header naming its surface. Appended
+    // rather than merged for the same reason the inspector is: they are
+    // separate trees on screen, and nesting one inside another would say
+    // something untrue.
+    for (const auto &other : gHost.windows) {
+      if (other->surfaceId == kSurfaceId || other->root == nullptr) {
+        continue;
+      }
+      described += "--- window " + std::to_string(static_cast<int>(other->surfaceId)) + " ---\n";
+      described += other->root->describeTree();
+    }
     // The error inspector is a second surface with a root of its own, so it is
     // invisible to a dump of the app's. Appended rather than merged, because
     // the two are siblings on screen and nesting one inside the other would say
@@ -545,10 +615,10 @@ void dumpTreeIfRequested() {
 // no window to be visible.
 void snapshotIfRequested() {
   const char *path = std::getenv("BASALT_SNAPSHOT");
-  if (path == nullptr || gHost.root == nullptr) {
+  if (path == nullptr || gHost.main().root == nullptr) {
     return;
   }
-  if (basalt::win32::writeSnapshot(*gHost.root, path)) {
+  if (basalt::win32::writeSnapshot(*gHost.main().root, path)) {
     std::fprintf(stderr, "wrote snapshot to %s\n", path);
   } else {
     std::fprintf(stderr, "could not write %s\n", path);
@@ -582,6 +652,11 @@ struct ScriptedInput {
   // content down. The sign is the one BASALT_TEST_SCROLL takes on the other
   // hosts, not the one WM_MOUSEWHEEL uses.
   double lines{0};
+  // Which window the point is in. A tap may name one -- "x,y@3" -- because each
+  // window has its own touch dispatcher, and the app's would happily hit-test a
+  // tree that is not on screen. Defaults to the app's own, so every spec
+  // written before windows existed still means what it did.
+  facebook::react::SurfaceId surfaceId{kSurfaceId};
   // Type only. Default-initialised explicitly, so that the three kinds that do
   // not carry text can leave it out of a designated initialiser.
   std::string text{};
@@ -636,10 +711,19 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
   }
   const ScriptedInput &action = gScriptedInput[index];
   switch (action.kind) {
-    case ScriptedInput::Kind::Tap:
-      std::fprintf(stderr, "BASALT_TEST_TAP: tapping (%.0f, %.0f)\n", action.fromX, action.fromY);
-      if (gHost.touchDispatcher != nullptr) {
-        gHost.touchDispatcher->synthesiseTap(action.fromX, action.fromY);
+    case ScriptedInput::Kind::Tap: {
+      std::fprintf(stderr,
+                   "BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d\n",
+                   action.fromX,
+                   action.fromY,
+                   static_cast<int>(action.surfaceId));
+      HostWindow *target = gHost.windowFor(action.surfaceId);
+      if (target == nullptr) {
+        std::fprintf(stderr, "BASALT_TEST_TAP: no window %d\n", static_cast<int>(action.surfaceId));
+        break;
+      }
+      if (target->touchDispatcher != nullptr) {
+        target->touchDispatcher->synthesiseTap(action.fromX, action.fromY);
       }
       // A real click on a <TextInput> never reaches the touch dispatcher: the
       // peer is a child window, so USER32 routes the click to it and the
@@ -647,18 +731,19 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
       // reproduce, so it is done here instead -- and only here, because the
       // real path needs none of it.
       if (gHost.mountingManager != nullptr &&
-          gHost.mountingManager->focusTextInputAt(gHost.root, action.fromX, action.fromY)) {
+          gHost.mountingManager->focusTextInputAt(target->root, action.fromX, action.fromY)) {
         std::fprintf(stderr, "BASALT_TEST_TAP: focused the field there\n");
       }
       break;
+    }
 
     case ScriptedInput::Kind::Hover:
       std::fprintf(stderr,
                    "BASALT_TEST_HOVER: hovering (%.0f, %.0f)\n",
                    action.fromX,
                    action.fromY);
-      if (gHost.touchDispatcher != nullptr) {
-        gHost.touchDispatcher->synthesiseHover(action.fromX, action.fromY);
+      if (gHost.main().touchDispatcher != nullptr) {
+        gHost.main().touchDispatcher->synthesiseHover(action.fromX, action.fromY);
       }
       break;
 
@@ -669,7 +754,7 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                    action.fromY,
                    action.toX,
                    action.toY);
-      gHost.touchDispatcher->synthesiseDrag(
+      gHost.main().touchDispatcher->synthesiseDrag(
           action.fromX, action.fromY, action.toX, action.toY, 20);
       break;
 
@@ -722,13 +807,13 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
         InvalidateRect(hwnd, nullptr, FALSE);
         break;
       }
-      if (gHost.focusManager != nullptr) {
+      if (gHost.main().focusManager != nullptr) {
         if (action.text == "tab") {
-          gHost.focusManager->moveFocus(true);
+          gHost.main().focusManager->moveFocus(true);
         } else if (action.text == "shift-tab") {
-          gHost.focusManager->moveFocus(false);
+          gHost.main().focusManager->moveFocus(false);
         } else if (action.text == "activate") {
-          gHost.focusManager->activateFocused();
+          gHost.main().focusManager->activateFocused();
         } else {
           std::fprintf(stderr, "BASALT_TEST_FOCUS: unknown action\n");
         }
@@ -762,7 +847,7 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
 // the last one, so a drag can be scheduled behind the taps.
 UINT scheduleScriptedInput(const ScriptedInput &action, UINT delayMs) {
   gScriptedInput.push_back(action);
-  SetTimer(gHost.window,
+  SetTimer(gHost.main().window,
            kScriptedInputTimerBase + gScriptedInput.size() - 1,
            delayMs,
            fireScriptedInput);
@@ -778,10 +863,20 @@ UINT scheduleTestPoints(const char *spec, UINT delayMs, ScriptedInput::Kind kind
     const size_t semicolon = all.find(';', start);
     const std::string point =
         all.substr(start, semicolon == std::string::npos ? std::string::npos : semicolon - start);
-    const std::vector<double> numbers = parseNumbers(point);
+    // "x,y@3" names the window; without an `@` it is the app's own.
+    facebook::react::SurfaceId surfaceId = kSurfaceId;
+    std::string coordinates = point;
+    if (const size_t at = point.find('@'); at != std::string::npos) {
+      surfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(point.c_str() + at + 1));
+      coordinates = point.substr(0, at);
+    }
+    const std::vector<double> numbers = parseNumbers(coordinates);
     if (numbers.size() == 2) {
-      delayMs = scheduleScriptedInput(
-          ScriptedInput{.kind = kind, .fromX = numbers[0], .fromY = numbers[1]}, delayMs);
+      delayMs = scheduleScriptedInput(ScriptedInput{.kind = kind,
+                                                    .fromX = numbers[0],
+                                                    .fromY = numbers[1],
+                                                    .surfaceId = surfaceId},
+                                      delayMs);
     }
     if (semicolon == std::string::npos) {
       break;
@@ -877,9 +972,9 @@ void shutdown() {
   // Before the manager it holds a raw pointer into. Nothing can reach it by
   // now -- the message loop has already returned -- but the order is the part
   // that stays true if that ever stops being so.
-  gHost.touchDispatcher.reset();
+  gHost.main().touchDispatcher.reset();
   gHost.mountingManager.reset();
-  gHost.target.Reset();
+  gHost.main().target.Reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -904,24 +999,24 @@ void hideLogBoxSurface() {
   gHost.reactHost->stopSurface(kLogBoxSurfaceId);
   gHost.mountingManager->destroySurfaceRoot(kLogBoxSurfaceId);
   gHost.logBoxRoot = nullptr;
-  if (gHost.touchDispatcher != nullptr) {
-    gHost.touchDispatcher->setSurfaceRoot(gHost.root);
+  if (gHost.main().touchDispatcher != nullptr) {
+    gHost.main().touchDispatcher->setSurfaceRoot(gHost.main().root);
   }
-  if (gHost.focusManager != nullptr) {
-    gHost.focusManager->setSurfaceRoot(gHost.root);
+  if (gHost.main().focusManager != nullptr) {
+    gHost.main().focusManager->setSurfaceRoot(gHost.main().root);
   }
-  if (gHost.window != nullptr) {
-    InvalidateRect(gHost.window, nullptr, FALSE);
+  if (gHost.main().window != nullptr) {
+    InvalidateRect(gHost.main().window, nullptr, FALSE);
   }
 }
 
 void showLogBoxSurface(const std::string &appKey) {
-  if (gHost.reactHost == nullptr || gHost.root == nullptr || gHost.logBoxRoot != nullptr) {
+  if (gHost.reactHost == nullptr || gHost.main().root == nullptr || gHost.logBoxRoot != nullptr) {
     return;
   }
 
   RECT client{};
-  GetClientRect(gHost.window, &client);
+  GetClientRect(gHost.main().window, &client);
   const int width = client.right - client.left;
   const int height = client.bottom - client.top;
   if (width <= 0 || height <= 0) {
@@ -930,11 +1025,11 @@ void showLogBoxSurface(const std::string &appKey) {
 
   gHost.logBoxRoot = gHost.mountingManager->createSurfaceRoot(kLogBoxSurfaceId);
   gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
-  if (gHost.touchDispatcher != nullptr) {
-    gHost.touchDispatcher->setSurfaceRoot(gHost.logBoxRoot);
+  if (gHost.main().touchDispatcher != nullptr) {
+    gHost.main().touchDispatcher->setSurfaceRoot(gHost.logBoxRoot);
   }
-  if (gHost.focusManager != nullptr) {
-    gHost.focusManager->setSurfaceRoot(gHost.logBoxRoot);
+  if (gHost.main().focusManager != nullptr) {
+    gHost.main().focusManager->setSurfaceRoot(gHost.logBoxRoot);
   }
 
   gHost.reactHost->startSurface(kLogBoxSurfaceId,
@@ -942,10 +1037,21 @@ void showLogBoxSurface(const std::string &appKey) {
                                 folly::dynamic::object(),
                                 constraintsFor(width, height),
                                 layoutContextFor(gHost.scaleFactor));
-  InvalidateRect(gHost.window, nullptr, FALSE);
+  InvalidateRect(gHost.main().window, nullptr, FALSE);
 }
 
 LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  // Which window this is for. One procedure serves every window this host
+  // makes, so a message that reached for `the` window would paint, hit-test and
+  // resize the app's own however many are open -- which is exactly the bug
+  // multiple windows would otherwise introduce, and it would look like a second
+  // window that renders nothing and a first one that flickers.
+  //
+  // Null before the main window is in the list, which is every message
+  // CreateWindowEx sends before it returns. Those are the ones Windows sends to
+  // set a window up, and DefWindowProc is the right answer to all of them.
+  HostWindow *self = gHost.windowFor(hwnd);
+
   switch (message) {
     // The title bar. Each of these is answered only while an app has asked for
     // a hidden one, and falls through to Windows otherwise; see
@@ -960,7 +1066,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
     case WM_NCHITTEST: {
       LRESULT result = 0;
-      if (basalt::titleBar().handleNcHitTest(lparam, gHost.root, result)) {
+      if (basalt::titleBar().handleNcHitTest(lparam, gHost.main().root, result)) {
         return result;
       }
       break;
@@ -1002,17 +1108,22 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
 
     case WM_SIZE: {
+      if (self == nullptr) {
+        break;
+      }
       const int width = LOWORD(lparam);
       const int height = HIWORD(lparam);
-      if (gHost.target) {
-        gHost.target->Resize(D2D1::SizeU(static_cast<UINT32>(width), static_cast<UINT32>(height)));
+      if (self->target) {
+        self->target->Resize(D2D1::SizeU(static_cast<UINT32>(width), static_cast<UINT32>(height)));
       }
       // The surface has to be told, or the root keeps the size it started with
-      // while the window changes around it.
+      // while the window changes around it. This window's surface: constraining
+      // the app's from every window would lay the first window's tree out to the
+      // second window's size.
       if (gHost.surfaceStarted && width > 0 && height > 0) {
-        gHost.root->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
+        self->root->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
         gHost.reactHost->setSurfaceConstraints(
-            kSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
+            self->surfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
         // A <Modal> is sized from its own shadow-node state rather than from a
         // style, and React Native's C++ platform answers "what size is the
         // screen" with zero. Told here, where the window's size is already
@@ -1022,8 +1133,9 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         // bounds. Here rather than in a watcher of its own: this is already the one
         // place that learns it.
         basalt::notifyWindowBoundsChanged();
-        // The inspector covers the window, so it resizes with it.
-        if (gHost.logBoxRoot != nullptr) {
+        // The inspector covers the main window, so it resizes with it -- and
+        // only with it: an error is about the app rather than about a window.
+        if (gHost.logBoxRoot != nullptr && self->surfaceId == kSurfaceId) {
           gHost.logBoxRoot->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
           gHost.reactHost->setSurfaceConstraints(
               kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(gHost.scaleFactor));
@@ -1062,7 +1174,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // root's own coordinates: WM_SIZE sizes the root to the client rectangle,
     // so the two spaces are the same one and nothing has to be converted.
     case WM_LBUTTONDOWN: {
-      if (gHost.touchDispatcher == nullptr) {
+      if (self == nullptr || self->touchDispatcher == nullptr) {
         break;
       }
       // Capture, or a drag that leaves the window stops being reported and the
@@ -1071,23 +1183,23 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       // route a drag back to the view that took the press for free; here it has
       // to be asked for.
       SetCapture(hwnd);
-      gHost.touchDispatcher->dispatchTouchStart(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      self->touchDispatcher->dispatchTouchStart(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
       return 0;
     }
 
     case WM_MOUSEMOVE:
       basalt::titleBar().clearHover();
-      if (gHost.touchDispatcher != nullptr) {
+      if (self != nullptr && self->touchDispatcher != nullptr) {
         // The touch model has no place for motion with no button down, and the
         // dispatcher drops it; the check here is only to keep an idle mouse
         // from walking the view tree sixty times a second.
-        if (gHost.touchDispatcher->isDown()) {
-          gHost.touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        if (self->touchDispatcher->isDown()) {
+          self->touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
         } else {
           // Hover, which is a different question about the same message. Views
           // that listen for none of it cost a hit test and nothing more; see
           // core/HoverTracker.h.
-          gHost.touchDispatcher->dispatchHover(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+          self->touchDispatcher->dispatchHover(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
         }
       }
       // Without this the cursor leaving the window is silent, and whatever it
@@ -1124,8 +1236,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
           gHost.mountingManager->requestCloseTopModal()) {
         return 0;
       }
-      if (gHost.focusManager != nullptr &&
-          gHost.focusManager->handleKeyDown(static_cast<unsigned int>(wparam))) {
+      if (gHost.main().focusManager != nullptr &&
+          gHost.main().focusManager->handleKeyDown(static_cast<unsigned int>(wparam))) {
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
       }
@@ -1134,19 +1246,19 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     case WM_MOUSELEAVE:
       gHost.trackingMouseLeave = false;
       basalt::titleBar().clearHover();
-      if (gHost.touchDispatcher != nullptr) {
-        gHost.touchDispatcher->dispatchHoverLeave();
+      if (gHost.main().touchDispatcher != nullptr) {
+        gHost.main().touchDispatcher->dispatchHoverLeave();
       }
       return 0;
 
     case WM_LBUTTONUP: {
-      if (gHost.touchDispatcher == nullptr) {
+      if (gHost.main().touchDispatcher == nullptr) {
         break;
       }
       // The end first: ReleaseCapture sends WM_CAPTURECHANGED synchronously,
       // and that is a cancel. Releasing first would turn every ordinary click
       // into a cancelled touch, which is a press that never fires.
-      gHost.touchDispatcher->dispatchTouchEnd(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+      gHost.main().touchDispatcher->dispatchTouchEnd(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
       if (GetCapture() == hwnd) {
         ReleaseCapture();
       }
@@ -1160,7 +1272,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // wrong list, or nothing, depending on where the window is on the desktop.
     case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL: {
-      if (gHost.mountingManager == nullptr || gHost.root == nullptr) {
+      if (gHost.mountingManager == nullptr || gHost.main().root == nullptr) {
         break;
       }
       POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
@@ -1179,7 +1291,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       const double dx = message == WM_MOUSEHWHEEL ? step : 0.0;
       const double dy = message == WM_MOUSEWHEEL ? -step : 0.0;
 
-      if (gHost.mountingManager->scrollAt(gHost.root, point.x, point.y, dx, dy)) {
+      if (gHost.mountingManager->scrollAt(gHost.main().root, point.x, point.y, dx, dy)) {
         // Nothing else asks for this: a scroll changes no view's frame, so no
         // transaction is mounted and setOnDidMount never fires.
         syncPeersAndRepaint();
@@ -1205,8 +1317,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       // real window and holds real Win32 focus, so whichever painted view was
       // wearing the ring has to give it up. Only one of the two kinds of focus
       // can be true at a time.
-      if (HIWORD(wparam) == EN_SETFOCUS && gHost.focusManager != nullptr) {
-        gHost.focusManager->textInputTookFocus();
+      if (HIWORD(wparam) == EN_SETFOCUS && gHost.main().focusManager != nullptr) {
+        gHost.main().focusManager->textInputTookFocus();
         InvalidateRect(hwnd, nullptr, FALSE);
       }
       if (gHost.mountingManager != nullptr &&
@@ -1233,8 +1345,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       // Capture taken away by something else -- a modal dialog, Alt+Tab, the
       // debugger. The release will never arrive, so the touch has to be
       // cancelled here or the responder system waits for a finger that is gone.
-      if (gHost.touchDispatcher != nullptr) {
-        gHost.touchDispatcher->dispatchTouchCancel();
+      if (gHost.main().touchDispatcher != nullptr) {
+        gHost.main().touchDispatcher->dispatchTouchCancel();
       }
       return 0;
 
@@ -1253,23 +1365,30 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     case WM_PAINT: {
       PAINTSTRUCT paint{};
       BeginPaint(hwnd, &paint);
-      if (ensureTarget() && gHost.root != nullptr) {
-        gHost.target->BeginDraw();
-        gHost.target->Clear(D2D1::ColorF(D2D1::ColorF::Black));
-        gHost.target->SetTransform(D2D1::Matrix3x2F::Identity());
-        gHost.root->paint(gHost.target.Get());
-        // The error inspector, over the app. A second surface rather than
-        // anything this host draws; see core/LogBoxSurface.h.
-        if (gHost.logBoxRoot != nullptr) {
-          gHost.target->SetTransform(D2D1::Matrix3x2F::Identity());
-          gHost.logBoxRoot->paint(gHost.target.Get());
+      // Into this window's own target: an ID2D1HwndRenderTarget belongs to one
+      // HWND, and painting a second window through the first one's would draw
+      // into the first.
+      if (self != nullptr && ensureTarget(self) && self->root != nullptr) {
+        self->target->BeginDraw();
+        self->target->Clear(D2D1::ColorF(D2D1::ColorF::Black));
+        self->target->SetTransform(D2D1::Matrix3x2F::Identity());
+        self->root->paint(self->target.Get());
+        // The error inspector, over the app, in the main window. A second
+        // surface rather than anything this host draws; see
+        // core/LogBoxSurface.h.
+        if (gHost.logBoxRoot != nullptr && self->surfaceId == kSurfaceId) {
+          self->target->SetTransform(D2D1::Matrix3x2F::Identity());
+          gHost.logBoxRoot->paint(self->target.Get());
         }
         // A hidden title bar's caption buttons, over the app's own content.
-        basalt::titleBar().paintButtons(gHost.target.Get());
+        // The main window's: the title bar is a process-wide seam.
+        if (self->surfaceId == kSurfaceId) {
+          basalt::titleBar().paintButtons(self->target.Get());
+        }
         // A lost device is reported here and nowhere else. Dropping the target
         // is the whole recovery: the next WM_PAINT rebuilds it.
-        if (gHost.target->EndDraw() == D2DERR_RECREATE_TARGET) {
-          gHost.target.Reset();
+        if (self->target->EndDraw() == D2DERR_RECREATE_TARGET) {
+          self->target.Reset();
         }
       }
       EndPaint(hwnd, &paint);
@@ -1284,7 +1403,12 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
 
     case WM_DESTROY:
-      PostQuitMessage(0);
+      // Only the app's own window ends the process. A second window closing is
+      // an app closing a window, and quitting on it would mean a preview panel
+      // taking the whole application with it.
+      if (self == nullptr || self->surfaceId == kSurfaceId) {
+        PostQuitMessage(0);
+      }
       return 0;
 
     default:
@@ -1293,17 +1417,36 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
   return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
-bool createWindow() {
+// Makes a window, a surface root for it, and the input that drives them.
+//
+// Called for the main window and for every one an app opens afterwards, which
+// is the point: the second window is not a special case of the first, it is the
+// same function with a different surface id. See core/WindowHost.h.
+//
+// The window is not shown and the surface is not started here; both are the
+// caller's business.
+HostWindow *createHostWindow(facebook::react::SurfaceId surfaceId,
+                             const wchar_t *title,
+                             int width,
+                             int height) {
   const HINSTANCE instance = GetModuleHandle(nullptr);
-  WNDCLASSEX windowClass{};
-  windowClass.cbSize = sizeof(windowClass);
-  windowClass.style = CS_HREDRAW | CS_VREDRAW;
-  windowClass.lpfnWndProc = hostProc;
-  windowClass.hInstance = instance;
-  windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-  windowClass.lpszClassName = L"BasaltHost";
-  if (RegisterClassEx(&windowClass) == 0) {
-    return false;
+
+  // Registered once for the process. A second call with the same name fails
+  // with ERROR_CLASS_ALREADY_EXISTS, which is not an error here -- the class is
+  // exactly what a second window wants.
+  static bool classRegistered = false;
+  if (!classRegistered) {
+    WNDCLASSEX windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = hostProc;
+    windowClass.hInstance = instance;
+    windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    windowClass.lpszClassName = L"BasaltHost";
+    if (RegisterClassEx(&windowClass) == 0) {
+      return nullptr;
+    }
+    classRegistered = true;
   }
 
   // WS_CLIPCHILDREN so that the Direct2D paint excludes any <TextInput> peer.
@@ -1311,12 +1454,23 @@ bool createWindow() {
   // repaints itself on top, which is a visible flicker on every mount.
   constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
 
-  RECT wanted{0, 0, kInitialWidth, kInitialHeight};
+  RECT wanted{0, 0, width, height};
   AdjustWindowRect(&wanted, kWindowStyle, FALSE);
 
-  gHost.window = CreateWindowEx(0,
-                                windowClass.lpszClassName,
-                                L"react-native-basalt \x2014 Windows",
+  auto owned = std::make_unique<HostWindow>();
+  HostWindow *made = owned.get();
+  made->surfaceId = surfaceId;
+
+  // The root before the window: hostProc answers messages CreateWindowEx sends
+  // before it returns, and it finds this record by HWND -- which is not set
+  // yet, so those messages go to DefWindowProc. Pushing the record afterwards
+  // is what keeps that true rather than half-true.
+  made->root = gHost.mountingManager->createSurfaceRoot(surfaceId);
+  made->root->setFrame(0, 0, static_cast<float>(width), static_cast<float>(height));
+
+  made->window = CreateWindowEx(0,
+                                L"BasaltHost",
+                                title,
                                 kWindowStyle,
                                 CW_USEDEFAULT,
                                 CW_USEDEFAULT,
@@ -1326,10 +1480,129 @@ bool createWindow() {
                                 nullptr,
                                 instance,
                                 nullptr);
-  return gHost.window != nullptr;
+  if (made->window == nullptr) {
+    gHost.mountingManager->destroySurfaceRoot(surfaceId);
+    return nullptr;
+  }
+
+  // Input, per window. The dispatcher holds this window's root, not a surface,
+  // so it outlives every transaction mounted into it -- and a second window
+  // with the first one's would deliver every press to the wrong tree.
+  made->touchDispatcher =
+      std::make_unique<basalt::Win32TouchDispatcher>(gHost.mountingManager.get(), made->root);
+  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+  // All of it is this project's -- a React Native view is not a window here, so
+  // there is nothing for Windows to focus. See Win32Focus.h.
+  made->focusManager =
+      std::make_unique<basalt::Win32FocusManager>(gHost.mountingManager.get(), made->root);
+
+  gHost.windows.push_back(std::move(owned));
+  return made;
+}
+
+bool createWindow() {
+  return createHostWindow(kSurfaceId, L"react-native-basalt \x2014 Windows", kInitialWidth,
+                          kInitialHeight) != nullptr;
 }
 
 } // namespace
+
+namespace basalt {
+
+// core/WindowHost.h, on Windows.
+//
+// The surface id is allocated here rather than by JavaScript: it is Fabric's
+// number, the mounting manager keys its roots by it, and two windows racing to
+// pick one would be two windows sharing a root. Above the ids this host
+// reserves -- the app's surface is 1 and the error inspector's is 2.
+facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
+  if (gHost.reactHost == nullptr || !gHost.surfaceStarted || options.component.empty() ||
+      gHost.windows.empty()) {
+    return 0;
+  }
+
+  static facebook::react::SurfaceId nextSurfaceId = kLogBoxSurfaceId + 1;
+  const facebook::react::SurfaceId surfaceId = nextSurfaceId++;
+
+  const int width = static_cast<int>(options.width);
+  const int height = static_cast<int>(options.height);
+  const std::wstring title = basalt::win32::widen(options.title);
+  HostWindow *made = createHostWindow(surfaceId, title.c_str(), width, height);
+  if (made == nullptr) {
+    return 0;
+  }
+
+  gHost.reactHost->startSurface(surfaceId,
+                                options.component,
+                                options.props,
+                                constraintsFor(width, height),
+                                layoutContextFor(gHost.scaleFactor));
+  ShowWindow(made->window, SW_SHOW);
+  UpdateWindow(made->window);
+  std::fprintf(stderr,
+               "opened window %d for module %s\n",
+               static_cast<int>(surfaceId),
+               options.component.c_str());
+  return surfaceId;
+}
+
+void closeHostWindow(facebook::react::SurfaceId surfaceId) {
+  // The main window is not closed this way: destroying the surface an app is
+  // running in is not the same thing as closing its window, and an app that
+  // means the second should say so through `close()` on the window itself.
+  if (gHost.reactHost == nullptr || surfaceId == kSurfaceId || surfaceId == kLogBoxSurfaceId) {
+    return;
+  }
+  if (gHost.windowFor(surfaceId) == nullptr) {
+    return;
+  }
+
+  // Stopping a surface unmounts its React tree, which produces one last
+  // transaction of Remove and Delete mutations. Those arrive on the UI thread
+  // afterwards, and the views they name have to still be there when they do.
+  gHost.reactHost->stopSurface(surfaceId);
+
+  // So the window goes a round trip later: out to the JavaScript thread, which
+  // is where the teardown runs, and back to this one, which is where its
+  // mutations are applied. Both queues are ordered, so anything the stop
+  // produced is ahead of this.
+  gHost.reactHost->runOnRuntimeScheduler([surfaceId](facebook::jsi::Runtime &) {
+    basalt::postToUiThread([surfaceId] {
+      HostWindow *going = gHost.windowFor(surfaceId);
+      if (going == nullptr) {
+        return;
+      }
+      // The dispatchers before the views they hold: both keep a borrowed root.
+      going->focusManager.reset();
+      going->touchDispatcher.reset();
+      // The target before the window it belongs to, and the window before the
+      // root the mutations named. DestroyWindow takes any <TextInput> peer
+      // parented to it with it, which is why nothing here frees one by hand.
+      going->target.Reset();
+      DestroyWindow(going->window);
+      gHost.mountingManager->destroySurfaceRoot(surfaceId);
+
+      for (auto it = gHost.windows.begin(); it != gHost.windows.end(); ++it) {
+        if (it->get() == going) {
+          gHost.windows.erase(it);
+          break;
+        }
+      }
+      std::fprintf(stderr, "closed window %d\n", static_cast<int>(surfaceId));
+    });
+  });
+}
+
+std::vector<facebook::react::SurfaceId> hostWindows() {
+  std::vector<facebook::react::SurfaceId> open;
+  open.reserve(gHost.windows.size());
+  for (const auto &candidate : gHost.windows) {
+    open.push_back(candidate->surfaceId);
+  }
+  return open;
+}
+
+} // namespace basalt
 
 int main(int argc, char **argv) {
   gHost.bundlePath = argc > 1 ? argv[1] : "build/main.jsbundle.js";
@@ -1401,6 +1674,11 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "could not create a Direct2D factory\n");
     return 1;
   }
+  // Before the window, which is the ordering multiple windows imposes: a window
+  // makes a surface root, and only the mounting manager can. Constructed on
+  // this thread, which it records and asserts every mutation lands back on.
+  gHost.mountingManager = std::make_shared<basalt::Win32MountingManager>();
+
   if (!createWindow()) {
     std::fprintf(stderr, "could not create the window\n");
     return 1;
@@ -1420,13 +1698,13 @@ int main(int argc, char **argv) {
   // Settings, or through Appearance.setColorScheme on the JavaScript thread, so
   // the change is marshalled here from wherever it was announced.
   basalt::titleBar().setDarkMode(basalt::effectiveColorScheme() == basalt::ColorScheme::Dark);
-  basalt::titleBar().attach(gHost.window);
+  basalt::titleBar().attach(gHost.main().window);
   basalt::addColorSchemeObserver([](basalt::ColorScheme scheme) {
     basalt::postToUiThread(
         [scheme] { basalt::titleBar().setDarkMode(scheme == basalt::ColorScheme::Dark); });
   });
 
-  UINT dpi = GetDpiForWindow(gHost.window);
+  UINT dpi = GetDpiForWindow(gHost.main().window);
   gHost.scaleFactor = dpi >= 96 ? static_cast<int>(dpi / 96) : 1;
 
   // Bridgeless. React Native's C++ host is the bridgeless one, and there is no
@@ -1434,7 +1712,6 @@ int main(int argc, char **argv) {
   facebook::react::ReactNativeFeatureFlags::override(
       std::make_unique<DesktopFeatureFlags>());
 
-  gHost.mountingManager = std::make_shared<basalt::Win32MountingManager>();
   gHost.runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   gHost.choreographer = std::make_shared<basalt::Win32AnimationChoreographer>();
 
@@ -1451,7 +1728,7 @@ int main(int argc, char **argv) {
   // Every <TextInput>'s EDIT peer is a child of this window. Set before the
   // first transaction, because a field that mounts without one gets no control
   // and no second chance -- `update` only creates on first sight.
-  gHost.mountingManager->setHostWindow(gHost.window);
+  gHost.mountingManager->setHostWindow(gHost.main().window);
 
   // Light or dark, and any change to it. Before ReactHost, so the module can
   // answer from the first query.
@@ -1534,21 +1811,6 @@ int main(int argc, char **argv) {
             });
       });
 
-  // The host owns the root: Fabric never emits a Create for it.
-  gHost.root = gHost.mountingManager->createSurfaceRoot(kSurfaceId);
-  gHost.root->setFrame(0, 0, kInitialWidth, kInitialHeight);
-
-  // Before the script runs, so that a press arriving during the first commit
-  // has somewhere to go. The dispatcher holds the root, not a surface, so it
-  // outlives every transaction mounted into it.
-  gHost.touchDispatcher = std::make_unique<basalt::Win32TouchDispatcher>(
-      gHost.mountingManager.get(), gHost.root);
-  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
-  // All of it is this project's -- a React Native view is not a window here, so
-  // there is nothing for Windows to focus. See Win32Focus.h.
-  gHost.focusManager =
-      std::make_unique<basalt::Win32FocusManager>(gHost.mountingManager.get(), gHost.root);
-
   // `loadScript` falls back to the on-disk bundle whenever the Metro fetch
   // fails, which is right when nothing is listening and wrong when Metro
   // answered with an error: running the last bundle that built, while the
@@ -1590,13 +1852,13 @@ int main(int argc, char **argv) {
                gHost.moduleName.empty() ? " (no module; raw Fabric script)" : " for module ",
                gHost.moduleName.c_str());
 
-  ShowWindow(gHost.window, SW_SHOWNORMAL);
-  UpdateWindow(gHost.window);
+  ShowWindow(gHost.main().window, SW_SHOWNORMAL);
+  UpdateWindow(gHost.main().window);
 
   if (gHost.moduleName.empty()) {
     std::fprintf(stderr, "--- committing tree 1 from JS ---\n");
     callRenderFunction(1);
-    SetTimer(gHost.window, kSecondTreeTimer, 2000, nullptr);
+    SetTimer(gHost.main().window, kSecondTreeTimer, 2000, nullptr);
   }
 
   UINT scriptedDelayMs = 1500;
@@ -1648,7 +1910,7 @@ int main(int argc, char **argv) {
   if (const char *quitAfter = std::getenv("BASALT_QUIT_AFTER_MS")) {
     const UINT delay = static_cast<UINT>(std::strtoul(quitAfter, nullptr, 10));
     SetTimer(
-        gHost.window, kQuitAfterTimer, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
+        gHost.main().window, kQuitAfterTimer, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
           KillTimer(hwnd, id);
           PostMessage(hwnd, WM_CLOSE, 0, 0);
         });

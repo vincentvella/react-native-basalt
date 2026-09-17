@@ -21,9 +21,11 @@
 #include "AppIdentity.h"
 #include "DevMenu.h"
 #include "WindowControl.h"
+#include "WindowHost.h"
 #include "DialogModule.h"
 #include "MenuModel.h"
 #include "MenuModule.h"
+#include "WindowsModule.h"
 #include "GtkMountingManager.h"
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
@@ -110,19 +112,65 @@ constexpr const char *kRenderFunctionName = "basaltRender";
 // Host state
 // ---------------------------------------------------------------------------
 
-struct Host {
+// One window, and the surface in it.
+//
+// A window is a surface: a surface is what has a size, a layout context and a
+// root shadow node, and two windows sharing one would be two windows sharing a
+// layout. So the id a window is known by *is* its surface id, and there is no
+// second numbering to keep in step. See core/WindowHost.h.
+//
+// Everything here used to be a field on Host, because there was only ever one.
+// What is still on Host is what is genuinely per-process -- the ReactHost, the
+// mounting manager, the run loop -- and what this project has not yet made
+// per-window: the title bar and the error inspector are the main window's.
+struct HostWindow {
+  facebook::react::SurfaceId surfaceId{0};
   GtkWindow *window{nullptr};
   RnView *root{nullptr};
+  // The surface root sits in this, with room above it for the window controls
+  // the host draws when the title bar is hidden.
+  GtkWidget *overlay{nullptr};
+  std::unique_ptr<basalt::GtkTouchDispatcher> touchDispatcher;
+  std::unique_ptr<basalt::GtkFocusManager> focusManager;
+  int scaleFactor{1};
+  // Back to the host, for the GTK callbacks that take one pointer.
+  struct Host *host{nullptr};
+};
+
+struct Host {
+  // Every window, main one first. Never empty after onActivate.
+  std::vector<std::unique_ptr<HostWindow>> windows;
+
+  // The window the app was started in. Shorthand for windows.front(), which is
+  // what every part of this host that is not yet per-window uses.
+  // An empty window with null fields before there is a real one, rather than
+  // dereferencing an empty vector. Several things here run before the window
+  // exists -- a repaint request, the spinner timer -- and each one already
+  // guards on `window == nullptr`, which is exactly what this keeps true.
+  HostWindow &main() {
+    static HostWindow none;
+    return windows.empty() ? none : *windows.front();
+  }
+
+  HostWindow *windowFor(facebook::react::SurfaceId surfaceId) {
+    for (const auto &candidate : windows) {
+      if (candidate->surfaceId == surfaceId) {
+        return candidate.get();
+      }
+    }
+    return nullptr;
+  }
+
+  // The GtkApplication, so a window can be made after startup. A window must
+  // belong to one, or GTK will not manage it.
+  GtkApplication *application{nullptr};
 
   std::shared_ptr<basalt::GtkMountingManager> mountingManager;
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
   std::shared_ptr<basalt::GtkAnimationChoreographer> choreographer;
-  std::unique_ptr<basalt::GtkTouchDispatcher> touchDispatcher;
-  std::unique_ptr<basalt::GtkFocusManager> focusManager;
-  // The overlay the surface root sits in, and the error inspector's own root
-  // when it is showing. The overlay was already here for the window controls;
-  // the inspector goes above them, which is what a modal box should do.
-  GtkWidget *overlay{nullptr};
+  // The error inspector's own root when it is showing. It goes above the main
+  // window's controls, which is what a modal box should do -- and it is the
+  // main window's alone: an error is about the app rather than about a window.
   RnView *logBoxRoot{nullptr};
   std::unique_ptr<ReactHost> reactHost;
 
@@ -144,7 +192,6 @@ struct Host {
   // decides whether Ctrl+D opens anything. Kept because the ReactInstanceConfig
   // it came from is not.
   bool devMode{false};
-  int scaleFactor{1};
   // Read by main() after the loop ends. GApplication has no exit status to set
   // any more, and a startup that failed has to be tellable from one that ran.
   int exitStatus{0};
@@ -252,20 +299,58 @@ gboolean quitOnSignal(gpointer data) {
 
 // BASALT_TEST_TAP: "x,y" pairs separated by ';', each fired a second apart.
 // See GtkTouchDispatcher::synthesiseTap for why this exists.
+//
+// A point may name a window: "x,y@3" taps in the window whose surface is 3
+// rather than in the app's own. Without it there would be no way to reach a
+// second window at all -- each has its own touch dispatcher, which is the whole
+// point of them, and the main window's would happily hit-test a tree that is
+// not on screen.
 struct PendingTap {
   Host *host;
   double x;
   double y;
+  facebook::react::SurfaceId surfaceId;
 };
 
 gboolean fireTestTap(gpointer data) {
-  auto *tap = static_cast<PendingTap *>(data);
-  g_message("BASALT_TEST_TAP: tapping (%.0f, %.0f)", tap->x, tap->y);
-  if (tap->host->touchDispatcher != nullptr) {
-    tap->host->touchDispatcher->synthesiseTap(tap->x, tap->y);
+  std::unique_ptr<PendingTap> tap{static_cast<PendingTap *>(data)};
+  g_message("BASALT_TEST_TAP: tapping (%.0f, %.0f) in window %d",
+            tap->x,
+            tap->y,
+            static_cast<int>(tap->surfaceId));
+  HostWindow *target = tap->host->windowFor(tap->surfaceId);
+  if (target == nullptr) {
+    g_warning("BASALT_TEST_TAP: no window %d", static_cast<int>(tap->surfaceId));
+    return G_SOURCE_REMOVE;
   }
-  delete tap;
+  if (target->touchDispatcher != nullptr) {
+    target->touchDispatcher->synthesiseTap(tap->x, tap->y);
+  }
   return G_SOURCE_REMOVE;
+}
+
+// Splits "x,y@surface" into its point and its window. The window defaults to
+// the app's own, so every spec written before windows existed still means what
+// it did.
+void parseTestPoint(const char *text,
+                    double *x,
+                    double *y,
+                    facebook::react::SurfaceId *surfaceId) {
+  *surfaceId = kSurfaceId;
+  char **halves = g_strsplit(text, "@", 2);
+  if (halves[1] != nullptr) {
+    *surfaceId = static_cast<facebook::react::SurfaceId>(g_ascii_strtoll(halves[1], nullptr, 10));
+  }
+  char **parts = g_strsplit(halves[0], ",", 2);
+  *x = parts[0] != nullptr ? g_ascii_strtod(parts[0], nullptr) : 0.0;
+  *y = parts[1] != nullptr ? g_ascii_strtod(parts[1], nullptr) : 0.0;
+  const bool complete = parts[0] != nullptr && parts[1] != nullptr;
+  g_strfreev(parts);
+  g_strfreev(halves);
+  if (!complete) {
+    *x = -1.0;
+    *y = -1.0;
+  }
 }
 
 // Returns the delay after the last tap, so typing can be scheduled behind it.
@@ -273,14 +358,17 @@ guint scheduleTestTaps(Host *host, const char *spec) {
   char **points = g_strsplit(spec, ";", -1);
   guint delayMs = 1500;
   for (char **point = points; *point != nullptr; ++point) {
-    char **parts = g_strsplit(*point, ",", 2);
-    if (parts[0] != nullptr && parts[1] != nullptr) {
-      g_timeout_add(delayMs,
-                    fireTestTap,
-                    new PendingTap{host, g_ascii_strtod(parts[0], nullptr), g_ascii_strtod(parts[1], nullptr)});
+    if (**point == '\0') {
+      continue;
+    }
+    double x = 0.0;
+    double y = 0.0;
+    facebook::react::SurfaceId surfaceId = kSurfaceId;
+    parseTestPoint(*point, &x, &y, &surfaceId);
+    if (x >= 0.0 && y >= 0.0) {
+      g_timeout_add(delayMs, fireTestTap, new PendingTap{host, x, y, surfaceId});
       delayMs += 1000;
     }
-    g_strfreev(parts);
   }
   g_strfreev(points);
   return delayMs;
@@ -297,8 +385,8 @@ guint scheduleTestTaps(Host *host, const char *spec) {
 gboolean fireTestHover(gpointer data) {
   std::unique_ptr<PendingTap> hover{static_cast<PendingTap *>(data)};
   g_message("BASALT_TEST_HOVER: hovering (%.0f, %.0f)", hover->x, hover->y);
-  if (hover->host->touchDispatcher != nullptr) {
-    hover->host->touchDispatcher->synthesiseHover(hover->x, hover->y);
+  if (hover->host->main().touchDispatcher != nullptr) {
+    hover->host->main().touchDispatcher->synthesiseHover(hover->x, hover->y);
   }
   return G_SOURCE_REMOVE;
 }
@@ -311,7 +399,13 @@ guint scheduleTestHovers(Host *host, const char *spec, guint delayMs) {
     if (parts[0] != nullptr && parts[1] != nullptr) {
       g_timeout_add(delayMs,
                     fireTestHover,
-                    new PendingTap{host, g_ascii_strtod(parts[0], nullptr), g_ascii_strtod(parts[1], nullptr)});
+                    new PendingTap{host,
+                                   g_ascii_strtod(parts[0], nullptr),
+                                   g_ascii_strtod(parts[1], nullptr),
+                                   // Hover has no per-window form: the pointer
+                                   // is one thing, and a second window's hover
+                                   // is a feature nothing has asked for yet.
+                                   kSurfaceId});
       delayMs += 1000;
     }
     g_strfreev(parts);
@@ -337,15 +431,15 @@ struct PendingFocus {
 gboolean fireTestFocus(gpointer data) {
   std::unique_ptr<PendingFocus> pending{static_cast<PendingFocus *>(data)};
   g_message("BASALT_TEST_FOCUS: %s", pending->action.c_str());
-  if (pending->host->focusManager == nullptr) {
+  if (pending->host->main().focusManager == nullptr) {
     return G_SOURCE_REMOVE;
   }
   if (pending->action == "tab") {
-    pending->host->focusManager->moveFocus(true);
+    pending->host->main().focusManager->moveFocus(true);
   } else if (pending->action == "shift-tab") {
-    pending->host->focusManager->moveFocus(false);
+    pending->host->main().focusManager->moveFocus(false);
   } else if (pending->action == "activate") {
-    pending->host->focusManager->activateFocused();
+    pending->host->main().focusManager->activateFocused();
   } else if (pending->action == "devmenu") {
     // Also not a focus action. Same instrument for the same reason: a key that
     // needs nothing focused to arrive. What it opens is answered by
@@ -392,14 +486,14 @@ struct PendingScroll {
 gboolean fireTestScroll(gpointer data) {
   std::unique_ptr<PendingScroll> pending{static_cast<PendingScroll *>(data)};
   Host *host = pending->host;
-  if (host->mountingManager == nullptr || host->root == nullptr) {
+  if (host->mountingManager == nullptr || host->main().root == nullptr) {
     return G_SOURCE_REMOVE;
   }
   g_message("BASALT_TEST_SCROLL: %g lines at (%g, %g)", pending->lines, pending->x, pending->y);
   // Notches into pixels with the same constant a real wheel uses, so the
   // instrument and the hardware move a list by the same distance.
   host->mountingManager->scrollViews().scrollAt(
-      host->root, pending->x, pending->y, 0.0, pending->lines * basalt::GtkScrollViewManager::kWheelStepPixels);
+      host->main().root, pending->x, pending->y, 0.0, pending->lines * basalt::GtkScrollViewManager::kWheelStepPixels);
   return G_SOURCE_REMOVE;
 }
 
@@ -439,8 +533,8 @@ gboolean fireTestDrag(gpointer data) {
             drag->fromY,
             drag->toX,
             drag->toY);
-  if (drag->host->touchDispatcher != nullptr) {
-    drag->host->touchDispatcher->synthesiseDrag(
+  if (drag->host->main().touchDispatcher != nullptr) {
+    drag->host->main().touchDispatcher->synthesiseDrag(
         drag->fromX, drag->fromY, drag->toX, drag->toY, 20);
   }
   return G_SOURCE_REMOVE;
@@ -478,8 +572,8 @@ gboolean fireTestType(gpointer data) {
   std::unique_ptr<PendingType> pending{static_cast<PendingType *>(data)};
   g_message("BASALT_TEST_TYPE: typing \"%s\"", pending->text.c_str());
 
-  GtkWidget *focus = pending->host->window != nullptr
-      ? gtk_window_get_focus(pending->host->window)
+  GtkWidget *focus = pending->host->main().window != nullptr
+      ? gtk_window_get_focus(pending->host->main().window)
       : nullptr;
   if (focus == nullptr || !GTK_IS_TEXT(focus)) {
     g_warning("BASALT_TEST_TYPE: no text field has focus");
@@ -528,14 +622,21 @@ gboolean onDevMenuKey(GtkEventControllerKey * /*controller*/,
 // Window size -> surface constraints
 // ---------------------------------------------------------------------------
 
+// Per window: `data` is the HostWindow whose root resized, not the Host.
+//
+// Which is the whole of what multiple windows changes here. Constraining
+// `kSurfaceId` from every window would lay the *first* window's tree out to the
+// second window's size, and the symptom would be a first window whose content
+// jumped whenever a second one was dragged.
 void onRootResized(RnView * /*view*/, int width, int height, gpointer data) {
-  auto *host = static_cast<Host *>(data);
+  auto *made = static_cast<HostWindow *>(data);
+  Host *host = made->host;
   if (width <= 0 || height <= 0 || !host->surfaceStarted) {
     return;
   }
-  g_debug("surface constraints -> %dx%d", width, height);
+  g_debug("surface %d constraints -> %dx%d", static_cast<int>(made->surfaceId), width, height);
   host->reactHost->setSurfaceConstraints(
-      kSurfaceId, constraintsFor(width, height), layoutContextFor(host->scaleFactor));
+      made->surfaceId, constraintsFor(width, height), layoutContextFor(made->scaleFactor));
 
   // A <Modal> is sized from its own shadow-node state rather than from a style,
   // and React Native's C++ platform answers "what size is the screen" with
@@ -546,11 +647,13 @@ void onRootResized(RnView * /*view*/, int width, int height, gpointer data) {
   // place that learns it.
   basalt::notifyWindowBoundsChanged();
 
-  // The inspector covers the window, so it resizes with it.
-  if (host->logBoxRoot != nullptr) {
+  // The inspector covers the main window, so it resizes with it -- and only
+  // with it: an error is about the app rather than about a window, and it is
+  // shown in the one the app started in.
+  if (host->logBoxRoot != nullptr && made->surfaceId == kSurfaceId) {
     rn_view_set_frame(host->logBoxRoot, 0, 0, static_cast<float>(width), static_cast<float>(height));
     host->reactHost->setSurfaceConstraints(
-        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(host->scaleFactor));
+        kLogBoxSurfaceId, constraintsFor(width, height), layoutContextFor(made->scaleFactor));
   }
 }
 
@@ -569,18 +672,18 @@ void hideLogBoxSurface(Host *host) {
     return;
   }
   host->reactHost->stopSurface(kLogBoxSurfaceId);
-  gtk_overlay_remove_overlay(GTK_OVERLAY(host->overlay), GTK_WIDGET(host->logBoxRoot));
+  gtk_overlay_remove_overlay(GTK_OVERLAY(host->main().overlay), GTK_WIDGET(host->logBoxRoot));
   host->mountingManager->destroySurfaceRoot(kLogBoxSurfaceId);
   host->logBoxRoot = nullptr;
 }
 
 void showLogBoxSurface(Host *host, const std::string &appKey) {
-  if (host->reactHost == nullptr || host->overlay == nullptr || host->logBoxRoot != nullptr) {
+  if (host->reactHost == nullptr || host->main().overlay == nullptr || host->logBoxRoot != nullptr) {
     return;
   }
 
-  const int width = gtk_widget_get_width(GTK_WIDGET(host->root));
-  const int height = gtk_widget_get_height(GTK_WIDGET(host->root));
+  const int width = gtk_widget_get_width(GTK_WIDGET(host->main().root));
+  const int height = gtk_widget_get_height(GTK_WIDGET(host->main().root));
   if (width <= 0 || height <= 0) {
     return;
   }
@@ -591,13 +694,13 @@ void showLogBoxSurface(Host *host, const std::string &appKey) {
   // close button sits on top of is one the user can close by accident.
   gtk_widget_set_halign(GTK_WIDGET(host->logBoxRoot), GTK_ALIGN_FILL);
   gtk_widget_set_valign(GTK_WIDGET(host->logBoxRoot), GTK_ALIGN_FILL);
-  gtk_overlay_add_overlay(GTK_OVERLAY(host->overlay), GTK_WIDGET(host->logBoxRoot));
+  gtk_overlay_add_overlay(GTK_OVERLAY(host->main().overlay), GTK_WIDGET(host->logBoxRoot));
 
   host->reactHost->startSurface(kLogBoxSurfaceId,
                                 appKey,
                                 folly::dynamic::object(),
                                 constraintsFor(width, height),
-                                layoutContextFor(host->scaleFactor));
+                                layoutContextFor(host->main().scaleFactor));
 }
 
 // The frame clock only exists once a widget is realised, so the choreographer
@@ -669,6 +772,11 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         // a text field. See core/MenuModel.h.
         if (name == basalt::DesktopMenuModule::kModuleName) {
           return std::make_shared<basalt::DesktopMenuModule>(jsInvoker);
+        }
+        // More than one window, which is more than one surface. See
+        // core/WindowHost.h.
+        if (name == basalt::DesktopWindowsModule::kModuleName) {
+          return std::make_shared<basalt::DesktopWindowsModule>(jsInvoker);
         }
         if (name == basalt::DesktopI18nManagerModule::kModuleName) {
           return std::make_shared<basalt::DesktopI18nManagerModule>(jsInvoker);
@@ -757,21 +865,39 @@ std::shared_ptr<const ContextContainer> makeContextContainer() {
   return contextContainer;
 }
 
-void onActivate(GtkApplication *app, gpointer data) {
-  auto *host = static_cast<Host *>(data);
+// Makes a window, a surface root for it, and the input that drives them.
+//
+// Called for the main window and for every one an app opens afterwards, which
+// is the point: the second window is not a special case of the first, it is the
+// same function with a different surface id. See core/WindowHost.h.
+//
+// The window is not shown and the surface is not started here. The main window
+// waits for the bundle to load and an app's window waits for its component to
+// be named, and both of those are the caller's business.
+HostWindow *createHostWindow(Host *host,
+                             GtkApplication *app,
+                             facebook::react::SurfaceId surfaceId,
+                             const char *title,
+                             int width,
+                             int height) {
+  // The first window through here is the app's own, and a few things belong to
+  // it alone rather than to every window: the title bar, the frame clock the
+  // animation choreographer runs on, and the error inspector.
+  const bool isMainWindow = host->windows.empty();
 
-  host->window = GTK_WINDOW(gtk_application_window_new(app));
-  gtk_window_set_title(host->window, "react-native-basalt");
-  gtk_window_set_default_size(host->window, kInitialWidth, kInitialHeight);
-  host->scaleFactor = gtk_widget_get_scale_factor(GTK_WIDGET(host->window));
+  auto owned = std::make_unique<HostWindow>();
+  HostWindow *made = owned.get();
+  made->surfaceId = surfaceId;
+  made->host = host;
 
-  // Constructed here, on the GTK main thread: GtkMountingManager records this
-  // thread and asserts that every widget mutation lands back on it.
-  host->mountingManager = std::make_shared<basalt::GtkMountingManager>();
+  made->window = GTK_WINDOW(gtk_application_window_new(app));
+  gtk_window_set_title(made->window, title);
+  gtk_window_set_default_size(made->window, width, height);
+  made->scaleFactor = gtk_widget_get_scale_factor(GTK_WIDGET(made->window));
 
   // Fabric emits no Create for a surface root -- the root shadow node is the
   // base of every diff, so it has to exist before the surface starts.
-  host->root = host->mountingManager->createSurfaceRoot(kSurfaceId);
+  made->root = host->mountingManager->createSurfaceRoot(surfaceId);
 
   // The surface root, with room above it for the window controls the host
   // draws when the title bar is hidden. GTK takes the whole titlebar away with
@@ -779,20 +905,25 @@ void onActivate(GtkApplication *app, gpointer data) {
   // drawing theirs over the app's content, so on this desktop the host has to
   // put them back. An overlay is how: the root fills the window and the
   // controls sit over its top corner.
-  GtkWidget *overlay = gtk_overlay_new();
-  host->overlay = overlay;
-  gtk_overlay_set_child(GTK_OVERLAY(overlay), GTK_WIDGET(host->root));
+  made->overlay = gtk_overlay_new();
+  gtk_overlay_set_child(GTK_OVERLAY(made->overlay), GTK_WIDGET(made->root));
 
   GtkWidget *controls = gtk_window_controls_new(GTK_PACK_END);
   gtk_widget_set_halign(controls, GTK_ALIGN_END);
   gtk_widget_set_valign(controls, GTK_ALIGN_START);
   // Hidden until an app asks for the hidden style; see GtkTitleBar.h.
   gtk_widget_set_visible(controls, FALSE);
-  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), controls);
+  gtk_overlay_add_overlay(GTK_OVERLAY(made->overlay), controls);
 
-  gtk_window_set_child(host->window, overlay);
-  basalt::titleBar().attach(host->window, controls);
-  rn_view_set_resize_callback(host->root, onRootResized, host);
+  gtk_window_set_child(made->window, made->overlay);
+  // The title bar is the main window's. It is a process-wide seam -- one title,
+  // one style -- and making it per-window is its own piece of work; see
+  // plan/backlog.md.
+  if (isMainWindow) {
+    basalt::titleBar().attach(made->window, controls);
+  }
+
+  rn_view_set_resize_callback(made->root, onRootResized, made);
 
   // Maximised and full screen, which change the bounds and not the size of the
   // surface -- so the resize callback above never runs for them. GTK has no
@@ -800,14 +931,66 @@ void onActivate(GtkApplication *app, gpointer data) {
   const auto onWindowState = +[](GObject * /*window*/, GParamSpec * /*spec*/, gpointer /*data*/) {
     basalt::notifyWindowBoundsChanged();
   };
-  g_signal_connect(host->window, "notify::maximized", G_CALLBACK(onWindowState), nullptr);
-  g_signal_connect(host->window, "notify::fullscreened", G_CALLBACK(onWindowState), nullptr);
+  g_signal_connect(made->window, "notify::maximized", G_CALLBACK(onWindowState), nullptr);
+  g_signal_connect(made->window, "notify::fullscreened", G_CALLBACK(onWindowState), nullptr);
+  // The animation choreographer runs on a frame clock, and a widget only has
+  // one once it is realised -- hence the "map". The *main* window's, and only
+  // its: attaching to every window's meant the last one opened stole the clock
+  // from the first, so animations followed whichever window appeared most
+  // recently and stopped when it closed. It also left a handler connected to a
+  // frame clock that was about to be finalised, which GLib complained about at
+  // shutdown and was how this was noticed at all.
+  if (isMainWindow) {
+    g_signal_connect(made->root, "map", G_CALLBACK(onRootMapped), host);
+  }
+
+  // Input, per window. Attached to this window's root, which is where its hit
+  // testing starts -- a second window with the first one's dispatcher would
+  // deliver every press to the wrong tree.
+  made->touchDispatcher =
+      std::make_unique<basalt::GtkTouchDispatcher>(host->mountingManager.get(), made->root);
+  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
+  made->focusManager =
+      std::make_unique<basalt::GtkFocusManager>(host->mountingManager.get(), made->root);
+
+  // Ctrl+D, which is React Native's developer menu. Its own controller rather
+  // than another case in the focus manager's: this has nothing to do with
+  // focus, and a shortcut that works wherever the caret is has to be on the
+  // window in the capture phase anyway -- otherwise a <TextInput> with the
+  // keyboard would eat it.
+  GtkEventController *devKeys = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(devKeys, GTK_PHASE_CAPTURE);
+  g_signal_connect(devKeys, "key-pressed", G_CALLBACK(onDevMenuKey), host);
+  gtk_widget_add_controller(GTK_WIDGET(made->window), devKeys);
+
+  host->windows.push_back(std::move(owned));
+  return made;
+}
+
+// The host's half of core/WindowHost.h.
+//
+// A single global, because a process has one host and one GtkApplication and
+// the seam takes neither. The alternative -- threading a Host through a
+// TurboModule -- would mean the module knowing what a Host is.
+Host *gWindowHost = nullptr;
+
+void onActivate(GtkApplication *app, gpointer data) {
+  auto *host = static_cast<Host *>(data);
+
+  // Constructed here, on the GTK main thread: GtkMountingManager records this
+  // thread and asserts that every widget mutation lands back on it.
+  host->mountingManager = std::make_shared<basalt::GtkMountingManager>();
+
+  // The application's own window, which is windows.front() from here on and is
+  // what everything not yet per-window means by "the window".
+  host->application = app;
+  gWindowHost = host;
+  createHostWindow(host, app, kSurfaceId, "react-native-basalt", kInitialWidth, kInitialHeight);
 
   // Prime the bounds cache, which `getBounds()` answers from: without this an
   // app's first render sees a window of no size, and only a later resize
   // corrects it. See core/WindowBoundsCache.cpp.
   basalt::notifyWindowBoundsChanged();
-  g_signal_connect(host->root, "map", G_CALLBACK(onRootMapped), host);
 
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<basalt::GtkAnimationChoreographer>();
@@ -819,23 +1002,6 @@ void onActivate(GtkApplication *app, gpointer data) {
 
   // Before ReactHost, so the beat is being induced from the first event on.
   host->runLoopObserver = basalt::installRunLoopObserver(host->runLoopObserverManager);
-
-  // Input. Attached to the root, which is where hit testing starts.
-  host->touchDispatcher =
-      std::make_unique<basalt::GtkTouchDispatcher>(host->mountingManager.get(), host->root);
-  // The keyboard half: Tab reaching a <Pressable>, and Enter activating it.
-  host->focusManager =
-      std::make_unique<basalt::GtkFocusManager>(host->mountingManager.get(), host->root);
-
-  // Ctrl+D, which is React Native's developer menu. Its own controller rather
-  // than another case in the focus manager's: this has nothing to do with
-  // focus, and a shortcut that works wherever the caret is has to be on the
-  // window in the capture phase anyway -- otherwise a <TextInput> with the
-  // keyboard would eat it.
-  GtkEventController *devKeys = gtk_event_controller_key_new();
-  gtk_event_controller_set_propagation_phase(devKeys, GTK_PHASE_CAPTURE);
-  g_signal_connect(devKeys, "key-pressed", G_CALLBACK(onDevMenuKey), host);
-  gtk_widget_add_controller(GTK_WIDGET(host->window), devKeys);
 
   // Say what this host needs rather than inheriting a default that moves.
   //
@@ -968,12 +1134,12 @@ void onActivate(GtkApplication *app, gpointer data) {
     // Non-zero, so a script that starts this host can tell a build failure from
     // a run that ended. The AppKit host returns 1 from main for the same reason.
     host->exitStatus = 1;
-    g_application_quit(G_APPLICATION(gtk_window_get_application(host->window)));
+    g_application_quit(G_APPLICATION(gtk_window_get_application(host->main().window)));
     return;
   }
   if (!loaded) {
     g_warning("could not load script: %s", host->bundlePath.c_str());
-    gtk_window_present(host->window);
+    gtk_window_present(host->main().window);
     return;
   }
   g_message("loaded script: %s", host->bundlePath.c_str());
@@ -992,14 +1158,14 @@ void onActivate(GtkApplication *app, gpointer data) {
                                 host->moduleName,
                                 folly::dynamic::object(),
                                 constraintsFor(kInitialWidth, kInitialHeight),
-                                layoutContextFor(host->scaleFactor));
+                                layoutContextFor(host->main().scaleFactor));
   host->surfaceStarted = true;
   g_message("started surface %d%s%s",
             static_cast<int>(kSurfaceId),
             host->moduleName.empty() ? " (no module; raw Fabric script)" : " for module ",
             host->moduleName.c_str());
 
-  gtk_window_present(host->window);
+  gtk_window_present(host->main().window);
 
   if (host->moduleName.empty()) {
     g_message("--- committing tree 1 from JS ---");
@@ -1064,22 +1230,36 @@ void dumpMenuIfRequested() {
 // screenshot. See docs/TESTING.md.
 void dumpTreeIfRequested(Host *host) {
   const char *path = g_getenv("BASALT_DUMP_TREE");
-  if (path == nullptr || host->root == nullptr) {
+  if (path == nullptr || host->main().root == nullptr) {
     return;
   }
-  char *appTree = rn_view_describe_tree(host->root);
+  GString *out = g_string_new(nullptr);
+  char *appTree = rn_view_describe_tree(host->main().root);
+  g_string_append(out, appTree);
+  g_free(appTree);
+
+  // Every other window, each under a header naming its surface. Appended rather
+  // than merged for the same reason the inspector is: they are separate trees
+  // on screen, and nesting one inside another would say something untrue.
+  for (const auto &other : host->windows) {
+    if (other->surfaceId == kSurfaceId || other->root == nullptr) {
+      continue;
+    }
+    g_string_append_printf(out, "--- window %d ---\n", static_cast<int>(other->surfaceId));
+    char *otherTree = rn_view_describe_tree(other->root);
+    g_string_append(out, otherTree);
+    g_free(otherTree);
+  }
+
   // The error inspector is a second surface with a root of its own, so it is
-  // invisible to a dump of the app's. Appended rather than merged, because the
-  // two are siblings on screen and nesting one inside the other would say
-  // something untrue about the tree. Same separator the AppKit host writes.
-  char *description = appTree;
-  char *logBoxTree = nullptr;
+  // invisible to a dump of the app's. Same separator the AppKit host writes.
   if (host->logBoxRoot != nullptr) {
-    logBoxTree = rn_view_describe_tree(host->logBoxRoot);
-    description = g_strconcat(appTree, "--- LogBox ---\n", logBoxTree, nullptr);
-    g_free(appTree);
+    g_string_append(out, "--- LogBox ---\n");
+    char *logBoxTree = rn_view_describe_tree(host->logBoxRoot);
+    g_string_append(out, logBoxTree);
     g_free(logBoxTree);
   }
+  char *description = g_string_free(out, FALSE);
   GError *error = nullptr;
   if (g_file_set_contents(path, description, -1, &error) == FALSE) {
     g_warning("could not write %s: %s", path, error != nullptr ? error->message : "unknown error");
@@ -1103,8 +1283,8 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
   // Stop feeding the beat before the manager it points at is released.
   basalt::removeRunLoopObserver(host->runLoopObserver);
   host->runLoopObserver = nullptr;
-  host->focusManager.reset();
-  host->touchDispatcher.reset();
+  host->main().focusManager.reset();
+  host->main().touchDispatcher.reset();
   if (host->reactHost != nullptr) {
     // Surfaces must stop before the host goes away, or teardown asserts.
     host->reactHost->stopAllSurfaces();
@@ -1119,6 +1299,116 @@ void onShutdown(GApplication * /*app*/, gpointer data) {
 }
 
 } // namespace
+
+namespace basalt {
+
+// core/WindowHost.h, on GTK.
+//
+// The surface id is allocated here rather than by JavaScript: it is Fabric's
+// number, the mounting manager keys its roots by it, and two windows racing to
+// pick one would be two windows sharing a root. Odd ids only, above the ones
+// this host reserves -- the app's surface is 1 and the error inspector's is 2.
+facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
+  Host *host = gWindowHost;
+  if (host == nullptr || host->application == nullptr || !host->surfaceStarted ||
+      options.component.empty()) {
+    return 0;
+  }
+
+  static facebook::react::SurfaceId nextSurfaceId = kLogBoxSurfaceId + 1;
+  const facebook::react::SurfaceId surfaceId = nextSurfaceId++;
+
+  const int width = static_cast<int>(options.width);
+  const int height = static_cast<int>(options.height);
+  HostWindow *made = createHostWindow(host,
+                                      host->application,
+                                      surfaceId,
+                                      options.title.empty() ? "" : options.title.c_str(),
+                                      width,
+                                      height);
+
+  // The frame has to exist before the surface starts, for the same reason the
+  // main window's does: Fabric lays the root out against the constraints it is
+  // given here and the widget has not been allocated yet.
+  rn_view_set_frame(made->root, 0, 0, static_cast<float>(width), static_cast<float>(height));
+
+  host->reactHost->startSurface(surfaceId,
+                                options.component,
+                                options.props,
+                                constraintsFor(width, height),
+                                layoutContextFor(made->scaleFactor));
+  gtk_window_present(made->window);
+  g_message("opened window %d for module %s",
+            static_cast<int>(surfaceId),
+            options.component.c_str());
+  return surfaceId;
+}
+
+void closeHostWindow(facebook::react::SurfaceId surfaceId) {
+  Host *host = gWindowHost;
+  // The main window is not closed this way: destroying the surface an app is
+  // running in is not the same thing as closing its window, and an app that
+  // means the second should say so through `close()` on the window itself.
+  if (host == nullptr || surfaceId == kSurfaceId || surfaceId == kLogBoxSurfaceId) {
+    return;
+  }
+
+  if (host->windowFor(surfaceId) == nullptr) {
+    return;
+  }
+
+  // Stopping a surface unmounts its React tree, which produces one last
+  // transaction of Remove and Delete mutations. Those arrive on the UI thread
+  // afterwards, and the widgets they name have to still be there when they do.
+  host->reactHost->stopSurface(surfaceId);
+
+  // So the window is destroyed a round trip later: out to the JavaScript
+  // thread, which is where the teardown runs, and back to this one, which is
+  // where its mutations are applied. Both queues are ordered, so anything the
+  // stop produced is ahead of this.
+  //
+  // Destroying the root immediately instead is survivable -- MountingWalk
+  // treats a mutation naming a tag it does not have as a warning, and says
+  // that a transaction racing a surface teardown is exactly what it is for --
+  // but it logs four of them per window and says something went wrong when
+  // nothing did.
+  host->reactHost->runOnRuntimeScheduler([host, surfaceId](facebook::jsi::Runtime &) {
+    basalt::postToUiThread([host, surfaceId] {
+      HostWindow *going = host->windowFor(surfaceId);
+      if (going == nullptr) {
+        return;
+      }
+      // The dispatchers before the widgets they hold: both keep a borrowed
+      // root and disconnect from it on the way out.
+      going->focusManager.reset();
+      going->touchDispatcher.reset();
+      gtk_window_destroy(going->window);
+      host->mountingManager->destroySurfaceRoot(surfaceId);
+
+      for (auto it = host->windows.begin(); it != host->windows.end(); ++it) {
+        if (it->get() == going) {
+          host->windows.erase(it);
+          break;
+        }
+      }
+      g_message("closed window %d", static_cast<int>(surfaceId));
+    });
+  });
+}
+
+std::vector<facebook::react::SurfaceId> hostWindows() {
+  std::vector<facebook::react::SurfaceId> open;
+  if (gWindowHost == nullptr) {
+    return open;
+  }
+  open.reserve(gWindowHost->windows.size());
+  for (const auto &candidate : gWindowHost->windows) {
+    open.push_back(candidate->surfaceId);
+  }
+  return open;
+}
+
+} // namespace basalt
 
 int main(int argc, char **argv) {
   Host host;

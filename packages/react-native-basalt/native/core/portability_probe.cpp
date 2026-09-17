@@ -25,6 +25,7 @@
 #include "MenuModel.h"
 #include "Notifications.h"
 #include "WindowControl.h"
+#include "WindowHost.h"
 #include "StatusBarModule.h"
 #include "WorkletsModule.h"
 
@@ -120,6 +121,16 @@ bool applicationMenuSupported() {
 }
 void setApplicationMenu(const MenuModel &, std::function<void(int)>) {}
 std::string describeApplicationMenu() {
+  return {};
+}
+
+// The window seam's other half: opening one. A platform that cannot answers
+// zero, which every caller reads as "no window was opened".
+facebook::react::SurfaceId openHostWindow(const NewWindowOptions &) {
+  return 0;
+}
+void closeHostWindow(facebook::react::SurfaceId) {}
+std::vector<facebook::react::SurfaceId> hostWindows() {
   return {};
 }
 
