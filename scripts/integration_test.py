@@ -2096,6 +2096,68 @@ def test_application_menu(bundle: Path) -> None:
         raise Failure(f"an item disabled by the app was installed enabled:\n{menu}")
 
 
+def test_debugging_overlay(bundle: Path) -> None:
+    """React DevTools' element highlighter, which is driven only by commands.
+
+    Runs js/overlay.js, which issues the commands DevTools would: the filled
+    blue box over an inspected element, and the outline around something that
+    just re-rendered. Directly rather than through DevTools, because DevTools
+    is the only other thing that would and it needs a session attached.
+
+    Two runs, because the second half of the contract is a disappearance. A
+    trace update is meant to flash -- React Native's own overlay clears them
+    rather than waiting to be told, since a box left behind after a component
+    stopped re-rendering says the opposite of what it means -- so the later run
+    asserts that nothing is left.
+
+    The tree dump reports how many rectangles a view is drawing, because they
+    are otherwise invisible to everything but a screenshot, and a command that
+    arrived and drew nothing is exactly the failure worth catching.
+    """
+    app = bundle_app(bundle.parent, "overlay")
+
+    def highlights(run_ms: int) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL"):
+                env.pop(name, None)
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltOverlay"],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 90,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            tree = dump.read_text() if dump.exists() else ""
+            return tree.count("highlights="), result.stdout + result.stderr
+
+    # Three seconds: after the element highlight and after the trace update
+    # replaced it, and before the trace update's own lifetime is up.
+    drawn, logged = highlights(3000)
+    for expected in ("overlay: highlighted an element",
+                     "overlay: highlighted a trace update"):
+        if expected not in logged:
+            raise Failure(f"the app never got as far as {expected!r}:\n{tail_text(logged)}")
+    if drawn == 0:
+        raise Failure(
+            "the overlay commands arrived and drew nothing. The view mounts, so "
+            "this is the command routing rather than the component."
+        )
+
+    # Five seconds: the trace update's lifetime has passed and it should have
+    # taken itself down.
+    left, _ = highlights(5000)
+    if left != 0:
+        raise Failure(
+            "a trace update was still on screen after its lifetime. It is meant "
+            "to flash; one that stays says the opposite of what it means."
+        )
+
+
 SCENARIOS = [
     ("initial render", test_initial_render),
     ("scrollToEnd, and a tap that bubbles from a label", test_scroll_to_end),
@@ -2118,6 +2180,8 @@ SCENARIOS = [
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("the application menu is installed, roles and all", test_application_menu),
+    ("DevTools' overlay draws a highlight, and a trace update takes itself down",
+     test_debugging_overlay),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),
     ("edit the demo and watch Fast Refresh apply it", test_fast_refresh),
 ]

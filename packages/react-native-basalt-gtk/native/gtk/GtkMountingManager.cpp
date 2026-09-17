@@ -17,6 +17,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <iterator>
 #include <map>
 #include <string>
 #include <type_traits>
@@ -304,6 +305,11 @@ void GtkMountingManager::applyCommand(Tag tag,
     return;
   }
   if (textInputs_.dispatchCommand(tag, commandName, args)) {
+    return;
+  }
+  // React DevTools' overlay, answered the same way on all three: see
+  // core/DebuggingOverlay.h.
+  if (applyOverlayCommand(tag, commandName, args)) {
     return;
   }
   g_debug("dispatchCommand '%s' on tag %d is not implemented",
@@ -680,6 +686,28 @@ const char *controlCssClass(const basalt::ControlState &state) {
 }
 
 } // namespace
+
+void GtkMountingManager::setHighlights(RnView *view,
+                                      const std::vector<basalt::Highlight> &highlights) {
+  // Flattened into the eight-floats-per-rectangle array RnView takes, because
+  // that file has no React Native in it and is not about to start.
+  std::vector<float> values;
+  std::vector<gboolean> filled;
+  values.reserve(highlights.size() * 8);
+  filled.reserve(highlights.size());
+  for (const basalt::Highlight &highlight : highlights) {
+    values.push_back(highlight.x);
+    values.push_back(highlight.y);
+    values.push_back(highlight.width);
+    values.push_back(highlight.height);
+    values.insert(values.end(), std::begin(highlight.color), std::end(highlight.color));
+    filled.push_back(highlight.filled ? TRUE : FALSE);
+  }
+  rn_view_set_highlights(view,
+                         values.empty() ? nullptr : values.data(),
+                         filled.empty() ? nullptr : filled.data(),
+                         static_cast<int>(highlights.size()));
+}
 
 void GtkMountingManager::pressedView(Tag tag) {
   RnView *view = viewForTag(tag);

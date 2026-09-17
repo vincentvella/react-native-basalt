@@ -144,6 +144,11 @@ void Win32MountingManager::applyCommand(Tag tag,
   if (textInputs_.dispatchCommand(tag, commandName, args)) {
     return;
   }
+  // React DevTools' overlay, answered the same way on all three: see
+  // core/DebuggingOverlay.h.
+  if (applyOverlayCommand(tag, commandName, args)) {
+    return;
+  }
   // Dropped silently rather than logged. Every command the other two desktops
   // implement is now implemented here, so what reaches this line is a command
   // for a component this platform does not claim -- which is expected rather
@@ -575,6 +580,29 @@ void Win32MountingManager::applyControlPeer(RnWin32View *view, const basalt::Con
                                                             : RnWin32View::Control::Spinner,
                    style,
                    basalt::describeControl(state));
+}
+
+void Win32MountingManager::setHighlights(RnWin32View *view,
+                                        const std::vector<basalt::Highlight> &highlights) {
+  std::vector<RnWin32View::Highlight> converted;
+  converted.reserve(highlights.size());
+  for (const basalt::Highlight &highlight : highlights) {
+    RnWin32View::Highlight entry;
+    entry.x = highlight.x;
+    entry.y = highlight.y;
+    entry.width = highlight.width;
+    entry.height = highlight.height;
+    std::copy(std::begin(highlight.color), std::end(highlight.color), std::begin(entry.color));
+    entry.filled = highlight.filled;
+    converted.push_back(entry);
+  }
+  view->setHighlights(std::move(converted));
+  // Nothing else asks for a repaint: an overlay command arrives outside a mount
+  // transaction, so the window would otherwise show the highlight at whatever
+  // moment something else happened to invalidate it.
+  if (onDidMount_) {
+    onDidMount_();
+  }
 }
 
 void Win32MountingManager::pressedView(Tag tag) {

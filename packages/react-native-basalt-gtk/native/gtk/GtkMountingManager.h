@@ -102,6 +102,10 @@ class GtkMountingManager final : public facebook::react::IMountingManager,
   // belongs to, when `onShow` fires -- is in MountingWalk.
   void applyControlPeer(RnView *view, const basalt::ControlState &state);
 
+  // React DevTools' overlay rectangles. The parsing and the clearing are in
+  // MountingWalk; this is the drawing.
+  void setHighlights(RnView *view, const std::vector<basalt::Highlight> &highlights);
+
   // --- The GTK half of updateView -------------------------------------------
   void applyProps(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnView *view, const facebook::react::ShadowView &shadowView);

@@ -223,6 +223,20 @@ void rn_view_set_control_description(RnView *self, const char *description);
 void rn_view_set_control_disabled(RnView *self, gboolean disabled);
 gboolean rn_view_get_control_disabled(RnView *self);
 
+// --- React DevTools' overlay --------------------------------------------------
+//
+// The rectangles a `DebuggingOverlay` draws: an inspected element's blue box,
+// or an outline around everything that just re-rendered. Set from
+// GtkMountingManager, which parses them; see core/DebuggingOverlay.h.
+//
+// Eight floats per rectangle -- x, y, width, height, then r, g, b, a -- and a
+// flag for whether to fill. A plain array rather than the core struct because
+// this file has no React Native in it and is not about to start.
+void rn_view_set_highlights(RnView *self,
+                            const float *rectangles,
+                            const gboolean *filled,
+                            int count);
+
 // Accessibility, as a screen reader sees it.
 //
 // `label` is the accessible name and `description` the hint; either may be NULL

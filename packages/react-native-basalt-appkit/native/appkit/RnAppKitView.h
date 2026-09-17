@@ -231,6 +231,19 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 
 // The same one-line-per-view format the GTK side produces, so the two can be
 // compared and eventually asserted on by the same tests.
+// --- React DevTools' overlay --------------------------------------------------
+//
+// The rectangles a `DebuggingOverlay` draws: an inspected element's blue box,
+// or an outline around everything that just re-rendered. Set from
+// AppKitMountingManager, which parses them; see core/DebuggingOverlay.h.
+//
+// Eight numbers per rectangle -- x, y, width, height, then r, g, b, a -- and a
+// flag per rectangle for whether to fill. Plain arrays rather than the core
+// struct because this file has no React Native in it.
+- (void)setRnHighlights:(nullable const float *)rectangles
+                 filled:(nullable const bool *)filled
+                  count:(NSInteger)count;
+
 // Accessibility, as a screen reader sees it.
 //
 // The role arrives as React Native's own string -- "button", "image", "text" --

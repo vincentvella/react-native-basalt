@@ -30,14 +30,17 @@
 //   void    updateView(ViewRef, const ShadowView &);  // props, layout, state
 //   void    forgetTag(Tag);                   // per-tag side tables, if any
 //   void    applyControlPeer(ViewRef, const ControlState &);  // spinner/switch
+//   void    setHighlights(ViewRef, const std::vector<Highlight> &);  // DevTools
 //
 // and must call `releaseAllViews()` from its own destructor: this base cannot,
 // because by the time a base destructor runs the platform half is already gone.
 
 #pragma once
 
+#include "DebuggingOverlay.h"
 #include "DesktopControls.h"
 #include "HoverTracker.h"
+#include "PlatformServices.h"
 #include "PullToRefresh.h"
 
 #include <react/renderer/components/view/ViewProps.h>
@@ -48,6 +51,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <memory>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
@@ -111,6 +116,51 @@ class MountingWalk {
     if (control != 0) {
       emitRefresh(eventEmitterForTag(control));
     }
+  }
+
+  // React DevTools' overlay commands, which every host answers the same way.
+  //
+  // Returns false for anything else, so a platform's `applyCommand` can try
+  // this first and carry on. The rectangles are parsed in
+  // core/DebuggingOverlay.h; what a platform supplies is the drawing.
+  bool applyOverlayCommand(Tag tag, const std::string &name, const folly::dynamic &args) {
+    ViewRef view = viewForTag(tag);
+    if (view == ViewRef{}) {
+      return false;
+    }
+
+    if (name == "clearElementsHighlights") {
+      platform().setHighlights(view, {});
+      return true;
+    }
+    if (name == "highlightElements") {
+      platform().setHighlights(view, parseElementHighlights(args));
+      return true;
+    }
+    if (name != "highlightTraceUpdates") {
+      return false;
+    }
+
+    platform().setHighlights(view, parseTraceUpdates(args));
+
+    // A trace update flashes: React Native's own overlay clears them rather
+    // than waiting to be told, because a box left behind after a component
+    // stopped re-rendering says the opposite of what it means.
+    //
+    // The generation is what keeps a stale timer from clearing a *newer* set:
+    // these arrive many times a second while the DevTools option is on, so
+    // there is almost always more than one in flight.
+    const std::uint64_t generation = ++overlayGeneration_;
+    postDelayed(kTraceUpdateLifetimeMs, [this, alive = alive_, tag, generation] {
+      if (alive.use_count() == 1 || overlayGeneration_ != generation) {
+        return;
+      }
+      ViewRef target = viewForTag(tag);
+      if (target != ViewRef{}) {
+        platform().setHighlights(target, {});
+      }
+    });
+    return true;
   }
 
   // The user asked to close the topmost <Modal> -- Escape, on all three
@@ -452,6 +502,12 @@ class MountingWalk {
 
   float surfaceWidth_{0.0F};
   float surfaceHeight_{0.0F};
+
+  // DevTools' trace updates, and the token that tells a timer whether this
+  // manager is still here. The scroll views keep the same pair for the same
+  // reason: a delayed callback outlives whatever scheduled it.
+  std::uint64_t overlayGeneration_{0};
+  std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
 
   // The main thread, recorded at construction. `executeMount` arrives on the JS
   // thread and marshals here; `applyMutations` asserts it got there.

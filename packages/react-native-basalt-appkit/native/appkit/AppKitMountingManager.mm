@@ -188,6 +188,11 @@ void AppKitMountingManager::applyCommand(Tag tag,
   if (textInputs_.dispatchCommand(tag, commandName, args)) {
     return;
   }
+  // React DevTools' overlay, answered the same way on all three: see
+  // core/DebuggingOverlay.h.
+  if (applyOverlayCommand(tag, commandName, args)) {
+    return;
+  }
   LOG(INFO) << "dispatchCommand '" << commandName << "' on tag " << tag
             << " is not implemented on macOS";
 }
@@ -444,6 +449,30 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
 // ---------------------------------------------------------------------------
 // Controls
 // ---------------------------------------------------------------------------
+
+void AppKitMountingManager::setHighlights(RnAppKitView *view,
+                                         const std::vector<basalt::Highlight> &highlights) {
+  // Flattened into the arrays RnAppKitView takes, because that file has no
+  // React Native in it and is not about to start.
+  std::vector<float> values;
+  std::vector<bool> filled;
+  values.reserve(highlights.size() * 8);
+  filled.reserve(highlights.size());
+  for (const basalt::Highlight &highlight : highlights) {
+    values.push_back(highlight.x);
+    values.push_back(highlight.y);
+    values.push_back(highlight.width);
+    values.push_back(highlight.height);
+    values.insert(values.end(), std::begin(highlight.color), std::end(highlight.color));
+    filled.push_back(highlight.filled);
+  }
+  // `std::vector<bool>` has no `data()`, so the flags are copied into something
+  // that does. A handful of rectangles, once a frame at worst.
+  std::vector<char> flags(filled.begin(), filled.end());
+  [view setRnHighlights:values.empty() ? nullptr : values.data()
+                 filled:flags.empty() ? nullptr : reinterpret_cast<const bool *>(flags.data())
+                  count:static_cast<NSInteger>(highlights.size())];
+}
 
 void AppKitMountingManager::pressedView(Tag tag) {
   RnAppKitView *view = viewForTag(tag);

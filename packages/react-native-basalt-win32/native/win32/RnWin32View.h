@@ -248,6 +248,23 @@ class RnWin32View {
   // once a frame; see main_win32.cpp.
   bool hasAnimatingSpinner() const;
 
+  // --- React DevTools' overlay -------------------------------------------------
+  //
+  // The rectangles a `DebuggingOverlay` draws: an inspected element's blue box,
+  // or an outline around everything that just re-rendered. Set from
+  // Win32MountingManager, which parses them; see core/DebuggingOverlay.h.
+  struct Highlight {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    bool filled = false;
+  };
+
+  void setHighlights(std::vector<Highlight> highlights);
+  const std::vector<Highlight> &highlights() const { return highlights_; }
+
   // --- Accessibility ---------------------------------------------------------
 
   // What a screen reader is told. Unlike GTK, where the role is a
@@ -323,6 +340,8 @@ class RnWin32View {
   void paintChildren(ID2D1RenderTarget *target) const;
   // The spinner and the switch, drawn into this view's own coordinates.
   void paintControl(ID2D1RenderTarget *target) const;
+  // React DevTools' overlay, over everything including the children.
+  void paintHighlights(ID2D1RenderTarget *target) const;
   void describeInto(std::string &out, int depth) const;
 
   int32_t tag_;
@@ -345,6 +364,7 @@ class RnWin32View {
   float scrollY_ = 0.0f;
 
   bool hidden_ = false;
+  std::vector<Highlight> highlights_;
   Control control_ = Control::None;
   ControlStyle controlStyle_;
   std::string controlDescription_;

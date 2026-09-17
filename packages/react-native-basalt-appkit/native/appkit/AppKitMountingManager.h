@@ -96,6 +96,10 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
   // a refresh control belongs to, when `onShow` fires -- is in MountingWalk.
   void applyControlPeer(RnAppKitView *view, const basalt::ControlState &state);
 
+  // React DevTools' overlay rectangles. The parsing and the clearing are in
+  // MountingWalk; this is the drawing.
+  void setHighlights(RnAppKitView *view, const std::vector<basalt::Highlight> &highlights);
+
   // --- The AppKit half of updateView ----------------------------------------
   void applyProps(RnAppKitView *view, const facebook::react::ShadowView &shadowView);
   void applyText(RnAppKitView *view, const facebook::react::ShadowView &shadowView);

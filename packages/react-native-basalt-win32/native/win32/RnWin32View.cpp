@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 #include <cmath>
 #include <cstdio>
 
@@ -392,6 +393,13 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
 
     paintChildren(target);
 
+    // React DevTools' overlay, over everything including the children. Above
+    // the app on purpose: it is not part of it, and an inspected element half
+    // hidden behind a card would be pointing at the wrong thing.
+    if (!highlights_.empty()) {
+      paintHighlights(target);
+    }
+
     // The focus ring, over everything including the children, because it is the
     // answer to "where am I" and must not be hidden by what it is drawn on.
     //
@@ -483,6 +491,39 @@ bool RnWin32View::hasAnimatingSpinner() const {
     }
   }
   return false;
+}
+
+void RnWin32View::setHighlights(std::vector<Highlight> highlights) {
+  highlights_ = std::move(highlights);
+}
+
+void RnWin32View::paintHighlights(ID2D1RenderTarget *target) const {
+  ComPtr<ID2D1SolidColorBrush> brush;
+  if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1.0f), brush.GetAddressOf()))) {
+    return;
+  }
+  for (const Highlight &highlight : highlights_) {
+    const D2D1_RECT_F area = D2D1::RectF(highlight.x,
+                                         highlight.y,
+                                         highlight.x + highlight.width,
+                                         highlight.y + highlight.height);
+    if (highlight.filled) {
+      brush->SetColor(
+          D2D1::ColorF(highlight.color[0], highlight.color[1], highlight.color[2]));
+      brush->SetOpacity(highlight.color[3]);
+      target->FillRectangle(area, brush.Get());
+    }
+    // Opaque on the outline even when the fill is not, so the edge of an
+    // inspected element is a line rather than a suggestion. Stroked down the
+    // middle, so the rectangle is inset by half the width to keep it inside.
+    brush->SetColor(D2D1::ColorF(highlight.color[0], highlight.color[1], highlight.color[2]));
+    brush->SetOpacity(1.0f);
+    const float inset = basalt::kHighlightBorderWidth / 2.0f;
+    target->DrawRectangle(
+        D2D1::RectF(area.left + inset, area.top + inset, area.right - inset, area.bottom - inset),
+        brush.Get(),
+        basalt::kHighlightBorderWidth);
+  }
 }
 
 void RnWin32View::paintControl(ID2D1RenderTarget *target) const {
@@ -809,6 +850,14 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
     if (GetFocus() == editablePeer_) {
       out += " focused";
     }
+  }
+
+  // How many DevTools highlights this view is drawing. In the dump because they
+  // are otherwise invisible to everything but a screenshot, and because a
+  // command that arrived and drew nothing is exactly the failure worth
+  // catching.
+  if (!highlights_.empty()) {
+    appendFormat(out, " highlights=%d", static_cast<int>(highlights_.size()));
   }
 
   // What kind of control this view is, and what state it is in. Written by

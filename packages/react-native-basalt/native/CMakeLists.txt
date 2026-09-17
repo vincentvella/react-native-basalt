@@ -161,6 +161,8 @@ if(DEFINED RN_DIR)
     # The application menu: the description, and the JavaScript boundary. What
     # each platform does with it is in its own MenuBar file.
     core/MenuModule.cpp
+    # React DevTools' element highlighter: the rectangles, parsed once.
+    core/DebuggingOverlay.cpp
     core/DevBundle.cpp
     core/ExpoImageComponent.cpp
     core/GestureHandlerModule.cpp

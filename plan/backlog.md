@@ -850,10 +850,12 @@ input, `PanResponder` and command routing with them. What is left:
   Element Inspector and Open Debugger; `DevSettings.setHotLoadingEnabled` is a
   no-op stub in ReactCxxPlatform, so turning Fast Refresh off means calling
   `HMRClient` directly, which the override could do and does not yet.
-- **`DebuggingOverlay` mounts and draws nothing.** React DevTools' highlight
-  arrives as a command rather than as props, and no host handles it yet; what
-  registering it buys is that a DevTools session does not put an unmountable
-  component in the middle of the app.
+- ~~**`DebuggingOverlay` mounts and draws nothing.**~~ All three draw it now:
+  the filled blue box over an inspected element and the outline around a trace
+  update, which takes itself down after a moment because it is meant to flash.
+  What is left is the other half of a DevTools session -- there is no inspector
+  overlay of React Native's own beyond the one the developer menu toggles, and
+  nothing drives these commands except DevTools itself.
 - **AT-SPI actions**, against the accessibility hooks `IMountingManager` already
   declares. See the accessibility section.
 

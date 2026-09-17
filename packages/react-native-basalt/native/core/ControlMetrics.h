@@ -28,4 +28,10 @@ inline constexpr float kSwitchHeight = 31.0F;
 inline constexpr float kSpinnerSmall = 20.0F;
 inline constexpr float kSpinnerLarge = 36.0F;
 
+// React DevTools' overlay outline, in points. The same on every platform so
+// that a screenshot of an inspected element is the same picture from any of
+// them. Here rather than in DebuggingOverlay.h for the reason this file exists:
+// a view layer draws it and does not link React Native.
+inline constexpr float kHighlightBorderWidth = 2.0F;
+
 } // namespace basalt

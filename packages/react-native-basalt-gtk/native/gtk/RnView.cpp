@@ -1,5 +1,6 @@
 #include "RnView.h"
 
+#include "ControlMetrics.h"
 #include "FocusRing.h"
 #include "GtkTextPeer.h"
 
@@ -209,6 +210,11 @@ struct _RnView {
   // What the tree dump prints for it, written by core/DesktopControls.h.
   char *control_description;
 
+  // React DevTools' overlay rectangles: eight floats each, plus a fill flag.
+  // See rn_view_set_highlights.
+  GArray *highlights;
+  GArray *highlight_filled;
+
   RnViewResizeFunc resize_callback;
   gpointer resize_data;
   int allocated_width;
@@ -389,6 +395,39 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     gtk_snapshot_append_border(snapshot, &box, self->border_widths, self->border_colors);
   }
 
+  // React DevTools' overlay, over everything including the border. Above the
+  // app on purpose: it is not part of it, and an inspected element half hidden
+  // behind a card would be pointing at the wrong thing.
+  if (self->highlights != nullptr) {
+    const auto *values = &g_array_index(self->highlights, float, 0);
+    const auto *filled = &g_array_index(self->highlight_filled, gboolean, 0);
+    const guint count = self->highlight_filled->len;
+    for (guint i = 0; i < count; i++) {
+      const float *rectangle = values + (i * 8);
+      graphene_rect_t area;
+      area.origin.x = rectangle[0];
+      area.origin.y = rectangle[1];
+      area.size.width = rectangle[2];
+      area.size.height = rectangle[3];
+      const GdkRGBA colour{rectangle[4], rectangle[5], rectangle[6], rectangle[7]};
+
+      if (filled[i]) {
+        gtk_snapshot_append_color(snapshot, &colour, &area);
+      }
+      GskRoundedRect outline;
+      gsk_rounded_rect_init_from_rect(&outline, &area, 0.0f);
+      const float widths[4] = {basalt::kHighlightBorderWidth,
+                               basalt::kHighlightBorderWidth,
+                               basalt::kHighlightBorderWidth,
+                               basalt::kHighlightBorderWidth};
+      // Opaque on the outline even when the fill is not, so the edge of an
+      // inspected element is a line rather than a suggestion.
+      const GdkRGBA edge{rectangle[4], rectangle[5], rectangle[6], 1.0f};
+      const GdkRGBA colors[4] = {edge, edge, edge, edge};
+      gtk_snapshot_append_border(snapshot, &outline, widths, colors);
+    }
+  }
+
   // The focus ring, over everything including the border, because it is the
   // answer to "where am I" and must not be hidden by what it is drawn on.
   //
@@ -439,6 +478,8 @@ static void rn_view_dispose(GObject *object) {
   self->control = nullptr;
   self->control_kind = RN_CONTROL_NONE;
   g_clear_pointer(&self->control_description, g_free);
+  g_clear_pointer(&self->highlights, g_array_unref);
+  g_clear_pointer(&self->highlight_filled, g_array_unref);
 
   g_clear_object(&self->text_layout);
   g_clear_object(&self->texture);
@@ -486,6 +527,8 @@ static void rn_view_init(RnView *self) {
   self->control_kind = RN_CONTROL_NONE;
   self->control_disabled = FALSE;
   self->control_description = nullptr;
+  self->highlights = nullptr;
+  self->highlight_filled = nullptr;
   self->resize_callback = nullptr;
   self->resize_data = nullptr;
   // -1, not 0: a first allocation of 0x0 is a real transition worth reporting.
@@ -591,6 +634,23 @@ GtkWidget *rn_view_get_control(RnView *self) {
 RnControlKind rn_view_get_control_kind(RnView *self) {
   g_return_val_if_fail(RN_IS_VIEW(self), RN_CONTROL_NONE);
   return self->control_kind;
+}
+
+void rn_view_set_highlights(RnView *self,
+                            const float *rectangles,
+                            const gboolean *filled,
+                            int count) {
+  g_return_if_fail(RN_IS_VIEW(self));
+
+  g_clear_pointer(&self->highlights, g_array_unref);
+  g_clear_pointer(&self->highlight_filled, g_array_unref);
+  if (count > 0 && rectangles != nullptr) {
+    self->highlights = g_array_sized_new(FALSE, FALSE, sizeof(float), count * 8);
+    g_array_append_vals(self->highlights, rectangles, count * 8);
+    self->highlight_filled = g_array_sized_new(FALSE, FALSE, sizeof(gboolean), count);
+    g_array_append_vals(self->highlight_filled, filled, count);
+  }
+  gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
 void rn_view_set_control_disabled(RnView *self, gboolean disabled) {
@@ -1066,6 +1126,14 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
     if (gtk_widget_has_focus(self->editable)) {
       g_string_append(out, " focused");
     }
+  }
+
+  // How many DevTools highlights this view is drawing. In the dump because they
+  // are otherwise invisible to everything but a screenshot, and because a
+  // command that arrived and drew nothing is exactly the failure worth
+  // catching.
+  if (self->highlight_filled != nullptr && self->highlight_filled->len > 0) {
+    g_string_append_printf(out, " highlights=%u", self->highlight_filled->len);
   }
 
   // What kind of control this view is, and what state it is in. Written by

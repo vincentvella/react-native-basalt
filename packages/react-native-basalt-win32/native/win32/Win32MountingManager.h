@@ -161,6 +161,11 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
   // mounting -- see RnWin32View.h for why there is no widget to mount.
   void applyControlPeer(win32::RnWin32View *view, const basalt::ControlState &state);
 
+  // React DevTools' overlay rectangles. The parsing and the clearing are in
+  // MountingWalk; this is the drawing.
+  void setHighlights(win32::RnWin32View *view,
+                     const std::vector<basalt::Highlight> &highlights);
+
   // The source each <Image> is currently showing, so that a mutation which
   // changed only layout does not restart the load and make the image flicker
   // whenever its parent resizes. Both other platforms keep the same map.

@@ -1,6 +1,9 @@
 #import "RnAppKitView.h"
 
+#include "ControlMetrics.h"
 #include "FocusRing.h"
+
+#include <vector>
 
 #import "AppKitTextPeer.h"
 
@@ -171,6 +174,10 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
 }
 
 @implementation RnAppKitView {
+  // React DevTools' overlay rectangles: eight floats each, plus a fill flag.
+  // See setRnHighlights:filled:count:.
+  std::vector<float> _highlights;
+  std::vector<bool> _highlightFilled;
   NSString *_roleName;
   RnTextLayout *_textLayout;
   CGImageRef _image;
@@ -489,10 +496,23 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 // The background is *not* drawn here. It is a layer property, which means Core
 // Animation paints it under this and a view can have both without either
 // knowing about the other.
+- (void)setRnHighlights:(const float *)rectangles
+                 filled:(const bool *)filled
+                  count:(NSInteger)count {
+  _highlights.clear();
+  _highlightFilled.clear();
+  if (rectangles != nullptr && count > 0) {
+    _highlights.assign(rectangles, rectangles + (count * 8));
+    _highlightFilled.assign(filled, filled + count);
+  }
+  self.needsDisplay = YES;
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   const BOOL ring = [self rnShowsFocusRing];
-  if (_textLayout == nil && _image == nullptr && !_hasBorders && !ring) {
+  if (_textLayout == nil && _image == nullptr && !_hasBorders && !ring &&
+      _highlightFilled.empty()) {
     return;
   }
   CGContextRef context = [NSGraphicsContext currentContext].CGContext;
@@ -540,6 +560,25 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   // ring that is inset here and outset on Linux would be a difference an app
   // did not ask for. It follows the view's own corner radii, so it hugs a
   // rounded button.
+  // React DevTools' overlay, over everything including the border. Above the
+  // app on purpose: it is not part of it, and an inspected element half hidden
+  // behind a card would be pointing at the wrong thing.
+  for (size_t i = 0; i < _highlightFilled.size(); i++) {
+    const float *rectangle = _highlights.data() + (i * 8);
+    const NSRect area = NSMakeRect(rectangle[0], rectangle[1], rectangle[2], rectangle[3]);
+    if (_highlightFilled[i]) {
+      CGContextSetRGBFillColor(context, rectangle[4], rectangle[5], rectangle[6], rectangle[7]);
+      CGContextFillRect(context, area);
+    }
+    // Opaque on the outline even when the fill is not, so the edge of an
+    // inspected element is a line rather than a suggestion. Stroked down the
+    // middle, so the path is inset by half the width to keep it inside.
+    CGContextSetRGBStrokeColor(context, rectangle[4], rectangle[5], rectangle[6], 1.0);
+    CGContextSetLineWidth(context, basalt::kHighlightBorderWidth);
+    const CGFloat inset = basalt::kHighlightBorderWidth / 2.0;
+    CGContextStrokeRect(context, NSInsetRect(area, inset, inset));
+  }
+
   if (ring) {
     [self rnDrawFocusRingInContext:context size:size];
   }
@@ -966,6 +1005,14 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     if (focused) {
       [out appendString:@" focused"];
     }
+  }
+
+  // How many DevTools highlights this view is drawing. In the dump because they
+  // are otherwise invisible to everything but a screenshot, and because a
+  // command that arrived and drew nothing is exactly the failure worth
+  // catching.
+  if (!_highlightFilled.empty()) {
+    [out appendFormat:@" highlights=%lu", (unsigned long)_highlightFilled.size()];
   }
 
   // What kind of control this view is, and what state it is in. Written by
