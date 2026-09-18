@@ -4,6 +4,12 @@
 
 Opening a URL, and being opened by one.
 
+Two directions that look like one feature and are not. Handing a URL to the
+desktop is a call this platform makes; being handed one is a scheme the
+application has to have registered, and a running instance the desktop can
+deliver to -- which is why the second half answers on a cold start and not yet
+while the app is already open.
+
 ## Requirements
 
 ### Requirement: An app can open a URL in the desktop

@@ -48,36 +48,6 @@ should.
 - **WHEN** an app opens a modal
 - **THEN** it covers the surface and closes on request
 
-#### Scenario: A programmatic scroll can be animated
-
-- **WHEN** an app calls `scrollTo` with `animated: true`
-- **THEN** the offset moves through intermediate positions rather than jumping
-- **AND** it finishes at exactly the offset asked for
-- **AND** a gesture during the animation cancels it
-
-#### Scenario: A paging or snapping list settles on a point
-
-- **WHEN** a scroll view sets `pagingEnabled`, `snapToInterval` or
-  `snapToOffsets` and a gesture ends
-- **THEN** it animates to the next point in the direction it was flicked
-- **AND** it does not coast past it
-- **AND** it never settles outside the content
-
-#### Scenario: A scroll view shows where you are in it
-
-- **WHEN** a scroll view's content is longer than the view
-- **THEN** an overlay indicator is drawn inset from the trailing edge
-- **AND** its length is the fraction of the content on screen, above a minimum
-- **AND** its position follows the offset, clamped at both ends
-- **AND** content that fits draws no indicator at all
-- **AND** `showsVerticalScrollIndicator` or `showsHorizontalScrollIndicator` set
-  to false removes that axis's indicator without affecting the scrolling
-
-#### Scenario: Pulling a scroll view refreshes it
-
-- **WHEN** the person pulls a scroll view carrying a refresh control
-- **THEN** the refresh handler runs once for that gesture
-
 ### Requirement: A component with no implementation renders visibly
 
 The system SHALL render a placeholder for a component it does not implement,
