@@ -26,6 +26,27 @@ GtkImageLoader::~GtkImageLoader() {
   cache_.clear();
 }
 
+// Caches the texture and drops whatever that pushed out. See core/ImageCache.h
+// for the policy; the bytes are this file's to measure, because only GDK knows
+// how big a decoded texture is.
+void GtkImageLoader::remember(const std::string &uri, GdkTexture *texture) {
+  cache_[uri] = texture;
+
+  // Four bytes a pixel, which is what GDK decodes to. Not asked of the texture
+  // because `gdk_texture_get_format` reports the *source* format and the
+  // memory is what matters here.
+  const size_t bytes = static_cast<size_t>(gdk_texture_get_width(texture)) *
+                       static_cast<size_t>(gdk_texture_get_height(texture)) * 4u;
+
+  for (const std::string &evicted : policy_.insert(uri, bytes)) {
+    const auto it = cache_.find(evicted);
+    if (it != cache_.end()) {
+      g_clear_object(&it->second);
+      cache_.erase(it);
+    }
+  }
+}
+
 gboolean GtkImageLoader::deliver(gpointer data) {
   auto *pending = static_cast<Pending *>(data);
 
@@ -44,7 +65,7 @@ gboolean GtkImageLoader::deliver(gpointer data) {
       error = decodeError != nullptr ? decodeError->message : "could not decode image";
       g_clear_error(&decodeError);
     } else {
-      pending->loader->cache_[pending->uri] = texture;
+      pending->loader->remember(pending->uri, texture);
     }
   }
 
@@ -60,6 +81,7 @@ void GtkImageLoader::load(const std::string &uri, Callback &&callback) {
   }
 
   if (const auto it = cache_.find(uri); it != cache_.end()) {
+    policy_.noteUse(uri);
     callback(it->second, {});
     return;
   }

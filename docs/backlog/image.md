@@ -2,18 +2,33 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (7):**
+**Open (6):**
 
-1. Nothing evicts the texture cache
-2. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
-3. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
-4. Assets are never fetched over the network, so a dev server's assets do not wor
-5. Nothing caches a downloaded asset, which is right for a local file and will no
-6. onProgress and onPartialLoad are never emitted
-7. IImageLoader itself is still unimplemented, so Image
+1. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
+2. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
+3. Assets are never fetched over the network, so a dev server's assets do not wor
+4. Nothing caches a downloaded asset, which is right for a local file and will no
+5. onProgress and onPartialLoad are never emitted
+6. IImageLoader itself is still unimplemented, so Image
 
-- Nothing evicts the texture cache. A long-lived app that scrolls through many
-  remote images grows without bound.
+- ~~Nothing evicts the texture cache.~~ Done on all three, in
+  `core/ImageCache.h`. Each host kept decoded images in an `unordered_map`
+  nothing removed from, so a long list of remote images, scrolled, held every
+  one ever seen until the process exited.
+
+  Least recently *used*, not least recently added, which is the distinction the
+  case needs: scrolling a list back up should not re-decode the rows about to
+  be on screen again. A hit counts as a use, so it moves an entry to the front.
+
+  The policy is in core and the pixels are not, because the three hosts hold a
+  `GdkTexture`, a `CGImage` and an `RnWin32Image` and none of those can be
+  named there. Core answers with the URIs to release and never sees one. Each
+  host measures its own bytes -- GDK four per pixel, Core Graphics the row
+  stride times the height, since rows are padded and width times four would
+  undercount.
+
+  An image larger than the whole budget is kept rather than refused: it is on
+  screen, and evicting it would decode it again on the next frame, forever.
 - `resizeMode: 'repeat'` falls back to `center`; a repeating draw needs a
   pattern node rather than one texture append.
 - ~~**`tintColor` is ignored.**~~ Done on all three, and on expo-image's

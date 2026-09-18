@@ -33,6 +33,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "ImageCache.h"
+
 namespace basalt::win32 {
 
 class Win32ImageLoader {
@@ -71,6 +73,10 @@ class Win32ImageLoader {
     // braces, and it costs a hash lookup's worth of nothing.
     std::mutex mutex;
     std::unordered_map<std::string, std::shared_ptr<RnWin32Image>> cache;
+    // Which URI goes next, and when. Shared with the other two hosts; the
+    // images are this loader's. See core/ImageCache.h. Guarded by the mutex
+    // beside it, like the cache it decides for.
+    basalt::ImageCachePolicy policy;
     // Cleared when the loader is destroyed, so a completion that outlives it
     // delivers nowhere instead of into freed memory.
     bool alive = true;

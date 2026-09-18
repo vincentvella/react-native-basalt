@@ -50,6 +50,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_identity.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_animation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_image_cache.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_bounds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_indicator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_snap.cpp
@@ -174,6 +175,7 @@ if(DEFINED RN_DIR)
     # An animated scrollTo, which is a curve rather than a jump.
     core/ScrollAnimation.cpp
     # Where a paged or snapping scroll comes to rest.
+    core/ImageCache.cpp
     core/ScrollBounds.cpp
     core/ScrollIndicator.cpp
     core/ScrollSnap.cpp

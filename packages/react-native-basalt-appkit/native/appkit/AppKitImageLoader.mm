@@ -70,6 +70,26 @@ CGImageRef decode(const std::string &bytes, std::string *error) {
 
 } // namespace
 
+// Caches the image and releases whatever that pushed out. See core/ImageCache.h
+// for the policy; the bytes are this file's to measure, because only Core
+// Graphics knows how big a decoded image is.
+void AppKitImageLoader::remember(const std::string &uri, CGImageRef image) {
+  cache_[uri] = image;
+
+  // Height times the row stride, which is what the decode actually allocated
+  // -- rows are padded, so width times four is an underestimate on some
+  // widths and this is not.
+  const size_t bytes = CGImageGetBytesPerRow(image) * CGImageGetHeight(image);
+
+  for (const std::string &evicted : policy_.insert(uri, bytes)) {
+    const auto it = cache_.find(evicted);
+    if (it != cache_.end()) {
+      CGImageRelease(it->second);
+      cache_.erase(it);
+    }
+  }
+}
+
 void AppKitImageLoader::load(const std::string &uri, Callback &&callback) {
   if (uri.empty()) {
     callback(nullptr, "empty source uri");
@@ -77,6 +97,7 @@ void AppKitImageLoader::load(const std::string &uri, Callback &&callback) {
   }
 
   if (const auto it = cache_.find(uri); it != cache_.end()) {
+    policy_.noteUse(uri);
     callback(it->second, {});
     return;
   }
@@ -97,7 +118,7 @@ void AppKitImageLoader::load(const std::string &uri, Callback &&callback) {
       if (done->image != nullptr) {
         // The cache takes the reference the decode produced; the callback
         // borrows it, and a view that keeps the image retains its own.
-        done->loader->cache_[done->uri] = done->image;
+        done->loader->remember(done->uri, done->image);
       }
       done->callback(done->image, done->error);
     });

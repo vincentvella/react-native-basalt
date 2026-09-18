@@ -25,6 +25,7 @@ Win32ImageLoader::~Win32ImageLoader() {
 void Win32ImageLoader::clearCache() {
   const std::lock_guard<std::mutex> lock(state_->mutex);
   state_->cache.clear();
+  state_->policy.clear();
 }
 
 void Win32ImageLoader::load(const std::string &uri, Callback callback) {
@@ -43,6 +44,7 @@ void Win32ImageLoader::load(const std::string &uri, Callback callback) {
     const std::lock_guard<std::mutex> lock(state_->mutex);
     if (const auto it = state_->cache.find(uri); it != state_->cache.end()) {
       const auto image = it->second;
+      state_->policy.noteUse(uri);
       // Outside the lock would be tidier; inside is fine because the callback
       // never re-enters the loader, and holding it across the call is what
       // stops a concurrent clearCache from dropping the entry underneath.
@@ -86,6 +88,15 @@ void Win32ImageLoader::load(const std::string &uri, Callback callback) {
       }
       if (image != nullptr) {
         state->cache[uri] = image;
+
+        // Four bytes a pixel, premultiplied BGRA, which is what
+        // `fromEncodedBytes` decodes to and what RnWin32Image's own stride
+        // says. See core/ImageCache.h for which URI goes next.
+        const size_t bytes = static_cast<size_t>(image->width()) *
+                             static_cast<size_t>(image->height()) * 4u;
+        for (const std::string &evicted : state->policy.insert(uri, bytes)) {
+          state->cache.erase(evicted);
+        }
       }
     }
     callback(image, error);

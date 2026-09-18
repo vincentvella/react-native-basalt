@@ -30,6 +30,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "ImageCache.h"
+
 namespace basalt {
 
 class GtkImageLoader {
@@ -57,7 +59,13 @@ class GtkImageLoader {
   // two <Image>s with the same source paint the same object.
   //
   // Nothing evicts from this yet; see docs/BACKLOG.md.
+  // Caches a texture and releases whatever the policy dropped.
+  void remember(const std::string &uri, GdkTexture *texture);
+
   std::unordered_map<std::string, GdkTexture *> cache_;
+  // Which URI goes next, and when. The textures are this class's; the decision
+  // is shared with the other two hosts. See core/ImageCache.h.
+  basalt::ImageCachePolicy policy_;
 };
 
 } // namespace basalt

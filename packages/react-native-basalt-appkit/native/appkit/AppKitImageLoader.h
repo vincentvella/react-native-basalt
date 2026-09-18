@@ -24,6 +24,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "ImageCache.h"
+
 namespace basalt {
 
 class AppKitImageLoader {
@@ -49,7 +51,13 @@ class AppKitImageLoader {
   // <Image>s with the same source draw the same object.
   //
   // Nothing evicts from this yet; see docs/BACKLOG.md.
+  // Caches an image and releases whatever the policy dropped.
+  void remember(const std::string &uri, CGImageRef image);
+
   std::unordered_map<std::string, CGImageRef> cache_;
+  // Which URI goes next, and when. The images are this class's; the decision
+  // is shared with the other two hosts. See core/ImageCache.h.
+  basalt::ImageCachePolicy policy_;
 };
 
 } // namespace basalt
