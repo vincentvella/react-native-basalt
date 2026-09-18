@@ -158,6 +158,53 @@ TEST(hit_test_skips_the_children_of_a_hidden_view) {
   EXPECT_EQ(tagAt(root, 50, 50), 1);
 }
 
+// `backfaceVisibility: 'hidden'` takes the view out of picking as well as out
+// of the picture -- the back of a card is not clickable.
+TEST(hit_test_skips_a_view_turned_away) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *card = tree.box(2, 0, 0, 200, 200);
+  card->setHidesBackFace(true);
+  root->insertChild(card, 0);
+
+  EXPECT_EQ(tagAt(root, 100, 100), 2);
+
+  // Half a turn about Y, which mirrors it.
+  const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+  card->setTransform(flipped);
+  EXPECT_EQ(tagAt(root, 100, 100), 1);
+
+  // Turning the prop off shows it again. The early return this used to have
+  // left the view hidden for good.
+  card->setHidesBackFace(false);
+  EXPECT_EQ(tagAt(root, 100, 100), 2);
+}
+
+// The two reasons a view can be hidden are independent, and Fabric applies
+// them through different calls: props first, then layout metrics. So a card
+// turned away from the viewer had `display: none`'s "no" written over the top
+// of it on the very same mount, and came back.
+TEST(display_none_and_a_back_face_do_not_cancel_each_other) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *card = tree.box(2, 0, 0, 200, 200);
+  card->setHidesBackFace(true);
+  root->insertChild(card, 0);
+
+  const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+  card->setTransform(flipped);
+  EXPECT_EQ(tagAt(root, 100, 100), 1);
+
+  // What Win32MountingManager says about every view that is not display: none.
+  card->setHidden(false);
+  EXPECT_EQ(tagAt(root, 100, 100), 1);
+
+  // And the other way: facing the viewer must not reveal what the app hid.
+  card->setHidden(true);
+  card->setTransform(nullptr);
+  EXPECT_EQ(tagAt(root, 100, 100), 1);
+}
+
 TEST(hit_test_follows_a_transform) {
   Tree tree;
   RnWin32View *root = tree.box(1, 0, 0, 100, 100);

@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <sstream>
+#include <string>
 
 namespace {
 
@@ -33,6 +34,10 @@ bool mapPoint(RnView *child, RnView *parent, float x, float y, graphene_point_t 
   const graphene_point_t point = {x, y};
   return gtk_widget_compute_point(GTK_WIDGET(child), GTK_WIDGET(parent), &point, out);
 }
+
+// Half a turn about Y, which mirrors the widget: a determinant of -1, and so
+// a back face pointed away from the viewer.
+const float kFlippedAboutY[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
 
 } // namespace
 
@@ -146,13 +151,66 @@ TEST(display_none_takes_a_view_out_of_layout) {
   g_object_ref_sink(root);
   RnView *child = addChild(root, 14, 0.0F, 0.0F, 100.0F, 100.0F);
 
-  gtk_widget_set_visible(GTK_WIDGET(child), FALSE);
+  rn_view_set_hidden(child, TRUE);
   // RnLayout skips a child that should not be laid out, so an invisible view is
   // neither placed nor painted.
   EXPECT(!gtk_widget_should_layout(GTK_WIDGET(child)));
 
   layout(root, 400, 400);
   g_object_unref(root);
+}
+
+
+// A back face turned away from the viewer is hidden, and says so in the tree
+// -- without which the only prop here that removes a view entirely is the one
+// the dump cannot show, and scripts/compare_hosts.sh compares two views that
+// look identical and are not.
+TEST(a_back_face_turned_away_is_hidden) {
+  RnView *view = rn_view_new(22);
+  g_object_ref_sink(view);
+  rn_view_set_frame(view, 0.0F, 0.0F, 64.0F, 64.0F);
+  rn_view_set_hides_back_face(view, TRUE);
+
+  graphene_matrix_t flipped;
+  graphene_matrix_init_from_float(&flipped, kFlippedAboutY);
+  rn_view_set_transform(view, &flipped);
+  EXPECT(!gtk_widget_get_visible(GTK_WIDGET(view)));
+
+  char *description = rn_view_describe_tree(view);
+  EXPECT(std::string(description).find(" hidden") != std::string::npos);
+  g_free(description);
+
+  // Turning the prop off shows it again. The early return this used to have
+  // left the widget hidden for good.
+  rn_view_set_hides_back_face(view, FALSE);
+  EXPECT(gtk_widget_get_visible(GTK_WIDGET(view)));
+
+  g_object_unref(view);
+}
+
+// The two reasons a view can be hidden are independent, and Fabric applies
+// them through different calls: props first, then layout metrics. So a card
+// turned away from the viewer had `display: none`'s "no" written over the top
+// of it on the very same mount, and came back.
+TEST(display_none_and_a_back_face_do_not_cancel_each_other) {
+  RnView *view = rn_view_new(22);
+  g_object_ref_sink(view);
+  rn_view_set_hides_back_face(view, TRUE);
+
+  graphene_matrix_t flipped;
+  graphene_matrix_init_from_float(&flipped, kFlippedAboutY);
+  rn_view_set_transform(view, &flipped);
+
+  // What GtkMountingManager says about every view that is not display: none.
+  rn_view_set_hidden(view, FALSE);
+  EXPECT(!gtk_widget_get_visible(GTK_WIDGET(view)));
+
+  // And the other way: facing the viewer must not reveal what the app hid.
+  rn_view_set_hidden(view, TRUE);
+  rn_view_set_transform(view, nullptr);
+  EXPECT(!gtk_widget_get_visible(GTK_WIDGET(view)));
+
+  g_object_unref(view);
 }
 
 TEST(borders_and_radii_are_accepted_and_described) {

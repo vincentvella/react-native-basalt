@@ -27,10 +27,26 @@ Nothing in React Native SHALL be forked to achieve this: components come from
 - **THEN** the image is drawn in that colour, keeping its own alpha
 - **AND** every desktop reports the same colour for it
 
+#### Scenario: A view turned away from the viewer is not drawn
+
+- **WHEN** a view with `backfaceVisibility: 'hidden'` is given a transform that
+  mirrors it
+- **THEN** it is neither drawn nor hit tested, and nor are its children
+- **AND** clearing either the prop or the transform shows it again
+
+#### Scenario: Hiding a view has two independent reasons
+
+- **WHEN** a view is hidden by `display: 'none'` and by a back face turned away
+- **THEN** it stays hidden until both reasons are gone
+- **AND** neither reason answers for the other when Fabric applies props and
+  layout metrics in separate calls
+
 #### Scenario: The three desktops agree
 
 - **WHEN** the same app is rendered on two hosts
 - **THEN** the resulting view trees match, frames included
+- **AND** a view that is not drawn at all says so in the tree, rather than
+  reading as a visible one
 
 ### Requirement: The controls mount and answer
 

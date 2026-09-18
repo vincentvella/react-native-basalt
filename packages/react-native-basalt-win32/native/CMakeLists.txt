@@ -125,10 +125,14 @@ add_library(basalt_win32_view STATIC
   win32/Win32TitleBarLayout.cpp)
 target_compile_options(basalt_win32_view PRIVATE ${BASALT_WIN32_WARNINGS})
 target_include_directories(basalt_win32_view PUBLIC win32)
-# core/FocusRing.h, and nothing else from there. It is a header of four
-# constants with no React Native in it, so taking it does not make this target
-# depend on the half that does -- and the alternative is a focus ring that is a
-# different blue on each desktop.
+# core/FocusRing.h and core/Backface.h, and nothing else from there. Both are
+# header-only and have no React Native in them, so taking them does not make
+# this target depend on the half that does -- and the alternative is a focus
+# ring that is a different blue on each desktop, and three toolkits each with
+# their own idea of which way a rotated card is facing.
+#
+# Header-only is the constraint, not a preference: this library links no core,
+# so anything it takes from there has to be `inline`.
 target_include_directories(basalt_win32_view PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../react-native-basalt/native/core)
 target_link_libraries(basalt_win32_view PUBLIC

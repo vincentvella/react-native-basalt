@@ -319,6 +319,15 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
     view->setTransform(transform.matrix.data());
   }
 
+  // `backfaceVisibility: 'hidden'`, which stops the back of a card being drawn
+  // mirrored halfway through a flip. Whether a transform has turned away is
+  // core/Backface.h's to decide, so all three hide the same face.
+  //
+  // Applied after the transform, because the view has to know the matrix
+  // before it can say which way it is facing.
+  view->setHidesBackFace(props->backfaceVisibility ==
+                         facebook::react::BackfaceVisibility::Hidden);
+
   // Only a hidden title bar reads this, to find the drag regions an app marked
   // with <TitleBar.DragRegion>.
   view->setNativeId(props->nativeId);

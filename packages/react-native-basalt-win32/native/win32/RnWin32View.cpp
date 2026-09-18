@@ -1,5 +1,6 @@
 #include "RnWin32View.h"
 
+#include "Backface.h"
 #include "ControlMetrics.h"
 #include "FocusRing.h"
 #include "RnWin32Image.h"
@@ -205,6 +206,7 @@ void RnWin32View::setTransform(const float *matrix16) {
     transform_[3] = 1.0f;
     transform_[4] = 0.0f;
     transform_[5] = 0.0f;
+    updateBackFace();
     return;
   }
 
@@ -219,6 +221,35 @@ void RnWin32View::setTransform(const float *matrix16) {
   transform_[3] = matrix16[5];
   transform_[4] = matrix16[12];
   transform_[5] = matrix16[13];
+  updateBackFace();
+}
+
+void RnWin32View::setHidesBackFace(bool hides) {
+  if (hidesBackFace_ == hides) {
+    return;
+  }
+  hidesBackFace_ = hides;
+  updateBackFace();
+}
+
+// Hidden the same way the app's own `display: none` hides a view, because the
+// effect is the same -- not painted, not hit tested, children included.
+//
+// The two reasons are kept apart and combined here. `hidden_` is one flag and
+// `display: none` writes it too, so whichever of the two spoke last used to
+// answer for both -- and layout metrics are applied after props, so a card
+// turned away from the viewer was reliably un-hidden a moment later.
+void RnWin32View::applyVisibility() {
+  hidden_ = hiddenByApp_ || hiddenByBackFace_;
+}
+
+void RnWin32View::updateBackFace() {
+  // Recomputed rather than returned early on, so that turning the prop off
+  // shows a view it had hidden instead of leaving it hidden forever.
+  hiddenByBackFace_ =
+      hidesBackFace_ &&
+      basalt::facesAway(transform_[0], transform_[1], transform_[2], transform_[3]);
+  applyVisibility();
 }
 
 void RnWin32View::setClipsChildren(bool clips) {
@@ -261,7 +292,8 @@ void RnWin32View::setZIndex(int zIndex) {
 }
 
 void RnWin32View::setHidden(bool hidden) {
-  hidden_ = hidden;
+  hiddenByApp_ = hidden;
+  applyVisibility();
 }
 
 // --- Content ----------------------------------------------------------------
@@ -1050,6 +1082,13 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
   }
   if (clipsChildren_) {
     out += " clip";
+  }
+  // Whether anything is drawn at all. Without this a view hidden by
+  // `display: none` or by a back face turned away reads exactly like a visible
+  // one, and the only prop in this dump that removes a view entirely was the
+  // only one it could not show.
+  if (hidden_) {
+    out += " hidden";
   }
   // Per-corner radii and per-edge borders, in the fields, the order and the
   // formatting GTK prints them -- RnView.cpp's describe -- so that

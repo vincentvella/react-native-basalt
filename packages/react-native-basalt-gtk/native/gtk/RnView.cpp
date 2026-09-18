@@ -1,5 +1,6 @@
 #include "RnView.h"
 
+#include "Backface.h"
 #include "ScrollIndicator.h"
 
 #include "ControlMetrics.h"
@@ -195,6 +196,9 @@ struct _RnView {
 
   graphene_matrix_t transform;
   gboolean has_transform;
+  gboolean hides_back_face;
+  gboolean hidden_by_app;
+  gboolean hidden_by_back_face;
 
   int z_index;
 
@@ -989,6 +993,39 @@ void rn_view_set_borders(RnView *self, const float widths[4], const GdkRGBA colo
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
+// Hidden through `gtk_widget_set_visible` rather than by skipping the
+// snapshot: it takes the children with it, which is what a back face should
+// do, and it takes hit testing with it too, since `gtk_widget_pick` skips a
+// widget that is not visible.
+//
+// The two reasons are kept apart and combined here. Visibility is one flag and
+// `display: none` writes it too, so whichever of the two spoke last used to
+// answer for both -- and layout metrics are applied after props, so a card
+// turned away from the viewer was reliably shown again a moment later.
+static void rn_view_apply_visibility(RnView *self) {
+  gtk_widget_set_visible(GTK_WIDGET(self),
+                         (self->hidden_by_app || self->hidden_by_back_face) ? FALSE : TRUE);
+}
+
+void rn_view_set_hidden(RnView *self, gboolean hidden) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  self->hidden_by_app = hidden;
+  rn_view_apply_visibility(self);
+}
+
+static void rn_view_update_back_face(RnView *self) {
+  gboolean away = FALSE;
+  if (self->hides_back_face) {
+    float values[16];
+    graphene_matrix_to_float(&self->transform, values);
+    away = basalt::facesAway(values) ? TRUE : FALSE;
+  }
+  // Recomputed rather than returned early on, so that turning the prop off
+  // shows a view it had hidden instead of leaving it hidden forever.
+  self->hidden_by_back_face = away;
+  rn_view_apply_visibility(self);
+}
+
 void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix) {
   g_return_if_fail(RN_IS_VIEW(self));
 
@@ -999,11 +1036,21 @@ void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix) {
     graphene_matrix_init_from_matrix(&self->transform, matrix);
     self->has_transform = !graphene_matrix_is_identity(matrix);
   }
+  rn_view_update_back_face(self);
   // Composed during the *parent's* allocation, alongside the frame, so it is
   // the parent that has to be redone. Queueing on this widget leaves a cleared
   // transform still applied until something else moves the parent.
   GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(self));
   gtk_widget_queue_allocate(parent != nullptr ? parent : GTK_WIDGET(self));
+}
+
+void rn_view_set_hides_back_face(RnView *self, gboolean hides) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  if (self->hides_back_face == hides) {
+    return;
+  }
+  self->hides_back_face = hides;
+  rn_view_update_back_face(self);
 }
 
 void rn_view_set_z_index(RnView *self, int z_index) {
@@ -1154,6 +1201,13 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   }
   if (self->clips_children) {
     g_string_append(out, " clip");
+  }
+  // Whether anything is drawn at all. Without this a view hidden by
+  // `display: none` or by a back face turned away reads exactly like a visible
+  // one, and the only prop in this dump that removes a view entirely was the
+  // only one it could not show.
+  if (!gtk_widget_get_visible(GTK_WIDGET(self))) {
+    g_string_append(out, " hidden");
   }
   // Per-corner radii and per-edge borders. These are in the dump for the same
   // reason `transform=` is: a frame cannot show them, so a view that is

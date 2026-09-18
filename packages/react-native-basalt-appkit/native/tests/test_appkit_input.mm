@@ -252,6 +252,104 @@ TEST(page_to_local_refuses_a_chain_with_no_inverse) {
   }
 }
 
+// `backfaceVisibility: 'hidden'` takes the view out of hit testing as well as
+// out of the picture -- the back of a card is not clickable. The hit test
+// already skips hidden views, so what this checks is that turning away is what
+// hides it.
+TEST(hit_test_skips_a_view_turned_away) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *card = box(10, 0, 0, 100, 100);
+    [card setRnHidesBackFace:YES];
+    [root insertRnChild:card atIndex:0];
+
+    // Facing the viewer: it is hit.
+    EXPECT_EQ((long)hit(root, 50, 50), 10L);
+
+    // Half a turn about Y, which mirrors it.
+    const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+    [card setRnTransform:flipped];
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+
+    // And back again.
+    [card setRnTransform:nullptr];
+    EXPECT_EQ((long)hit(root, 50, 50), 10L);
+  }
+}
+
+// Without the prop a turned view is still drawn and still clickable, which is
+// what `backfaceVisibility: 'visible'` means and is the default.
+TEST(hit_test_keeps_a_turned_view_that_did_not_ask_to_hide) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *card = box(10, 0, 0, 100, 100);
+    [root insertRnChild:card atIndex:0];
+
+    const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+    [card setRnTransform:flipped];
+    EXPECT_EQ((long)hit(root, 50, 50), 10L);
+  }
+}
+
+// The two reasons a view can be hidden are independent, and Fabric applies
+// them through different calls: props first, then layout metrics. So a card
+// turned away from the viewer had `setRnHidden:NO` written over the top of it
+// on the very same mount, and came back -- which is how this looked in the
+// demo long after the unit tests above were passing.
+TEST(display_none_does_not_reveal_a_back_face) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *card = box(10, 0, 0, 100, 100);
+    [card setRnHidesBackFace:YES];
+    [root insertRnChild:card atIndex:0];
+
+    const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+    [card setRnTransform:flipped];
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+
+    // What applyLayoutMetrics says about every view that is not display: none.
+    [card setRnHidden:NO];
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+  }
+}
+
+// And the other way: a back face that is facing the viewer must not reveal a
+// view the app itself hid.
+TEST(a_facing_back_face_does_not_reveal_display_none) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *card = box(10, 0, 0, 100, 100);
+    [card setRnHidden:YES];
+    [card setRnHidesBackFace:YES];
+    [root insertRnChild:card atIndex:0];
+
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+
+    const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+    [card setRnTransform:flipped];
+    [card setRnTransform:nullptr];
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+  }
+}
+
+// Turning the prop off shows a view it had hidden. The early return this used
+// to have left the view hidden for good.
+TEST(clearing_the_back_face_prop_shows_the_view_again) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *card = box(10, 0, 0, 100, 100);
+    [card setRnHidesBackFace:YES];
+    [root insertRnChild:card atIndex:0];
+
+    const float flipped[16] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+    [card setRnTransform:flipped];
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+
+    [card setRnHidesBackFace:NO];
+    EXPECT_EQ((long)hit(root, 50, 50), 10L);
+  }
+}
+
 TEST(hit_test_finds_the_deepest_view) {
   @autoreleasepool {
     RnAppKitView *root = box(1, 0, 0, 200, 200);

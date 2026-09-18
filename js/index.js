@@ -65,6 +65,7 @@ function PropsStrip() {
         <View style={styles.rotated}>
           <View style={styles.marker} />
         </View>
+        <View style={styles.flipped} nativeID="flipped-card" />
       </View>
 
       <View style={styles.stack}>
@@ -204,6 +205,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: PALETTE[0],
     transform: [{rotate: '20deg'}],
+  },
+  // Turned away from the viewer, with `backfaceVisibility: 'hidden'`, so it is
+  // not drawn at all. A host ignoring the prop shows it mirrored -- which all
+  // three did -- so its absence from the tree is the assertion.
+  flipped: {
+    width: 64,
+    height: 64,
+    marginLeft: 12,
+    backgroundColor: PALETTE[1],
+    backfaceVisibility: 'hidden',
+    transform: [{rotateY: '180deg'}],
   },
   marker: {width: 16, height: 16, backgroundColor: '#f7f8fa'},
   stack: {width: 120, height: 64},

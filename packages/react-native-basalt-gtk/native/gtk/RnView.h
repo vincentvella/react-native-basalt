@@ -72,6 +72,20 @@ void rn_view_set_borders(RnView *self, const float widths[4], const GdkRGBA colo
 // against. Pass NULL for identity.
 void rn_view_set_transform(RnView *self, const graphene_matrix_t *matrix);
 
+// `backfaceVisibility: 'hidden'`. A view whose transform has turned it away
+// from the viewer is not drawn, and nor are its children -- which is what a
+// card's back should do, and what takes it out of hit testing too, since
+// `gtk_widget_pick` skips a widget that is not visible.
+//
+// Whether it has turned away is `basalt::facesAway`; see core/Backface.h for
+// why the rule is shared rather than left to each toolkit.
+void rn_view_set_hides_back_face(RnView *self, gboolean hides);
+
+// `display: 'none'`. Separate from the back face above because the two are
+// independent reasons to hide the same widget, and Fabric applies them through
+// different calls -- props, then layout metrics.
+void rn_view_set_hidden(RnView *self, gboolean hidden);
+
 // BaseViewProps::zIndex. GTK paints in child order, so this reorders painting
 // without touching the child list that mutations index into.
 void rn_view_set_z_index(RnView *self, int z_index);

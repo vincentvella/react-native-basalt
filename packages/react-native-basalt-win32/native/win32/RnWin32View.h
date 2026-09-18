@@ -188,6 +188,15 @@ class RnWin32View {
   void setHidden(bool hidden);
   bool hidden() const { return hidden_; }
 
+  // `backfaceVisibility: 'hidden'`. A view whose transform has turned it away
+  // from the viewer is not painted, and nor are its children -- which is what
+  // a card's back should do, and what takes it out of hit testing too, since
+  // `hitTest` skips a hidden view.
+  //
+  // Whether it has turned away is `basalt::facesAway`; see core/Backface.h for
+  // why the rule is shared rather than left to each toolkit.
+  void setHidesBackFace(bool hides);
+
   // The EDIT control a <TextInput> mounted behind this view, or null.
   //
   // The view neither owns it nor draws it -- `Win32TextInputManager` does both
@@ -384,6 +393,9 @@ class RnWin32View {
   void paintHighlights(ID2D1RenderTarget *target) const;
   // The overlay scrollbars, in this view's own coordinates.
   void paintScrollIndicators(ID2D1RenderTarget *target) const;
+  // Recomputes whether the back face is showing, and hides or shows the view.
+  void updateBackFace();
+  void applyVisibility();
   void paintBorders(ID2D1RenderTarget *target) const;
   void describeInto(std::string &out, int depth) const;
 
@@ -416,6 +428,11 @@ class RnWin32View {
   float indicatorHorizontalLength_ = 0.0f;
 
   bool hidden_ = false;
+  bool hidesBackFace_ = false;
+  // Set by the back-face rule rather than by the app, so that clearing the
+  // rule does not un-hide a view the app itself hid.
+  bool hiddenByBackFace_ = false;
+  bool hiddenByApp_ = false;
   std::vector<Highlight> highlights_;
   Control control_ = Control::None;
   ControlStyle controlStyle_;

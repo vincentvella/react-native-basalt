@@ -132,6 +132,21 @@ RnAppKitView *_Nullable RnAppKitHitTest(RnAppKitView *_Nullable root, CGFloat x,
 // untouched `transformOrigin` and what a layer-backed NSView already uses.
 - (void)setRnTransform:(nullable const float *)matrix;
 
+// `backfaceVisibility: 'hidden'`. A view whose transform has turned it away
+// from the viewer is not drawn at all -- nor are its children, which is what
+// CALayer's own `doubleSided` does and what a card's back should do.
+//
+// Whether it has turned away is `basalt::facesAway`; see core/Backface.h for
+// why the rule is shared rather than left to each toolkit.
+- (void)setRnHidesBackFace:(BOOL)hides;
+
+// `display: 'none'`. Separate from the back face above because the two are
+// independent reasons to hide the same view, and Fabric applies them through
+// different calls -- props, then layout metrics. Setting `hidden` directly
+// from either one made the later call answer for both, which is why a view
+// turned away from the viewer came back the moment its layout was applied.
+- (void)setRnHidden:(BOOL)hidden;
+
 // How an image fills its frame. Mirrors React Native's ImageResizeMode, minus
 // Repeat, which needs a tiled draw rather than one image draw.
 // Accessible states. Each is a tri-state: unset leaves AppKit's default alone,

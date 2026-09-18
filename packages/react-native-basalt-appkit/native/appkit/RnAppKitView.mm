@@ -1,6 +1,7 @@
 #import "RnAppKitView.h"
 
 #include "ControlMetrics.h"
+#include "Backface.h"
 #include "FocusRing.h"
 #include "ScrollIndicator.h"
 
@@ -286,6 +287,9 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   BOOL _hasBorders;
   CATransform3D _transform;
   BOOL _hasTransform;
+  BOOL _hidesBackFace;
+  BOOL _hiddenByApp;
+  BOOL _hiddenByBackFace;
   NSInteger _zIndex;
   // Only the surface root has one; see -updateTrackingAreas.
   NSTrackingArea *_rnHoverTrackingArea;
@@ -873,11 +877,53 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   self.layer.opacity = (float)opacity;
 }
 
+- (void)setRnHidesBackFace:(BOOL)hides {
+  if (_hidesBackFace == hides) {
+    return;
+  }
+  _hidesBackFace = hides;
+  [self rnUpdateBackFaceVisibility];
+}
+
+// Hidden through `self.hidden` rather than by skipping the draw: it takes the
+// children with it, which is what a back face should do, and it takes hit
+// testing with it too -- the back of a card is not clickable.
+//
+// The two reasons are kept apart and combined here. `self.hidden` is one flag
+// and `display: none` writes it too, so whichever of the two spoke last used
+// to answer for both -- and layout metrics are applied after props, so a card
+// turned away from the viewer was reliably un-hidden a moment later.
+- (void)rnApplyVisibility {
+  self.hidden = (_hiddenByApp || _hiddenByBackFace) ? YES : NO;
+}
+
+- (void)setRnHidden:(BOOL)hidden {
+  _hiddenByApp = hidden;
+  [self rnApplyVisibility];
+}
+
+- (void)rnUpdateBackFaceVisibility {
+  BOOL away = NO;
+  if (_hidesBackFace) {
+    float matrix[16];
+    const CGFloat *fields = (const CGFloat *)&_transform;
+    for (int index = 0; index < 16; index++) {
+      matrix[index] = (float)fields[index];
+    }
+    away = basalt::facesAway(matrix) ? YES : NO;
+  }
+  // Recomputed rather than returned early on, so that turning the prop off
+  // shows a view it had hidden instead of leaving it hidden forever.
+  _hiddenByBackFace = away;
+  [self rnApplyVisibility];
+}
+
 - (void)setRnTransform:(nullable const float *)matrix {
   if (matrix == nullptr) {
     _hasTransform = NO;
     _transform = CATransform3DIdentity;
     self.layer.transform = CATransform3DIdentity;
+    [self rnUpdateBackFaceVisibility];
     return;
   }
 
@@ -892,6 +938,7 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 
   _transform = transform;
   _hasTransform = !CATransform3DIsIdentity(transform);
+  [self rnUpdateBackFaceVisibility];
   self.layer.transform = transform;
 }
 
@@ -1131,6 +1178,13 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   }
   if (_clipsChildren) {
     [out appendString:@" clip"];
+  }
+  // Whether anything is drawn at all. Without this a view hidden by
+  // `display: none` or by a back face turned away reads exactly like a visible
+  // one, and the only prop in this dump that removes a view entirely was the
+  // only one it could not show.
+  if (self.hidden) {
+    [out appendString:@" hidden"];
   }
   // Per-corner radii and per-edge borders, in the same fields and the same
   // order the GTK and Win32 sides print. They are here for the same reason

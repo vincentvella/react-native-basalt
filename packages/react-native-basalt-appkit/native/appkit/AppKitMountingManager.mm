@@ -725,6 +725,12 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
     [view setRnTransform:transform.matrix.data()];
   }
 
+  // `backfaceVisibility: 'hidden'`, which stops the back of a card being drawn
+  // mirrored halfway through a flip. Whether a transform has turned away is
+  // core/Backface.h's to decide, so all three hide the same face.
+  [view setRnHidesBackFace:props->backfaceVisibility ==
+                           facebook::react::BackfaceVisibility::Hidden];
+
   // Painting and hit testing only; see setRnZIndex:.
   [view setRnZIndex:(NSInteger)props->zIndex.value_or(0)];
 
@@ -904,7 +910,10 @@ void AppKitMountingManager::applyLayoutMetrics(RnAppKitView *view, const ShadowV
 
   // display: 'none' keeps the node in the shadow tree but takes it out of
   // layout and painting.
-  view.hidden = shadowView.layoutMetrics.displayType == facebook::react::DisplayType::None;
+  [view setRnHidden:shadowView.layoutMetrics.displayType ==
+                            facebook::react::DisplayType::None
+                        ? YES
+                        : NO];
 
   // TODO(layout): pointScaleFactor, once a Retina backing store is involved.
 }

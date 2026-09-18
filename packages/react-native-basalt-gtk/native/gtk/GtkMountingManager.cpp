@@ -957,6 +957,15 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
     rn_view_set_transform(view, &matrix);
   }
 
+  // `backfaceVisibility: 'hidden'`, which stops the back of a card being drawn
+  // mirrored halfway through a flip. Whether a transform has turned away is
+  // core/Backface.h's to decide, so all three hide the same face.
+  //
+  // Applied after the transform, because the widget has to know the matrix
+  // before it can say which way it is facing.
+  rn_view_set_hides_back_face(
+      view, props->backfaceVisibility == facebook::react::BackfaceVisibility::Hidden);
+
   // Hit testing only. `none` becomes GTK's can-target inside the setter; the
   // other two are resolved by GtkTouchDispatcher, which is the only thing that
   // reads them.
@@ -989,8 +998,8 @@ void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shad
   // display: 'none' keeps the node in the shadow tree but takes it out of
   // layout and painting. gtk_widget_should_layout is false for an invisible
   // widget, so RnLayout skips it too.
-  gtk_widget_set_visible(GTK_WIDGET(view),
-                         shadowView.layoutMetrics.displayType != facebook::react::DisplayType::None);
+  rn_view_set_hidden(view,
+                     shadowView.layoutMetrics.displayType == facebook::react::DisplayType::None);
 
   // TODO(layout): pointScaleFactor matters once fractional scaling is wired up.
 }
