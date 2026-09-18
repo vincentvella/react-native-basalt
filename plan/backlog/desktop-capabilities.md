@@ -2,7 +2,7 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
-**Open (25):**
+**Open (33):**
 
 1. A second window's children do not see React context
 2. `useWindow()` inside a second window reports the active window
@@ -29,6 +29,14 @@ Part of the [backlog](../backlog.md). Not scheduled.
 23. File system beyond the dialogs
 24. Screen capture and media devices
 25. Crash reporting
+26. Window state is not remembered between launches
+27. No progress in the taskbar or dock
+28. A window cannot represent a file
+29. No vibrancy, transparency or window shape
+30. No online and offline detection
+31. No spell checking
+32. No dock, launcher or jump-list menu
+33. No way to do work off the JavaScript thread
 
 React Native has no cross-platform API for any of this, because it was built for
 phones. That makes each one a design question before it is an implementation
@@ -221,3 +229,35 @@ rather than a search.
 
 - **Crash reporting** -- *absent*. A host that segfaults leaves an `.ips` on macOS
   and nothing an app or its author sees.
+
+  The eight below came from reading Electron's own contents page against this
+  list, which is worth doing once more than never: each is something a desktop
+  app routinely does and none of them had been written down.
+
+- **Window state is not remembered between launches** -- *absent*. Every desktop
+  app reopens where it was, the size it was, maximised if it was. `useWindow()`
+  has every piece needed to do it by hand and no app should have to.
+- **No progress in the taskbar or dock** -- *absent*. A determinate or
+  indeterminate bar on the dock icon or the taskbar button, which is what a
+  download or an export is expected to show.
+- **A window cannot represent a file** -- *absent*. macOS puts a proxy icon and
+  an edited dot in the title bar for the document a window is showing; Windows
+  conventionally marks the title. An editor wants both.
+- **No vibrancy, transparency or window shape** -- *absent*. Translucent
+  material behind content is how a native macOS sidebar looks, and a
+  transparent or shaped window is how anything that is not a rectangle is
+  drawn.
+- **No online and offline detection** -- *absent*. Whether the machine has a
+  network, and an event when that changes. React Native's own answer is
+  NetInfo, which is a community package rather than core.
+- **No spell checking** -- *absent* as a service. `spellCheck` on a
+  `<TextInput>` is listed under TextInput as an unimplemented prop; the desktop
+  version is larger -- a dictionary, a language, and a context menu of
+  corrections, which is what the platform's own text controls do.
+- **No dock, launcher or jump-list menu** -- *absent*. The menu a desktop shows
+  when you press and hold the icon: recent documents, and the two or three
+  actions an app wants offered before it is even running.
+- **No way to do work off the JavaScript thread** -- *absent*. Electron has
+  `utilityProcess` and MessagePorts. Here the equivalent is a worklet runtime or
+  a second JSI runtime, and Reanimated already brings one -- so this is about
+  whether an app can use it for its own work, not about building one.
