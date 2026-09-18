@@ -80,6 +80,26 @@ class Win32TitleBar {
   // without anything having been asked.
   void refreshMetrics();
 
+  // The caption's four actions, which an app-drawn header asks for by name.
+  // GtkWindowModule and AppKitWindowModule register the same four, and this
+  // host registered none of them: an app could draw its own header on Windows
+  // and then find its close button did nothing.
+  //
+  // They are what the host-drawn buttons already do on a click -- see the
+  // WM_NCLBUTTONUP case in handleNcMouse, which posts the same WM_SYSCOMMAND.
+  // Naming them here is what lets JavaScript ask for the same thing, and is
+  // what stops the two paths drifting apart.
+  //
+  // Each is safe with no window attached, which is what an app asking before
+  // the host has a window would do.
+  void minimize();
+  void toggleMaximize();
+  void close();
+  // Hands the drag to Windows, which runs the move loop itself. There is no
+  // "start moving this window" call: the idiom is to release the capture and
+  // then post a caption click, which is what the system's own title bar does.
+  void startDrag();
+
   // Window procedure hooks. Each returns true when it answered the message,
   // with the answer in `result`; false means the host should carry on as it
   // would have.

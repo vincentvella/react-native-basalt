@@ -55,6 +55,15 @@ Win32WindowModule::Win32WindowModule(std::shared_ptr<facebook::react::CallInvoke
   methodMap_["setTitleBarColors"] = MethodMetadata{3, setTitleBarColors};
   methodMap_["setTitleBarStyle"] = MethodMetadata{1, setTitleBarStyle};
   methodMap_["getTitleBarMetrics"] = MethodMetadata{0, getTitleBarMetrics};
+  // The caption's actions, under the names and in the order GtkWindowModule
+  // and AppKitWindowModule already use. src/useWindow.ts calls each one
+  // optionally -- NativeWindow?.minimize?.() -- so a host that leaves them out
+  // does not fail, it silently does nothing, which is how these were missing
+  // here while working on the other two desktops.
+  methodMap_["minimize"] = MethodMetadata{0, minimize};
+  methodMap_["toggleMaximize"] = MethodMetadata{0, toggleMaximize};
+  methodMap_["close"] = MethodMetadata{0, closeWindow};
+  methodMap_["startWindowDrag"] = MethodMetadata{0, startWindowDrag};
   // A window's geometry. The bodies are in core/WindowMethods.h, written once:
   // nothing about reading two numbers or shaping the answer differs per
   // desktop, and three copies would be three chances to drift.
@@ -152,6 +161,42 @@ Value Win32WindowModule::getTitleBarMetrics(Runtime &runtime,
                                             const Value * /*args*/,
                                             size_t /*count*/) {
   return metricsValue(runtime, titleBar().metrics());
+}
+
+// The four below are GtkWindowModule's bodies with the toolkit swapped: the
+// work is one call on the UI thread, and the shape is identical on purpose, so
+// that a reader comparing the three hosts sees the same thing three times
+// rather than three arrangements of it.
+Value Win32WindowModule::minimize(Runtime & /*runtime*/,
+                                  TurboModule & /*module*/,
+                                  const Value * /*args*/,
+                                  size_t /*count*/) {
+  postToUiThread([] { titleBar().minimize(); });
+  return Value::undefined();
+}
+
+Value Win32WindowModule::toggleMaximize(Runtime & /*runtime*/,
+                                        TurboModule & /*module*/,
+                                        const Value * /*args*/,
+                                        size_t /*count*/) {
+  postToUiThread([] { titleBar().toggleMaximize(); });
+  return Value::undefined();
+}
+
+Value Win32WindowModule::closeWindow(Runtime & /*runtime*/,
+                                     TurboModule & /*module*/,
+                                     const Value * /*args*/,
+                                     size_t /*count*/) {
+  postToUiThread([] { titleBar().close(); });
+  return Value::undefined();
+}
+
+Value Win32WindowModule::startWindowDrag(Runtime & /*runtime*/,
+                                         TurboModule & /*module*/,
+                                         const Value * /*args*/,
+                                         size_t /*count*/) {
+  postToUiThread([] { titleBar().startDrag(); });
+  return Value::undefined();
 }
 
 Value Win32WindowModule::noop(Runtime & /*runtime*/,

@@ -274,7 +274,11 @@ if(TARGET basalt_core)
     # field's peer is one -- see the file.
     tests/test_win32_textinput.cpp
     # The clipboard, and what happens when another program has it open.
-    tests/test_win32_clipboard.cpp)
+    tests/test_win32_clipboard.cpp
+    # The caption actions with no window attached. Here rather than beside
+    # test_win32_titlebar.cpp because Win32TitleBar is in basalt_win32_mounting,
+    # which only exists when basalt_core does; its neighbour is pure geometry.
+    tests/test_win32_titlebar_actions.cpp)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -378,6 +378,56 @@ bool Win32TitleBar::handleNcMouse(UINT message, WPARAM wparam, LRESULT &result) 
   }
 }
 
+// The four caption actions, reached from JavaScript rather than from a click.
+//
+// Each posts rather than sends. A caption action can destroy the window, and
+// the caller here is a trampoline from the JavaScript thread: sending would
+// run the close synchronously underneath a stack that still expects a window.
+// Posting is also what the button path above does, so both arrive the same way
+// and in the same order as everything else in the queue.
+//
+// Each tolerates no window. An app can ask before the host has one, and the
+// honest answer to "minimise what?" is to do nothing rather than to crash.
+void Win32TitleBar::minimize() {
+  if (window_ == nullptr) {
+    return;
+  }
+  PostMessage(window_, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+}
+
+void Win32TitleBar::toggleMaximize() {
+  if (window_ == nullptr) {
+    return;
+  }
+  // Asked now rather than when the request was made: a window can be maximised
+  // by a drag to the top edge in between, and then "toggle" means the opposite
+  // of what it meant a moment ago.
+  PostMessage(window_, WM_SYSCOMMAND, IsZoomed(window_) ? SC_RESTORE : SC_MAXIMIZE, 0);
+}
+
+void Win32TitleBar::close() {
+  if (window_ == nullptr) {
+    return;
+  }
+  // SC_CLOSE, not DestroyWindow: this way it arrives as WM_CLOSE, which is
+  // where core's interceptClose gets its say. Closing any other way would let
+  // an app refuse a close and then be unable to honour agreeing to one -- the
+  // exact bug that not registering these left on this platform.
+  PostMessage(window_, WM_SYSCOMMAND, SC_CLOSE, 0);
+}
+
+void Win32TitleBar::startDrag() {
+  if (window_ == nullptr) {
+    return;
+  }
+  // There is no "begin moving this window" call. Releasing the capture and
+  // then posting a caption click hands Windows into its own move loop, which
+  // is the same message its title bar sends itself. GetMessagePos is already
+  // in the screen coordinates WM_NCLBUTTONDOWN wants.
+  ReleaseCapture();
+  PostMessage(window_, WM_NCLBUTTONDOWN, HTCAPTION, static_cast<LPARAM>(GetMessagePos()));
+}
+
 void Win32TitleBar::handleActivate(bool active) {
   if (active != active_) {
     active_ = active;

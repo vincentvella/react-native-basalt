@@ -42,6 +42,27 @@ class Win32WindowModule : public facebook::react::TurboModule {
                                                  facebook::react::TurboModule &module,
                                                  const facebook::jsi::Value *args,
                                                  size_t count);
+  // The caption's four actions. GtkWindowModule and AppKitWindowModule
+  // register the same four under the same names; this host registered none of
+  // them, so useWindow().minimize() and .close() were silent no-ops here while
+  // working on the other two desktops -- and useCloseRequest could refuse a
+  // close and then not be able to honour agreeing to it.
+  static facebook::jsi::Value minimize(facebook::jsi::Runtime &runtime,
+                                       facebook::react::TurboModule &module,
+                                       const facebook::jsi::Value *args,
+                                       size_t count);
+  static facebook::jsi::Value toggleMaximize(facebook::jsi::Runtime &runtime,
+                                             facebook::react::TurboModule &module,
+                                             const facebook::jsi::Value *args,
+                                             size_t count);
+  static facebook::jsi::Value closeWindow(facebook::jsi::Runtime &runtime,
+                                          facebook::react::TurboModule &module,
+                                          const facebook::jsi::Value *args,
+                                          size_t count);
+  static facebook::jsi::Value startWindowDrag(facebook::jsi::Runtime &runtime,
+                                              facebook::react::TurboModule &module,
+                                              const facebook::jsi::Value *args,
+                                              size_t count);
   static facebook::jsi::Value noop(facebook::jsi::Runtime &runtime,
                                    facebook::react::TurboModule &module,
                                    const facebook::jsi::Value *args,
