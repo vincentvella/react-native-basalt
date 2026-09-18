@@ -1,0 +1,72 @@
+# Upstream
+
+Part of the [backlog](../backlog.md). Not scheduled.
+
+- **`http::Body::blob` is typed `std::optional<std::string>`** in
+  ReactCxxPlatform, and `convertRequestBody` sends `{blobId, offset, size}` --
+  an object. So a `Blob` request body throws "Value is an object, expected a
+  String" in the bridging layer before reaching any platform's http client,
+  identically on both desktops. The fix is a structured type or bridging that
+  resolves the handle. See `plan/31-blobs.md`.
+- **The cxx `NetworkingModule` does not mention blobs at all**, so
+  `responseType: 'blob'` has no response path to hook and `addNetworkingHandler`
+  has nothing to register with.
+
+- **`BaseViewConfig` registers `onPointerDown`, `onPointerUp` and
+  `onPointerCancel` and does not declare them.** All three are in
+  `bubblingEventTypes` with their bubbled and captured names, and supported the
+  whole way down -- `propsConversions.h` parses them into `ViewProps::events`,
+  `PointerEventsProcessor` handles them, `TouchEventEmitter::onPointerDown`
+  dispatches one. What is missing is their line in `validAttributes`, which
+  lists the five hover-ish pointer props and stops. So React never sends the
+  prop, the bit is never set, `shouldEmitPointerEvent` returns false, and the
+  event is dropped in C++ -- silently, and only for the three left out.
+
+  Costs a phone nothing, because a phone has no button to press. Costs a desktop
+  the ability to answer a right-click at all, which is what found it. Worked
+  around in `src/overrides/BaseViewConfig.js`, which is React Native's own file
+  plus six keys and goes away when upstream adds them.
+
+- **`ReactInstanceConfig` has no `platform` field.** `DevServerHelper` builds
+  every bundle URL with `constexpr DEFAULT_PLATFORM = "android"`, so every
+  desktop host asks Metro for an android bundle and the Metro plugin has to
+  correct the request on arrival by reading the platform back out of `app=`.
+  See `plan/21-js-platform-layer.md`. Worth a second upstream attempt now that
+  two platforms need it rather than one.
+
+- GTK 4.14's cairo renderer draws a transformed widget subtree unrotated and in
+  the wrong colour; the GL renderer is correct. Worth reducing to a minimal case
+  and reporting, or confirming it is already fixed in a later GTK.
+
+- **React Native's npm package omits `ReactCxxPlatform`.** Worked around by
+  fetching it at the app's exact version; see
+  `plan/13-upstream-reactcxxplatform.md`. The upstream fix is one line and about
+  1% of the package, and would remove the fetch entirely. Not raised: with no
+  users to point at, the ask would sit. Worth revisiting when there are.
+- The fetch needs a git tag matching the app's React Native. A nightly, a fork
+  or an unreleased version has none, and there is no fallback.
+- Also worth reporting, separately and smaller: the package ships
+  `ReactCommon/react/nativemodule/cputime`'s C++ while its codegen spec lives
+  under `src/private/testing/fantom` and does not ship, so that module cannot be
+  compiled from the package. This platform stopped building it.
+- Report the `HttpUtils.h` missing-`<cstdint>` bug. Since phase 41 there is a
+  second of exactly the same shape and they should go together:
+  `react/renderer/components/view/conversions.h` uses `M_PI` seven times, and
+  `M_PI` is a POSIX extension rather than standard C++ -- MSVC's `<cmath>`
+  defines it only behind `_USE_MATH_DEFINES`. Both compile on Meta's toolchains
+  through luck rather than intent.
+- **`ReactCommon/cmake-utils/react-native-flags.cmake` hardcodes clang's command
+  line** -- `-Wall -Werror -fexceptions -frtti -std=c++20` -- and carries
+  `TODO T228344694 improve this so that it works for all platforms` directly
+  beneath. Worth attaching a concrete report to: MSVC's front end has none of
+  those spellings, `-Wall` is actively misread by clang-cl as `/Wall` (which it
+  maps to `-Weverything`), and because `-Wpedantic` is applied `INTERFACE` on
+  `callinvoker` and `react_cxxstableapi` there is no flag a consumer can add
+  that lands late enough to counteract it. Phase 41 works around it by stripping
+  the flags from every target after `add_subdirectory`.
+- Report that `ReactCxxPlatform`'s `PlatformConstantsModule` hardcodes a React
+  Native version of 1000.0.0 in every version, releases included, so nothing
+  built on it can ever satisfy React Native's own development-mode version
+  check. Worked around in `src/LinuxPlatformConstants.cpp`.
+- Consider upstreaming a Linux entry in `getHostPlatform.js` if the host build
+  ever becomes something Meta would take.
