@@ -39,6 +39,21 @@ namespace basalt {
 //
 // A no-op when the build was not pointed at an expo-modules-core, like
 // everything else Expo here.
+// The whole of the framework, exported because a capability that ships as its
+// own package needs it to build its modules and should not copy it.
+//
+// `expoModule` is an `expo.NativeModule` instance -- expo's own class, installed
+// by ExpoRuntime, which is where `addListener` and the event machinery come
+// from. `addExpoFunction` puts a host function on one. Promises come from
+// core/JsiPromise.h.
+facebook::jsi::Object expoModule(facebook::jsi::Runtime &runtime);
+
+void addExpoFunction(facebook::jsi::Runtime &runtime,
+                     facebook::jsi::Object &module,
+                     const char *name,
+                     unsigned argumentCount,
+                     facebook::jsi::HostFunctionType function);
+
 void installExpoModules(facebook::jsi::Runtime &runtime, facebook::jsi::Object &modules);
 
 // Adds `expo.getViewConfig`, which is how expo-modules-core turns an Expo view

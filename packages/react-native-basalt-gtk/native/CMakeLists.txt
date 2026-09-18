@@ -7,6 +7,10 @@
 cmake_minimum_required(VERSION 3.13)
 project(basalt_gtk CXX)
 
+# What capability packages contributed for this host; see the root
+# CMakeLists and packages/react-native-basalt-notifications.
+get_property(BASALT_PACKAGE_GTK_SOURCES GLOBAL PROPERTY BASALT_PACKAGE_GTK_SOURCES)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -219,7 +223,7 @@ if(TARGET basalt_core)
     gtk/GtkRunLoopObserver.cpp
     gtk/GtkFocus.cpp
     # org.freedesktop.Notifications, over the session bus.
-    gtk/GtkNotifications.cpp
+    ${BASALT_PACKAGE_GTK_SOURCES}
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk PRIVATE basalt_gtk_mounting)
   target_compile_options(basalt_gtk PRIVATE -Wall -Wextra -Wno-unknown-pragmas)
@@ -251,7 +255,7 @@ if(TARGET basalt_core)
     # tests need it too, and it pulls in nothing else.
     gtk/GtkFocus.cpp
     # org.freedesktop.Notifications, over the session bus.
-    gtk/GtkNotifications.cpp
+    ${BASALT_PACKAGE_GTK_SOURCES}
     gtk/GtkTouchDispatcher.cpp)
   target_link_libraries(basalt_gtk_tests PRIVATE basalt_gtk_mounting)
   target_include_directories(basalt_gtk_tests PRIVATE tests ${BASALT_TEST_INCLUDE})

@@ -9,6 +9,10 @@
 cmake_minimum_required(VERSION 3.13)
 project(basalt_appkit CXX)
 
+# What capability packages contributed for this host; see the root
+# CMakeLists and packages/react-native-basalt-notifications.
+get_property(BASALT_PACKAGE_APPKIT_SOURCES GLOBAL PROPERTY BASALT_PACKAGE_APPKIT_SOURCES)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -168,7 +172,7 @@ if(TARGET basalt_core)
     appkit/AppKitAnimationChoreographer.mm
     appkit/AppKitFocus.mm
     # Why macOS cannot show a notification; see the file.
-    appkit/AppKitNotifications.mm
+    ${BASALT_PACKAGE_APPKIT_SOURCES}
     appkit/AppKitTouchDispatcher.mm)
   target_compile_options(basalt_appkit PRIVATE -Wall -Wextra -fobjc-arc)
   target_link_libraries(basalt_appkit PRIVATE basalt_appkit_mounting)
@@ -188,7 +192,7 @@ if(TARGET basalt_core)
     # tests need it too, and it pulls in nothing else.
     appkit/AppKitFocus.mm
     # Why macOS cannot show a notification; see the file.
-    appkit/AppKitNotifications.mm
+    ${BASALT_PACKAGE_APPKIT_SOURCES}
     appkit/AppKitTouchDispatcher.mm
     tests/test_appkit_input.mm
     # <TextInput>'s controlled-value loop, through real mutations.

@@ -43,6 +43,29 @@ if(DEFINED RN_DIR)
   get_filename_component(RN_DIR "${RN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
+# Capability packages before anything that reads what they contribute.
+#
+# A package appends to global properties -- sources, include directories, the
+# name of its Expo installer -- and core and the hosts read those. So they have
+# to be processed first, and that ordering is the only thing here that is not
+# obvious from the files themselves.
+#
+# BASALT_PACKAGES is a list of package roots. The command-line tool passes the
+# ones it found in the app's node_modules; an in-repository build defaults to
+# the packages in this repository, so that developing one is the same as using
+# one. See packages/react-native-basalt-notifications/native/CMakeLists.txt for
+# what a package contributes.
+if(NOT DEFINED BASALT_PACKAGES)
+  file(GLOB BASALT_PACKAGES ${CMAKE_CURRENT_SOURCE_DIR}/packages/react-native-basalt-notifications)
+endif()
+foreach(package ${BASALT_PACKAGES})
+  if(EXISTS ${package}/native/CMakeLists.txt)
+    get_filename_component(name ${package} NAME)
+    message(STATUS "basalt: capability package ${name}")
+    add_subdirectory(${package}/native basalt-package-${name})
+  endif()
+endforeach()
+
 # The shared half first, explicitly. Either platform package would add it, but
 # adding it here means the order the two are listed in cannot matter.
 add_subdirectory(packages/react-native-basalt/native basalt)

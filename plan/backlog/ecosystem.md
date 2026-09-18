@@ -11,7 +11,7 @@ Part of the [backlog](../backlog.md). Not scheduled.
 
 - **Nobody else can use this yet** -- because nothing is published, and no
   longer because installing would not work. A fresh `create-expo-app` (SDK 57,
-  React Native 0.86.3) with the four packages installed from their tarballs
+  React Native 0.86.3) with the core packages installed from their tarballs
   runs `react-native run-linux --build` and renders the template's text, with
   nothing from this repository on the path. `.github/workflows/release.yml`
   does exactly that on every release. Three things stood in the way, all in
@@ -40,7 +40,11 @@ Part of the [backlog](../backlog.md). Not scheduled.
   reporting to Expo.
 
   What is left before publishing is ordinary: versions, an npm account, the
-  publish step, and an install guide. And a first `--build` that compiles Hermes
+  publish step, and an install guide. Plus one thing that is not ordinary and
+  should happen first: deciding which capabilities ship separately, because
+  moving one after the first publish is a breaking change rather than a commit.
+  See `openspec/changes/split-optional-capabilities-into-packages`, whose first
+  move -- notifications -- is done. And a first `--build` that compiles Hermes
   and React Native's C++ from source, which is the part a user will notice.
 - **Adding a desktop to an Expo app is manual.** Two dev dependencies --
   `@react-native/metro-config`, which React Native's `start` command requires

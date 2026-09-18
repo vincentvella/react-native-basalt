@@ -587,3 +587,78 @@ test('packaging for Windows changes nothing, because the host does it', () => {
   assert.strictEqual(result.appPath, undefined);
   assert.strictEqual(result.desktopPath, undefined);
 });
+
+// --- Capability packages ----------------------------------------------------
+//
+// A package that ships native code says so in its own manifest, and the build
+// reads that rather than the CLI knowing its name. This is the mechanism that
+// lets a capability live outside core; see
+// openspec/changes/split-optional-capabilities-into-packages.
+
+function appWith(dependencies, packages) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-packages-'));
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({name: 'an-app', dependencies}),
+  );
+  for (const [name, manifest] of Object.entries(packages)) {
+    const dir = path.join(root, 'node_modules', name);
+    fs.mkdirSync(dir, {recursive: true});
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+    if (typeof manifest?.basalt?.native === 'string' && manifest.present !== false) {
+      const target = path.join(dir, manifest.basalt.native);
+      fs.mkdirSync(path.dirname(target), {recursive: true});
+      fs.writeFileSync(target, '# native\n');
+    }
+  }
+  return root;
+}
+
+test('a package declaring native code is discovered by its manifest', () => {
+  const root = appWith(
+    {'react-native-basalt-notifications': '*', 'left-pad': '*'},
+    {
+      'react-native-basalt-notifications': {
+        name: 'react-native-basalt-notifications',
+        basalt: {native: 'native/CMakeLists.txt'},
+      },
+      'left-pad': {name: 'left-pad'},
+    },
+  );
+  const found = desktop.capabilityPackages(root);
+  assert.equal(found.length, 1, 'only the package declaring native code');
+  assert.ok(found[0].endsWith('react-native-basalt-notifications'));
+});
+
+test('a package that declares native code and has none fails the build early', () => {
+  // Rather than a host quietly built without the capability, which fails later
+  // and further away -- at `requireNativeModule`, in JavaScript, at runtime.
+  const root = appWith(
+    {'react-native-basalt-ghost': '*'},
+    {
+      'react-native-basalt-ghost': {
+        name: 'react-native-basalt-ghost',
+        basalt: {native: 'native/CMakeLists.txt'},
+        present: false,
+      },
+    },
+  );
+  assert.throws(() => desktop.capabilityPackages(root), /does not exist/);
+});
+
+test('a transitive dependency does not contribute native code on its own', () => {
+  // Installed, declaring native code, and not asked for by the app. Compiling
+  // C++ into the host binary is not something a dependency of a dependency
+  // should be able to arrange.
+  const root = appWith(
+    {'left-pad': '*'},
+    {
+      'left-pad': {name: 'left-pad'},
+      'react-native-basalt-sneaky': {
+        name: 'react-native-basalt-sneaky',
+        basalt: {native: 'native/CMakeLists.txt'},
+      },
+    },
+  );
+  assert.deepEqual(desktop.capabilityPackages(root), []);
+});

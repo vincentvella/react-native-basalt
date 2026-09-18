@@ -139,7 +139,32 @@ if(DEFINED RN_DIR)
   # directory name, so a toolkit dependency that creeps into core fails the
   # build rather than quietly making core unshareable.
   # ---------------------------------------------------------------------------
+  # What the discovered capability packages contribute, and the translation unit
+  # that lets core call them without naming them. Generated either way: with no
+  # packages it defines an empty function, so core has one thing to call rather
+  # than a conditional. See core/PackageModules.h.
+  get_property(basalt_package_installers GLOBAL PROPERTY BASALT_PACKAGE_EXPO_INSTALLERS)
+  get_property(basalt_package_core_sources GLOBAL PROPERTY BASALT_PACKAGE_CORE_SOURCES)
+  get_property(basalt_package_includes GLOBAL PROPERTY BASALT_PACKAGE_INCLUDES)
+
+  # A semicolon by character code: CMake treats `;` as a list separator, and
+  # escaping it as `\;` survives into the generated file rather than becoming
+  # one. This is the shortest way to emit C++ from CMake without fighting that.
+  string(ASCII 59 basalt_semicolon)
+  set(basalt_package_declarations "")
+  set(basalt_package_calls "")
+  foreach(installer ${basalt_package_installers})
+    string(APPEND basalt_package_declarations
+      "void ${installer}(facebook::jsi::Runtime &, facebook::jsi::Object &)${basalt_semicolon}\n")
+    string(APPEND basalt_package_calls
+      "  ${installer}(runtime, modules)${basalt_semicolon}\n")
+  endforeach()
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/core/PackageModules.cpp.in
+                 ${CMAKE_CURRENT_BINARY_DIR}/BasaltPackageModules.cpp @ONLY)
+
   add_library(basalt_core STATIC
+    ${CMAKE_CURRENT_BINARY_DIR}/BasaltPackageModules.cpp
+    ${basalt_package_core_sources}
     # What the app calls itself, which a generic host binary cannot know.
     core/AppIdentity.cpp
     # `Appearance`, and the portable half of light-vs-dark.
@@ -210,7 +235,7 @@ if(DEFINED RN_DIR)
   target_compile_definitions(basalt_core PUBLIC
     BASALT_REACT_NATIVE_VERSION="${RN_VERSION}"
     BASALT_RN_MINOR=${RN_MINOR})
-  target_include_directories(basalt_core PUBLIC core)
+  target_include_directories(basalt_core PUBLIC core ${basalt_package_includes})
   target_include_directories(basalt_core SYSTEM PUBLIC
     ${RN_DIR}/ReactCommon
     ${RN_DIR}/ReactCommon/jsi

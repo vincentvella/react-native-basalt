@@ -202,6 +202,62 @@ function findPackage(name, from) {
  * than failing the configure: Reanimated 4 is built on worklets and
  * Reanimated.cmake requires both.
  */
+/**
+ * Capability packages: anything installed that declares native code of its own.
+ *
+ * A package says so in its own manifest -- `"basalt": {"native": "..."}` -- and
+ * the build reads that rather than this file knowing its name. Which is the
+ * difference between this and the three special cases below: Expo, worklets and
+ * Reanimated are third-party packages that will never carry the key, so they
+ * stay hardcoded; anything shipped for this platform does not have to be.
+ *
+ * Scanned from the app's own dependencies rather than the whole of
+ * node_modules: a transitive dependency contributing C++ to the host binary
+ * without the app asking is not a thing to make easy.
+ */
+function capabilityPackages(projectRoot) {
+  const manifestPath = path.join(projectRoot, 'package.json');
+  if (!fs.existsSync(manifestPath)) {
+    return [];
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return [];
+  }
+  const names = [
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.devDependencies ?? {}),
+  ];
+  const found = [];
+  for (const name of names) {
+    const dir = findPackage(name, projectRoot);
+    if (dir == null) {
+      continue;
+    }
+    let declared;
+    try {
+      declared = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    const native = declared?.basalt?.native;
+    if (typeof native !== 'string') {
+      continue;
+    }
+    if (!fs.existsSync(path.join(dir, native))) {
+      throw new Error(
+        `${name} declares "basalt.native": ${JSON.stringify(native)} and that file ` +
+          `does not exist. A package that says it has native code and does not is a ` +
+          `host built without it, which fails later and further away.`,
+      );
+    }
+    found.push(dir);
+  }
+  return found;
+}
+
 function optionalNativeModules(projectRoot) {
   const args = [];
   const notes = [];
@@ -232,6 +288,18 @@ function optionalNativeModules(projectRoot) {
       `not building react-native-reanimated (${reanimated}): it needs ` +
         'react-native-worklets, which is not installed',
     );
+  }
+
+  // And anything that declares native code in its own manifest. One -D holding
+  // a list, because CMake reads a semicolon-separated value as a list and the
+  // root CMakeLists iterates it.
+  const packages = capabilityPackages(projectRoot);
+  if (packages.length > 0) {
+    const dirs = packages.map(dir => dir.split(path.sep).join('/'));
+    args.push(`-DBASALT_PACKAGES=${dirs.join(';')}`);
+    for (const dir of packages) {
+      notes.push(`capability package, from ${dir}`);
+    }
   }
 
   return {args, notes};
@@ -820,6 +888,7 @@ module.exports = {
   MissingHost,
   buildHost,
   candidates,
+  capabilityPackages,
   compilerArgs,
   findGitBash,
   isExecutable,

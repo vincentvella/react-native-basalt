@@ -12,6 +12,10 @@
 cmake_minimum_required(VERSION 3.13)
 project(basalt_win32 CXX)
 
+# What capability packages contributed for this host; see the root
+# CMakeLists and packages/react-native-basalt-notifications.
+get_property(BASALT_PACKAGE_WIN32_SOURCES GLOBAL PROPERTY BASALT_PACKAGE_WIN32_SOURCES)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -176,7 +180,7 @@ if(TARGET basalt_core)
     # machine is provable without a cursor.
     win32/Win32Focus.cpp
     # Why Windows cannot show a notification; see the file.
-    win32/Win32Notifications.cpp
+    ${BASALT_PACKAGE_WIN32_SOURCES}
     # The AppUserModelID and the Start Menu shortcut behind it, which is what
     # makes a notification say which application it came from.
     win32/Win32Packaging.cpp

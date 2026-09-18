@@ -87,8 +87,14 @@ void showMenu(const MenuRequest &, MenuCallback onChosen) {
 // and says so.
 // The notification seam, stubbed the same way. A real platform answers through
 // org.freedesktop.Notifications, UNUserNotificationCenter or the Windows
-// toast API; one that has not yet says so and goes no further. Added when the
-// expo-notifications proxy arrived, which is what put these symbols in core.
+// toast API; one that has not yet says so and goes no further.
+//
+// Still here after notifications moved out of core, and that is the honest
+// answer rather than an oversight: the probe links `basalt_core`, and a
+// discovered capability package is compiled into it, so its seam is one of the
+// symbols a build has to satisfy. A build that discovered no packages would not
+// need these -- which is exactly the question the probe exists to answer, and
+// it will answer it differently depending on what is installed.
 NotificationSupport notificationSupport() {
   return {false, "no platform in this build"};
 }

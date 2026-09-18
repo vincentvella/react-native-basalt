@@ -10,14 +10,14 @@
 
 ## 2. Generalise discovery
 
-- [ ] Define the manifest key and the CMake entry point it names
+- [x] Define the manifest key and the CMake entry point it names
 - [ ] Make `optionalNativeModules` scan dependencies for it
 - [ ] Keep the Expo, worklets and Reanimated special cases, and say why
 - [ ] Fail loudly, naming the package, when a contributed build fails
 
 ## 3. Apply it
 
-- [ ] Move the notifications seam out of core first -- it is the only shipped
+- [x] Move the notifications seam out of core first -- it is the only shipped
       capability the rule catches, and proving it does not break the
       expo-notifications proxy is what makes the rest safe
 - [ ] Move what the rule moves, in one commit per package
