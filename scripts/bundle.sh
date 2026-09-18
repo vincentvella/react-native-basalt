@@ -53,7 +53,14 @@ done
 
 RN_DIR="${args[0]:-${RN_DIR:-}}"
 if [ -z "$RN_DIR" ]; then
-  for candidate in "$REPO_ROOT/../react-native" "$HOME/Workspace/react-native"; do
+  # react-native-src is where CI fetches it and where scripts/wsl_setup.sh
+  # clones it, and scripts/build_ts.sh already looks there. Without it this
+  # found nothing on any machine not laid out like the one it was written on,
+  # and everything that bundles without naming a checkout -- test_all.sh, every
+  # scenario integration_test.py bundles for itself -- failed with "pass the
+  # React Native checkout path". CI never saw it: it sets RN_DIR.
+  for candidate in "$REPO_ROOT/../react-native" "$REPO_ROOT/react-native-src" \
+                   "$HOME/Workspace/react-native"; do
     [ -d "$candidate/packages/react-native/ReactCommon" ] && { RN_DIR="$candidate"; break; }
   done
 fi

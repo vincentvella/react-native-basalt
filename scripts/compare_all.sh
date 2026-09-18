@@ -83,9 +83,18 @@ if [[ -n "$wsl_distro" && ! " ${platforms[*]} " =~ " linux " ]]; then
   fi
 fi
 
+# 77 rather than 1: automake's "skipped", which test_all.sh reads as such. One
+# host is not a broken comparison, it is no comparison -- the normal state of a
+# Linux box, and of Windows until BASALT_COMPARE_WSL names a distro -- and
+# counting it as a failure meant the full suite could never pass on any machine
+# but the one with GTK installed beside AppKit. Still non-zero, so a person who
+# asked for a comparison directly is told it did not happen.
 if [[ ${#platforms[@]} -lt 2 ]]; then
   echo "need at least two hosts built to compare; found ${#platforms[@]} in $build" >&2
-  exit 1
+  if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]] && [[ -z "$wsl_distro" ]]; then
+    echo "on Windows, BASALT_COMPARE_WSL=Ubuntu-24.04 counts the GTK host in WSL as the second; see docs/TESTING.md" >&2
+  fi
+  exit 77
 fi
 echo "hosts: ${platforms[*]}${linux_in_wsl:+ (linux in $wsl_distro)}"
 echo

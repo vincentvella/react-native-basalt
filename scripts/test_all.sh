@@ -98,8 +98,15 @@ step() {
     return 0
   fi
   printf '\n\033[1m== %s\033[0m\n' "$name"
-  if "$@"; then
+  "$@"
+  local status=$?
+  if [[ $status -eq 0 ]]; then
     printf '\033[32mok\033[0m  %s\n' "$name"
+  elif [[ $status -eq 77 ]]; then
+    # 77 is automake's "skipped": the step ran and found it had nothing it
+    # could honestly check here. compare_all.sh answers it with one host.
+    printf '\033[33mskipped\033[0m  %s\n' "$name"
+    skipped+=("$name")
   else
     printf '\033[31mFAILED\033[0m  %s\n' "$name"
     failed+=("$name")
@@ -156,13 +163,18 @@ else
   # Needs the demo bundled for this platform. Built here rather than depended
   # on, because a stale bundle is a suite that passes against yesterday's
   # JavaScript -- which has happened.
-  step "bundle the demo" scripts/bundle.sh ../react-native --prod --platform "$platform"
+  # No checkout named: bundle.sh finds one the way build_ts.sh does, beside the
+  # repository or inside it as react-native-src, or takes RN_DIR. Naming
+  # ../react-native here made this step fail on every machine where React
+  # Native lives anywhere else -- a Linux checkout from wsl_setup.sh among them.
+  step "bundle the demo" scripts/bundle.sh --prod --platform "$platform"
   step "end-to-end" python3 scripts/integration_test.py --platform "$platform"
 
   # --- Cross-host parity -----------------------------------------------------
   #
-  # Every app in js/ through every host that is built, diffed. Needs two hosts,
-  # and says so itself when there is only one.
+  # Every app in js/ through every host that is built, diffed. Needs two hosts;
+  # with one, compare_all.sh says so and exits 77, and this counts as skipped.
+  # On Windows, BASALT_COMPARE_WSL=Ubuntu-24.04 supplies the second.
   step "cross-host parity" scripts/compare_all.sh
 fi
 

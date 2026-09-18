@@ -28,7 +28,12 @@ done
 
 RN_DIR="${args[0]:-${RN_DIR:-}}"
 if [ -z "$RN_DIR" ]; then
-  for candidate in "$REPO_ROOT/../react-native" "$HOME/Workspace/react-native"; do
+  # react-native-src too, for the reason bundle.sh gives: it is where CI and
+  # wsl_setup.sh put the checkout. Without it the two scenarios that start their
+  # own Metro -- Fast Refresh and the developer menu -- failed with "metro
+  # exited before it started serving" anywhere RN_DIR was not set by hand.
+  for candidate in "$REPO_ROOT/../react-native" "$REPO_ROOT/react-native-src" \
+                   "$HOME/Workspace/react-native"; do
     [ -d "$candidate/packages/react-native/ReactCommon" ] && { RN_DIR="$candidate"; break; }
   done
 fi
