@@ -3,8 +3,8 @@
 ## 1. Settle the rule
 
 - [ ] Agree the three tests, or amend them
-- [ ] Answer the open question on menus, dialogs and the title bar
 - [ ] Answer the open question on single-desktop capabilities
+- [ ] Decide which half of spell checking this platform implements
 - [ ] Record the outcome in `plan/decisions.md`
 
 ## 2. Generalise discovery
@@ -16,6 +16,9 @@
 
 ## 3. Apply it
 
+- [ ] Move the notifications seam out of core first -- it is the only shipped
+      capability the rule catches, and proving it does not break the
+      expo-notifications proxy is what makes the rest safe
 - [ ] Move what the rule moves, in one commit per package
 - [ ] Have `init` install what an app needs so the split is invisible to it
 - [ ] Update the specs whose capability moved

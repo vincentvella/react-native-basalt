@@ -12,14 +12,17 @@ This platform is at the point where that decision is cheap and about to stop
 being. Thirty-three desktop capabilities are catalogued as open. Today
 `react-native-basalt` holds every one that has shipped -- windows, menus,
 dialogs, context menus, the title bar -- and nothing decides where the next one
-goes. A tray icon, a spell checker, power monitoring, global shortcuts and
-in-app purchases are not the same kind of thing as `<View>`, and putting them in
-the same package is the decision that was made by not making it.
+goes. A camera, a tray icon, power monitoring, global shortcuts and drag and drop are
+not the same kind of thing as `<View>` or a menu, and putting them in the same
+package is the decision that was made by not making it.
 
 ## What Changes
 
 - A stated rule for what belongs in `react-native-basalt` and what belongs in a
-  package of its own.
+  package of its own: core is the application's own surface -- its windows,
+  menus, dialogs, components and input -- and a package is anything that reaches
+  outside it, by needing the person's consent, by touching hardware or another
+  application, or by acting when the app is not focused.
 - Generalise the mechanism that already compiles an optional native module into
   the host. The CLI detects `expo-modules-core`, `react-native-worklets` and
   `react-native-reanimated` by name and passes each as a `-D` to CMake; that
