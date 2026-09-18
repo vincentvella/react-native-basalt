@@ -151,7 +151,7 @@ void RnWin32Image::draw(ID2D1RenderTarget *target,
                         float boxWidth,
                         float boxHeight,
                         RnImageFit fit,
-                        const D2D1_COLOR_F *tint) const {
+                        const float *tint) const {
   if (target == nullptr || bitmap_ == nullptr || boxWidth <= 0.0f || boxHeight <= 0.0f) {
     return;
   }
@@ -216,7 +216,8 @@ void RnWin32Image::draw(ID2D1RenderTarget *target,
       // graphics rather than text, and refuses the call otherwise -- so the
       // mode is changed for the one draw and put back.
       Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-      if (SUCCEEDED(target->CreateSolidColorBrush(*tint, brush.GetAddressOf()))) {
+      const D2D1_COLOR_F color = D2D1::ColorF(tint[0], tint[1], tint[2], tint[3]);
+      if (SUCCEEDED(target->CreateSolidColorBrush(color, brush.GetAddressOf()))) {
         const D2D1_ANTIALIAS_MODE previous = target->GetAntialiasMode();
         target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
         target->FillOpacityMask(deviceBitmap_,

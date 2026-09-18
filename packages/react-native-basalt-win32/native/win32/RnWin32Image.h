@@ -20,12 +20,6 @@
 struct ID2D1RenderTarget;
 struct IWICBitmap;
 struct ID2D1Bitmap;
-// `D2D1_COLOR_F` is a typedef of this, so forward-declaring the struct is what
-// keeps d2d1.h out of a header that deliberately carries none of it -- the same
-// reason the three above are declared rather than included. Declaring the
-// typedef name instead is not possible, which is how this got here: it compiled
-// everywhere the header was included after d2d1.h and nowhere else.
-struct D2D_COLOR_F;
 
 namespace basalt::win32 {
 
@@ -62,12 +56,21 @@ class RnWin32Image {
   // Draws into a box `boxWidth` by `boxHeight` at the target's current origin,
   // scaled and positioned by `fit`.
   // `tint`, when given, recolours the image keeping its alpha -- one silhouette
-  // asset drawn in any colour, which is what `tintColor` is for.
+  // asset drawn in any colour, which is what `tintColor` is for. Four floats,
+  // red green blue alpha, which is what the caller already holds.
+  //
+  // Not a `D2D1_COLOR_F`, though that is what it becomes: this header declares
+  // its Direct2D types rather than including d2d1.h, and that one is a typedef
+  // of a typedef -- `D3DCOLORVALUE`, itself `_D3DCOLORVALUE` -- so it cannot be
+  // forward-declared at all. Declaring `struct D2D_COLOR_F` instead defines a
+  // *different* type of that name and every later include of d2d1.h fails on
+  // the redefinition, which is exactly what it did. Floats cannot collide with
+  // anything, and the colour is built where d2d1.h is already in scope.
   void draw(ID2D1RenderTarget *target,
             float boxWidth,
             float boxHeight,
             RnImageFit fit,
-            const D2D_COLOR_F *tint = nullptr) const;
+            const float *tint = nullptr) const;
 
  private:
   RnWin32Image() = default;

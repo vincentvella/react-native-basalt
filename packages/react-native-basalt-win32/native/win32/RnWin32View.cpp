@@ -396,12 +396,13 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
     // on one view, but the order still has to be decided somewhere, and it is
     // cheaper to match than to argue about later.
     if (image_ != nullptr) {
-      const D2D1_COLOR_F tint = D2D1::ColorF(imageTint_[0], imageTint_[1], imageTint_[2], imageTint_[3]);
+      // The four floats as stored; RnWin32Image builds the Direct2D colour,
+      // where d2d1.h is in scope. See its header for why it takes floats.
       image_->draw(target,
                    frame_.width,
                    frame_.height,
                    imageFit_,
-                   hasImageTint_ ? &tint : nullptr);
+                   hasImageTint_ ? imageTint_ : nullptr);
     }
 
     // Text sits above the background and below any children, which is the
