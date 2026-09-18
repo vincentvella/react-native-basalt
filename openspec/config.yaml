@@ -1,5 +1,21 @@
 schema: spec-driven
 
+context: |
+  react-native-basalt: React Native on the desktop (Linux/GTK4, macOS/AppKit,
+  Windows/Win32) on React Native's own ReactCxxPlatform C++ core.
+
+  Where things live:
+    openspec/specs/     what the platform is required to do
+    openspec/changes/   work proposed or under way -- all new work starts here
+    plan/backlog/       known gaps, unscheduled, one file per area
+    plan/decisions.md   choices made, so they are not re-litigated
+    plan/NN-*.md        a journal of the phases that built this. CLOSED at 50:
+                        do not add another one. See plan/README.md.
+
+  A capability that is implemented on one host must be implemented or honestly
+  refused on all three; core/ decides anything the three would otherwise be
+  free to disagree about.
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.

@@ -22,7 +22,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Text](backlog/text.md) | 7 | Measurement and layout gaps. |
 | [TextInput](backlog/textinput.md) | 8 | Multiline, `maxLength`, keyboard types, spell check. |
 | [Image](backlog/image.md) | 7 | Animated images, decorative props. |
-| [ScrollView](backlog/scrollview.md) | 6 | Scrollbars, momentum, elasticity. |
+| [ScrollView](backlog/scrollview.md) | 3 | Trackpad scrolling unverified, `contentBoundingRect`, view culling. |
 | [Components](backlog/components.md) | 5 | What is not implemented at all, and `<Modal>` as a real window. |
 | [Accessibility](backlog/accessibility.md) | 5 | Nothing has been tested against a real screen reader. |
 | [Correctness](backlog/correctness.md) | 5 | Things that work but not quite right. |
@@ -32,7 +32,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | Area | Open | What is left there |
 | --- | --- | --- |
 | [Windows, the platform](backlog/platform-windows.md) | 7 | A peer since phase 47. What is left is named, and none of it is a missing half. |
-| [macOS](backlog/platform-macos.md) | 16 | Hit testing and transforms, accessibility, fonts. |
+| [macOS](backlog/platform-macos.md) | 15 | Hit testing and transforms, accessibility, fonts. |
 | [Host wiring](backlog/host-wiring.md) | 7 | Dev support, error reporting, the offline `__DEV__` bundle. |
 | [Compatibility](backlog/compatibility.md) | 6 | Which React Native versions work, and which cannot. |
 | [Testing](backlog/testing.md) | 12 | What the suites cannot see. Was two sections with the same name, 800 lines apart; merged. |

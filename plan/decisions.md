@@ -486,3 +486,30 @@ right direction*, that opacity composites a subtree rather than a brush, that a
 clip clips. What those tests check is not Windows-specific; only their being
 cheap is. They are the shape for the other two hosts to borrow, not a reason to
 leave them unchecked.
+
+## The phase journal is closed; new work is an OpenSpec change — 2026-09-18
+
+**Rejected:** carrying on the numbered `plan/NN-*.md` series alongside
+`openspec/`, which had left two places to write down what was about to happen.
+
+**Chosen:** the series ends at 50. Work is proposed in `openspec/changes/<name>`
+and, once it is true, described in `openspec/specs/`.
+
+**Why:** the two were not duplicates so much as different tenses of the same
+sentence. A phase file said "here is what I did and why", which git history
+already dates and which goes stale the moment the code moves on; a spec says
+"here is what this platform is required to do", which is checkable
+(`openspec validate --specs --strict`), diffable against reality, and useful to
+somebody who was not here. Keeping both meant the honest answer to "what does
+this do" depended on which file you happened to open.
+
+The 49 existing files stay: about fifty comments in the C++ cite them by name,
+and the order things were done in is the part of them worth keeping. They are an
+archive, not a dead letter -- correcting one is fine, extending the series is
+not.
+
+What did *not* move, and is not going to: `backlog.md` and `backlog/`, which
+record gaps rather than plans, and this file. OpenSpec has `specs` for the
+present and `changes` for the proposed, and no home for "known, unscheduled" or
+for a decision that spans changes. `backlog/desktop-capabilities.md` points at
+the changes that grew out of it, which is the seam between the two.

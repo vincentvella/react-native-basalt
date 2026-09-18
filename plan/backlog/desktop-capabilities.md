@@ -2,6 +2,11 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+An entry here is a gap, not a plan. When one is picked up it becomes a change in
+`openspec/changes/`, which is where the requirements and the task list live from
+then on -- the entry stays, so the catalogue remains a complete answer to "what
+is missing", and gains a pointer. Three entries have one today.
+
 **Open (33):**
 
 1. A second window's children do not see React context
@@ -15,11 +20,11 @@ Part of the [backlog](../backlog.md). Not scheduled.
 9. A system tray icon
 10. Windows notifications carry no identity of their own
 11. Cursor control
-12. Application lifecycle
-13. Drag and drop
+12. Application lifecycle -- refusing to quit is proposed
+13. Drag and drop -- proposed
 14. Clipboard
 15. Shell integration
-16. Displays and screen
+16. Displays and screen -- proposed
 17. Power and idle
 18. Global shortcuts
 19. Permissions
@@ -97,7 +102,8 @@ has gone unrecorded until now.
   a resizable flag and always-on-top, with `capabilities` answering which of
   those this desktop does. What is left of the lifecycle is **quitting**, which
   is a different event from closing a window: Cmd-Q, and the Windows and GNOME
-  session-end signals, each need their own seam.
+  session-end signals, each need their own seam. Proposed, as
+  `openspec/changes/refuse-to-quit`.
   The title can be influenced too, on Windows, with the title bar's colours
   and a hidden style that lets the app draw its own header -- `useTitleBar`,
   `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
@@ -151,8 +157,15 @@ desktop actually shows, gone through one at a time and checked against the
 repository rather than remembered. Status is *done*, *partial* or *absent*, and
 partial always says which half.
 
-Nothing here is scheduled. It is here so that "what is missing" is an answer
+Nothing here is scheduled, and the three entries that carry a pointer are
+proposed rather than started. It is here so that "what is missing" is an answer
 rather than a search.
+
+Where these land when they are built is its own question, and a decided one:
+`openspec/changes/split-optional-capabilities-into-packages` draws the line
+between what core owes every app and what belongs in a capability package. It
+was written against this catalogue, so a new entry here is also a new entry for
+that boundary to place.
 
 - **Application lifecycle** -- *absent*, all of it.
   - **Quitting cannot be refused.** The gap `useCloseRequest()` leaves: an app can
@@ -160,7 +173,8 @@ rather than a search.
   `applicationShouldTerminate:` and never asks a window whether it minds. The
   Windows and GNOME session-end signals (`WM_QUERYENDSESSION`, the session
   manager's) are the same question. Each needs its own seam; the flag machinery
-  in core/WindowHost.h is the shape to copy.
+  in core/WindowHost.h is the shape to copy. Proposed, as
+  `openspec/changes/refuse-to-quit`.
   - **No single-instance lock.** A second launch starts a second process. Every
   desktop expects the first to be raised and handed the arguments instead --
   which is also how a file association or a URL reaches a running app.
@@ -172,7 +186,8 @@ rather than a search.
   it needs a drop-target seam, hit testing against the drag position, and a
   representation for what is being dragged, over `GtkDropTarget`,
   `NSDraggingDestination` and OLE's `IDropTarget`. Dragging *out* is the half
-  people forget and the half a file manager needs.
+  people forget and the half a file manager needs. Proposed, as
+  `openspec/changes/add-drag-and-drop`.
 
 - **Clipboard** -- *partial*. Text works, through React Native's own `Clipboard`.
   Images, HTML, RTF and a list of files are each a separate pasteboard type on
@@ -191,7 +206,7 @@ rather than a search.
   display list, no per-display scale factor or work area, no pointer position, and
   no event when a monitor is plugged in or the arrangement changes. React Native's
   `Dimensions` reports the window, which is the right answer to a different
-  question.
+  question. Proposed, as `openspec/changes/expose-displays`.
 
 - **Power and idle** -- *absent*. Suspend, resume, lock, unlock, on-battery and
   battery level; how long the person has been idle; and asking the system not to
