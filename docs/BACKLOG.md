@@ -10,7 +10,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | Area | Open | What is left there |
 | --- | --- | --- |
 | [Desktop capabilities](backlog/desktop-capabilities.md) | 11 | Windows, menus and dialogs are done; the catalogue at the end of that file is the rest of the surface -- drag and drop, tray, permissions, power, displays, global shortcuts -- checked one at a time against the repository. |
-| [Ecosystem](backlog/ecosystem.md) | 4 | Nobody else can use this yet: nothing is published. `npx react-native-basalt init`, and porting a first third-party native module. |
+| [Ecosystem](backlog/ecosystem.md) | 3 | Nobody else can use this yet: nothing is published. Porting a first third-party native module, and packaging for Arch and Flatpak. |
 | [Core modules](backlog/core-modules.md) | 7 | React Native APIs with no implementation here. |
 | [Expo](backlog/expo.md) | 11 | Beyond the template: more Expo views, notification delivery and scheduling. |
 

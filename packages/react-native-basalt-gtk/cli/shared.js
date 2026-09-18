@@ -21,6 +21,7 @@
  * @format
  */
 
+// @ts-check
 'use strict';
 
 const path = require('path');
@@ -29,24 +30,30 @@ const SIBLING = path.resolve(__dirname, '..', '..', 'react-native-basalt');
 
 /**
  * Where react-native-basalt is on disk. Same two layouts, same order.
+ * @returns {string}
  */
 function sharedPackageDir() {
   try {
     return path.dirname(require.resolve('react-native-basalt/package.json'));
   } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND') {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'MODULE_NOT_FOUND') {
       throw error;
     }
     return SIBLING;
   }
 }
 
+/**
+ * One of react-native-basalt's modules, by subpath.
+ * @param {string} subpath
+ * @returns {any}
+ */
 function shared(subpath) {
   const name = `react-native-basalt/${subpath}`;
   try {
     return require(name);
   } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND') {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'MODULE_NOT_FOUND') {
       // The module was found and threw on its way up. Passing it through keeps
       // a real error in that file from being reported as a missing package.
       throw error;
@@ -54,7 +61,7 @@ function shared(subpath) {
     try {
       return require(path.join(SIBLING, 'dist', subpath));
     } catch (siblingError) {
-      if (siblingError.code === 'MODULE_NOT_FOUND') {
+      if (/** @type {NodeJS.ErrnoException} */ (siblingError).code === 'MODULE_NOT_FOUND') {
         throw new Error(
           `could not load ${name}. In a checkout, react-native-basalt has to be ` +
             'built first: run scripts/build_ts.sh.',

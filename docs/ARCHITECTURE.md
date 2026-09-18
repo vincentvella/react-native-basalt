@@ -272,6 +272,36 @@ project supplies them:
 The six non-obvious requirements, and the upstream bug found while building,
 are documented in the project README.
 
+### The JavaScript is built too
+
+`react-native-basalt` is TypeScript, and `main` points into its `dist/`. So
+nothing that bundles works in a fresh checkout until `scripts/build_ts.sh` has
+run -- `scripts/bundle.sh` runs it for you, and CI runs it before the Node
+suites on both runners, where it doubles as the type check.
+
+Three consequences are worth knowing before they are discovered:
+
+- **`main` is not source.** Anything reaching into the package by path wants
+  `dist/`. A stale path does not fail cleanly: Node 24 picks up the `.ts`
+  sibling and reports `Unexpected token 'export'`, which names neither the file
+  nor the reason.
+- **The overrides are compiled, and their filenames are load-bearing.** Metro
+  selects `Platform.linux.js` and its siblings by name, and resolves the rest by
+  absolute path out of `OVERRIDE_DIR`, so the emitted names have to match the
+  source ones. Bundling a demo and asking what `Platform.OS` says is what checks
+  that, because a failure here silently falls back to React Native's own
+  `Platform` a long way from the cause.
+- **Two kinds of file stay JavaScript**, and neither is an exception waiting to
+  be tidied. `react-native.config.js` -- this package's and each host
+  package's -- is read by React Native's CLI from `node_modules/<package>/` as
+  plain CommonJS, by path convention rather than through `exports`. Putting a
+  tool this project does not control behind a build step, to type what is mostly
+  a data literal, is the wrong trade. They carry `// @ts-check` and JSDoc
+  instead, and the host packages have a `tsconfig.json` that only checks: no
+  `dist`, and none intended.
+
+`docs/DECISIONS.md` has why TypeScript at all, and what the compile step costs.
+
 ## What is built, and what is next
 
 Not a table here. What the platform is required to do is `openspec/specs/`,

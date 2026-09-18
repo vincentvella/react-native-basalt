@@ -70,6 +70,16 @@ JSON
 
 PACKAGES=("$REPO_ROOT/packages/react-native-basalt")
 
+# Checked but not built. Everything in these is in react-native.config.js's
+# load path, which React Native's CLI reads as plain CommonJS out of
+# node_modules, so none of it can go behind a build. The files opt into
+# checking with `// @ts-check`.
+CHECKED=(
+  "$REPO_ROOT/packages/react-native-basalt-gtk"
+  "$REPO_ROOT/packages/react-native-basalt-appkit"
+  "$REPO_ROOT/packages/react-native-basalt-win32"
+)
+
 for package in "${PACKAGES[@]}"; do
   [ -f "$package/tsconfig.json" ] || continue
   echo "==> building $(basename "$package")"
@@ -79,5 +89,13 @@ for package in "${PACKAGES[@]}"; do
     "$TSC" --build "$package"
   fi
 done
+
+if ! $WATCH; then
+  for package in "${CHECKED[@]}"; do
+    [ -f "$package/tsconfig.json" ] || continue
+    echo "==> checking $(basename "$package")"
+    "$TSC" --noEmit -p "$package"
+  done
+fi
 
 echo "==> built"

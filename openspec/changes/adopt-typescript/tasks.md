@@ -43,5 +43,7 @@
 
 ## 6. Records
 
-- [ ] `docs/ARCHITECTURE.md`: the build step and why `main` moved
-- [ ] Strike the entry in `docs/backlog/ecosystem.md`
+- [x] `docs/ARCHITECTURE.md`: the build step and why `main` moved
+- [x] Strike the entry in `docs/backlog/ecosystem.md`
+- [x] The host packages are checked, not compiled: everything in them is in
+      `react-native.config.js`'s load path

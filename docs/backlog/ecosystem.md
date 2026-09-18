@@ -2,13 +2,11 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (5):**
+**Open (3):**
 
 1. Nobody else can use this yet
-2. ~~Adding a desktop to an Expo app is manual~~ -- done, `npx react-native-basalt init`
-3. Porting a first third-party native module end to end
-4. Packaging: Arch PKGBUILD, Flatpak
-5. The package ships no types, and an Expo app is TypeScript by default
+2. Porting a first third-party native module end to end
+3. Packaging: Arch PKGBUILD, Flatpak
 
 - **Nobody else can use this yet** -- because nothing is published, and no
   longer because installing would not work. A fresh `create-expo-app` (SDK 57,
@@ -71,19 +69,12 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   guess.
 - Packaging: Arch PKGBUILD, Flatpak.
 
-- **The package ships no types, and an Expo app is TypeScript by default.**
-  `create-expo-app` gives you TypeScript, so the first thing a new user writes
-  is `import {useWindow} from 'react-native-basalt'` -- and gets nothing.
-  `package.json` sets no `types`, there is no `.d.ts` anywhere, and there is no
-  `tsconfig.json` in the repository.
+- ~~**The package ships no types, and an Expo app is TypeScript by default.**~~
+  Done: the package is TypeScript and publishes its declarations, so
+  `import {useWindow} from 'react-native-basalt'` in a `create-expo-app` project
+  is typed. `docs/DECISIONS.md` records why that rather than JSDoc, and
+  `docs/ARCHITECTURE.md` what the build step costs.
 
-  This is drift rather than a decision: nothing in `docs/DECISIONS.md` argues
-  for JavaScript, which is where such an argument would live.
-
-  Converting the source is the expensive answer and probably the wrong one --
-  `main` points straight at `src/index.js`, so this package has no build step,
-  and adding TypeScript to the source adds one. The cheaper shape is JSDoc types
-  in the JavaScript, `// @ts-check` in CI, and `.d.ts` generated with
-  `tsc --declaration --allowJs --emitDeclarationOnly`: consumers get types, the
-  source stays as it is, and nothing gains a runtime build. Worth deciding
-  before publishing, because the answer changes the public surface.
+  The two files that stay JavaScript are the CLI manifests, which React Native's
+  CLI loads as plain CommonJS by path convention; they are checked with
+  `@ts-check` rather than compiled.
