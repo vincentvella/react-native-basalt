@@ -31,3 +31,7 @@ examples/*/node_modules/
 # imported directly when running a single scenario.
 __pycache__/
 *.pyc
+
+# Built by scripts/build_ts.sh. `main` points into it; it is not source.
+packages/*/dist/
+*.tsbuildinfo

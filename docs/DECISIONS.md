@@ -524,3 +524,38 @@ every case the comment already carried the whole explanation and the pointer was
 decoration. Where it was not -- `bootstrap.sh`, which cites the Hermes patches
 seven times between them -- the content moved to `docs/PORTING.md` rather than
 being dropped.
+
+## TypeScript, with a compile step — 2026-09-18
+
+**Rejected:** staying on JavaScript with JSDoc types and generated `.d.ts`,
+which was the cheaper path and keeps the package buildless.
+
+**Chosen:** the packages are written in TypeScript and compiled before they are
+published.
+
+**Why:** the package ships no types at all today -- `package.json` sets no
+`types`, there is no `.d.ts` anywhere, and there was no `tsconfig.json` in the
+repository. That was drift rather than a decision: nothing here argued for
+JavaScript, which is where the argument would have been. Meanwhile
+`create-expo-app` gives you TypeScript, so the first line the intended user
+writes is `import {useWindow} from 'react-native-basalt'`, and it resolves to
+`any`.
+
+JSDoc would have delivered types to consumers without a build. It was rejected
+because the authoring experience is the part that lasts: this package's public
+surface is small and its internals are not, and the checking that matters most
+is on the seams between them -- `metro-config.js` alone is 530 lines of
+resolution policy with no types on any of it.
+
+**The cost, which is not only the build step.** `main` stops pointing at source.
+`PLATFORM_OVERRIDES` hands Metro absolute paths ending in `.js` and Metro
+resolves them directly, so those paths have to name compiled output -- which
+means an unbuilt checkout cannot bundle, where today it can. The platform
+extension files (`Platform.linux.js` and its siblings) must keep those exact
+names through compilation. And `react-native.config.js` and `metro-config.js`
+are read as CommonJS out of `node_modules` by tools this project does not
+control, so they must be emitted as CommonJS at paths that do not move.
+
+None of that is hard. All of it is the kind of thing that is discovered by an
+app failing to bundle rather than by a type error, which is why it is written
+down here before the work rather than after it.

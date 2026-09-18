@@ -65,6 +65,11 @@ RN_DIR="$(cd "$RN_DIR" && pwd)"
   exit 1
 }
 
+# react-native-basalt's `main` points into its `dist/`, so it has to be built
+# before Metro can resolve it. Cheap when it is already up to date.
+"$REPO_ROOT/scripts/build_ts.sh" "$RN_DIR" >/dev/null
+
+
 OUT="$REPO_ROOT/$BUILD_DIR/$OUT_NAME"
 mkdir -p "$REPO_ROOT/$BUILD_DIR"
 

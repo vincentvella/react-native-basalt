@@ -1,0 +1,54 @@
+{
+  // The build for react-native-basalt. See docs/DECISIONS.md, "TypeScript, with
+  // a compile step", for why this exists at all.
+  //
+  // `allowJs` with `checkJs` off is the migration, not the destination. Every
+  // file here is still JavaScript; tsc copies what it cannot yet check into
+  // `dist/` so that `main`, `exports` and OVERRIDE_DIR can all point at built
+  // output from the first commit rather than the last. Files become TypeScript
+  // one at a time underneath a build that already works.
+  //
+  // `strict` therefore applies to the .ts files as they arrive, which is the
+  // whole point of turning it on now: there are five thousand lines here and
+  // retrofitting strictness later is the expensive version of this.
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "checkJs": false,
+
+    // CommonJS, and not negotiable: react-native.config.js and metro-config.js
+    // are required out of node_modules by React Native's CLI and by an app's
+    // own metro.config.js, neither of which this project controls.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "target": "es2022",
+    "lib": ["es2022"],
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    "rootDir": ".",
+    "outDir": "dist",
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+
+    // A .js in this tree is a source file, not an artifact.
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*", "cli/**/*", "metro-config.js", "react-native.config.js"],
+
+  // `src/overrides` is deliberately not built, and that is not a shortcut.
+  //
+  // Those files never reach node. Metro resolves them by absolute path out of
+  // OVERRIDE_DIR and runs them through React Native's own Babel, which is also
+  // why three of them carry Flow annotations: they are rewrites of React
+  // Native's Flow-typed files, and keeping them in that dialect is what keeps
+  // them diffable against the originals when React Native moves. Compiling
+  // them would buy nothing and would put the emitted filenames -- which Metro
+  // selects by name, `Platform.linux.js` and its siblings -- behind a build.
+  "exclude": ["dist", "node_modules", "src/overrides"]
+}

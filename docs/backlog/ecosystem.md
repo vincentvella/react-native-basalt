@@ -2,12 +2,13 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (4):**
+**Open (5):**
 
 1. Nobody else can use this yet
 2. Adding a desktop to an Expo app is manual
 3. Porting a first third-party native module end to end
 4. Packaging: Arch PKGBUILD, Flatpak
+5. The package ships no types, and an Expo app is TypeScript by default
 
 - **Nobody else can use this yet** -- because nothing is published, and no
   longer because installing would not work. A fresh `create-expo-app` (SDK 57,
@@ -60,3 +61,20 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   for one. Until a module has been ported, the cost of porting any module is a
   guess.
 - Packaging: Arch PKGBUILD, Flatpak.
+
+- **The package ships no types, and an Expo app is TypeScript by default.**
+  `create-expo-app` gives you TypeScript, so the first thing a new user writes
+  is `import {useWindow} from 'react-native-basalt'` -- and gets nothing.
+  `package.json` sets no `types`, there is no `.d.ts` anywhere, and there is no
+  `tsconfig.json` in the repository.
+
+  This is drift rather than a decision: nothing in `docs/DECISIONS.md` argues
+  for JavaScript, which is where such an argument would live.
+
+  Converting the source is the expensive answer and probably the wrong one --
+  `main` points straight at `src/index.js`, so this package has no build step,
+  and adding TypeScript to the source adds one. The cheaper shape is JSDoc types
+  in the JavaScript, `// @ts-check` in CI, and `.d.ts` generated with
+  `tsc --declaration --allowJs --emitDeclarationOnly`: consumers get types, the
+  source stays as it is, and nothing gains a runtime build. Worth deciding
+  before publishing, because the answer changes the public surface.
