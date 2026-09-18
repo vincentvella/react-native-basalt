@@ -22,6 +22,11 @@
 # must match -- the tree shape, the strings, the colours, the clip and opacity
 # flags -- which is where a real bug would show up.
 #
+# Scrollbar geometry is ignored alongside the frames, for the same reason and
+# in the same breath: a thumb's offset and length are computed from the content
+# size, so text that measures taller on one host moves it there and nowhere
+# else.
+#
 # ## Which hosts run
 #
 # Whichever are built, and at least two are needed for there to be a
@@ -235,7 +240,15 @@ done
 if [[ -n "${BASALT_COMPARE_IGNORE_FRAMES:-}" ]]; then
   for entry in "${present[@]}"; do
     name="${entry%%:*}"
-    sed -E 's/ frame=\([^)]*\)//' "$out/$name.txt" > "$out/$name.stripped"
+    # The scrollbar fields go with the frames. Both numbers in
+    # `scrollbar-v=(offset,length)` are derived from the content's height, so
+    # a paragraph that measures a few points taller on one shaper moves the
+    # thumb on that host and nowhere else -- which is the same drift as a
+    # frame, arriving in a field that is not one. What survives is the fact
+    # that the scrollbar is there, which is the part that is not geometry.
+    sed -E -e 's/ frame=\([^)]*\)//' \
+           -e 's/ (scrollbar-[vh])=\([^)]*\)/ \1/g' \
+           "$out/$name.txt" > "$out/$name.stripped"
     mv "$out/$name.stripped" "$out/$name.txt"
   done
   echo "  (frames ignored)"
