@@ -60,6 +60,7 @@
 #pragma once
 
 #include "ScrollAnimation.h"
+#include "ScrollSnap.h"
 #include "RnWin32View.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
@@ -138,6 +139,7 @@ class Win32ScrollViewManager {
     // velocity -- but an animated scroll is given its target, so the argument
     // that rules out momentum does not rule this out. Driven by a thread timer,
     // which needs no window: the scroll manager has a tag, not an HWND.
+    ScrollSnapConfig snap;
     ScrollAnimation animation;
     UINT_PTR animationTimer{0};
     unsigned long long animationLastMillis{0};
@@ -168,6 +170,7 @@ class Win32ScrollViewManager {
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
   void scrollTowards(Entry &entry, double x, double y, bool animated);
+  bool settleOnSnapPoint(Entry &entry, double velocityY);
   void stopAnimation(Entry &entry);
   void advanceAnimation(facebook::react::Tag tag, double seconds);
 

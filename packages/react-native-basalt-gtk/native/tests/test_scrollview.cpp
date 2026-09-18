@@ -51,12 +51,14 @@ ShadowView makeScrollView(Tag tag,
                           float height,
                           float contentWidth,
                           float contentHeight,
-                          float decelerationRate = 0) {
+                          float decelerationRate = 0,
+                          bool pagingEnabled = false) {
   LayoutMetrics metrics;
   metrics.frame = {.origin = {.x = 0, .y = 0}, .size = {.width = width, .height = height}};
 
   auto props = std::make_shared<ScrollViewProps>();
   props->decelerationRate = decelerationRate;
+  props->pagingEnabled = pagingEnabled;
 
   ScrollViewState data;
   data.contentOffset = Point{0, 0};
@@ -84,13 +86,15 @@ struct Scroller {
   RnView *view;
   Tag tag;
 
-  Scroller(Tag tag, float contentHeight, float decelerationRate = 0)
+  Scroller(Tag tag, float contentHeight, float decelerationRate = 0, bool pagingEnabled = false)
       : manager([](Tag) { return facebook::react::EventEmitter::Shared{}; }),
         view(rn_view_new(static_cast<int>(tag))),
         tag(tag) {
     g_object_ref_sink(view);
     rn_view_set_frame(view, 0, 0, 400, 300);
-    manager.update(view, makeScrollView(tag, 400, 300, 400, contentHeight, decelerationRate));
+    manager.update(
+        view,
+        makeScrollView(tag, 400, 300, 400, contentHeight, decelerationRate, pagingEnabled));
   }
 
   ~Scroller() {
@@ -195,4 +199,60 @@ TEST(scrollview_decelerationRate_shortens_a_fling) {
   // React Native's prop, reaching the model. 'fast' is the smaller number and
   // the shorter fling.
   EXPECT(fast.offsetY() < normal.offsetY());
+}
+
+// --- Paging ------------------------------------------------------------------
+//
+// The arithmetic is tested in test_scroll_snap.cpp; what these assert is the
+// wiring -- that the props reach the manager, and that a fling on a paging list
+// settles on a boundary instead of coasting.
+//
+// The container is 300 tall, so a page is 300.
+
+TEST(scrollview_a_fling_on_a_paging_list_settles_on_a_page) {
+  Scroller scroller(11, 4000, 0, /*pagingEnabled=*/true);
+
+  // Returns false: a snapping list does not coast, so there is no fling to
+  // report having started.
+  EXPECT(!scroller.manager.fling(scroller.tag, 0, 1200));
+  // The settle is an animation rather than a fling, so it is advanced rather
+  // than coasted. Sixty frames is twice the curve's length.
+  for (int i = 0; i < 60; i++) {
+    scroller.manager.advanceAnimation(scroller.tag, 1.0 / 60.0);
+  }
+  EXPECT_EQ(scroller.offsetY(), 300.0);
+}
+
+TEST(scrollview_a_fling_backwards_settles_on_the_boundary_behind) {
+  // Twenty pixels into the second page, flicked back: the answer is that page's
+  // start, not the page before it. "The next point in the direction flicked" is
+  // symmetric -- forwards from here would be 600 -- and it is what CSS
+  // scroll-snap does. Going back two boundaries would mean a small flick could
+  // travel further than a large one.
+  Scroller scroller(12, 4000, 0, /*pagingEnabled=*/true);
+  scroller.manager.dispatchCommand(scroller.tag, "scrollTo", folly::dynamic::array(0, 320, false));
+  EXPECT(!scroller.manager.fling(scroller.tag, 0, -1200));
+  for (int i = 0; i < 60; i++) {
+    scroller.manager.advanceAnimation(scroller.tag, 1.0 / 60.0);
+  }
+  EXPECT_EQ(scroller.offsetY(), 300.0);
+}
+
+TEST(scrollview_a_fling_back_from_a_boundary_reaches_the_previous_page) {
+  // Exactly on a boundary there is nothing behind to settle on, so the flick
+  // takes the page before it -- which is what stops a list getting stuck.
+  Scroller scroller(14, 4000, 0, /*pagingEnabled=*/true);
+  scroller.manager.dispatchCommand(scroller.tag, "scrollTo", folly::dynamic::array(0, 300, false));
+  EXPECT(!scroller.manager.fling(scroller.tag, 0, -1200));
+  for (int i = 0; i < 60; i++) {
+    scroller.manager.advanceAnimation(scroller.tag, 1.0 / 60.0);
+  }
+  EXPECT_EQ(scroller.offsetY(), 0.0);
+}
+
+TEST(scrollview_a_fling_on_a_plain_list_still_coasts) {
+  // The guard that matters: paging is off for almost every list, and this path
+  // runs at the end of every fling.
+  Scroller scroller(13, 4000);
+  EXPECT(scroller.manager.fling(scroller.tag, 0, 1200));
 }

@@ -50,6 +50,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_identity.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_animation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_snap.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window_close.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window_limits.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
@@ -170,6 +171,8 @@ if(DEFINED RN_DIR)
     core/AppIdentity.cpp
     # An animated scrollTo, which is a curve rather than a jump.
     core/ScrollAnimation.cpp
+    # Where a paged or snapping scroll comes to rest.
+    core/ScrollSnap.cpp
     # `Appearance`, and the portable half of light-vs-dark.
     core/AppearanceModule.cpp
     # Blob, File and FileReader -- portable in full.

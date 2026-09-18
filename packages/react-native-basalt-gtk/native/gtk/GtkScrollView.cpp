@@ -62,6 +62,25 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
     if (props->decelerationRate > 0) {
       entry.decelerationRate = static_cast<double>(props->decelerationRate);
     }
+
+    entry.snap.paging = props->pagingEnabled;
+    entry.snap.interval = static_cast<double>(props->snapToInterval);
+    entry.snap.offsets.clear();
+    for (const auto offset : props->snapToOffsets) {
+      entry.snap.offsets.push_back(static_cast<double>(offset));
+    }
+    switch (props->snapToAlignment) {
+      case facebook::react::ScrollViewSnapToAlignment::Center:
+        entry.snap.alignment = ScrollSnapAlignment::Center;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::End:
+        entry.snap.alignment = ScrollSnapAlignment::End;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::Start:
+      default:
+        entry.snap.alignment = ScrollSnapAlignment::Start;
+        break;
+    }
   }
 
   if (const auto state =
@@ -212,6 +231,24 @@ void GtkScrollViewManager::onScrollEnd(GtkEventControllerScroll * /*controller*/
   }
   entry->dragging = false;
   entry->owner->emitScrollEvent(*entry, "endDrag");
+  // A release with no velocity. `decelerate` arrives separately when there was
+  // a flick, and settles with the velocity it carries; this is the other case.
+  entry->owner->settleOnSnapPoint(*entry, 0.0);
+}
+
+bool GtkScrollViewManager::settleOnSnapPoint(Entry &entry, double velocityY) {
+  const auto target = scrollSnapTarget(entry.snap,
+                                       entry.offsetY,
+                                       velocityY,
+                                       entry.containerSize.height,
+                                       entry.contentSize.height);
+  if (!target) {
+    return false;
+  }
+  // Animated, which is what makes it a snap rather than a jump -- and the
+  // reason `core/ScrollAnimation.h` came first.
+  scrollTowards(entry, entry.offsetX, *target, true);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +281,18 @@ bool GtkScrollViewManager::fling(Tag tag, double velocityX, double velocityY) {
   if (entry.dragging) {
     entry.dragging = false;
     emitScrollEvent(entry, "endDrag");
+  }
+
+  // A snapping list does not coast. React Native replaces the fling with a
+  // settle, which is what makes a page turn one page rather than however many
+  // the throw was worth -- the velocity decides *which* point rather than how
+  // far.
+  //
+  // Here rather than in the `decelerate` handler so that the test seam below
+  // reaches it: a real fling needs a touchscreen, and `fling()` is how the unit
+  // suite gets one.
+  if (settleOnSnapPoint(entry, velocityY)) {
+    return false;
   }
 
   if (!entry.momentum.start(velocityX, velocityY, entry.decelerationRate)) {

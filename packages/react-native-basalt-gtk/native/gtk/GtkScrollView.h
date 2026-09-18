@@ -30,6 +30,7 @@
 
 #include "RnView.h"
 #include "ScrollAnimation.h"
+#include "ScrollSnap.h"
 #include "ScrollMomentum.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
@@ -69,6 +70,15 @@ class GtkScrollViewManager {
   // what falls out of it. Returns false once it has finished, which is also
   // when onMomentumScrollEnd has been emitted.
   bool advanceFling(facebook::react::Tag tag, double seconds);
+
+  // Advances an animated `scrollTo` -- or the settle a snapping list does at
+  // the end of a fling -- by `seconds`, returning false once it has arrived.
+  //
+  // Public for the same reason `advanceFling` is: the animation runs on a frame
+  // clock, and a frame clock needs a mapped window and a main loop. Without
+  // this a paging list could be shown to *decide* on a page and never shown to
+  // reach one.
+  bool advanceAnimation(facebook::react::Tag tag, double seconds);
 
   // ScrollView's imperative commands: scrollTo, scrollToEnd. Returns false if
   // the command is not one this handles.
@@ -146,6 +156,8 @@ class GtkScrollViewManager {
     // React Native's decelerationRate prop, read off the ScrollView's props so
     // an app that asks for a fast fling gets one.
     double decelerationRate{ScrollMomentum::kNormalDeceleration};
+    // `pagingEnabled`, `snapToInterval`, `snapToOffsets`, `snapToAlignment`.
+    ScrollSnapConfig snap;
   };
 
   static gboolean onScroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer userData);
@@ -161,7 +173,10 @@ class GtkScrollViewManager {
   static gboolean onMomentumTick(GtkWidget *widget, GdkFrameClock *clock, gpointer userData);
   static gboolean onAnimationTick(GtkWidget *widget, GdkFrameClock *clock, gpointer userData);
   void scrollTowards(Entry &entry, double x, double y, bool animated);
-  bool advanceAnimation(facebook::react::Tag tag, double seconds);
+  // Settles a drag or a fling on a snap point, if the props ask for one.
+  // Returns whether it took over.
+  bool settleOnSnapPoint(Entry &entry, double velocityY);
+
   void stopAnimation(Entry &entry);
 
   // Ends a fling, with or without telling JavaScript. `emitEnd` is false only

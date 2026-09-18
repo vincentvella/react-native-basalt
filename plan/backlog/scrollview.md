@@ -2,13 +2,12 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
-**Open (5):**
+**Open (4):**
 
 1. Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11
-2. No snapping, paging or maintainVisibleContentPosition
-3. No scrollbars are drawn
-4. contentBoundingRect
-5. disableViewCulling is never set, which will matter once AT-SPI lands
+2. No scrollbars are drawn
+3. contentBoundingRect
+4. disableViewCulling is never set, which will matter once AT-SPI lands
 
 - Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11.
 - ~~No momentum.~~ See the Input section. What is left is Windows, which has no
@@ -27,7 +26,22 @@ Part of the [backlog](../backlog.md). Not scheduled.
   thread timer because the scroll manager has a tag rather than an HWND. A
   gesture or a wheel cancels it on all three -- the person moving the list wins
   over the app moving it.
-- No snapping, paging or `maintainVisibleContentPosition`.
+- ~~**No snapping or paging.**~~ Done on all three: `pagingEnabled`,
+  `snapToInterval`, `snapToOffsets` and `snapToAlignment`, decided once in
+  `core/ScrollSnap.h` and settled with the animation next door.
+
+  The rule is "the next point in the direction it was flicked", which is
+  symmetric and is what CSS scroll-snap does -- twenty pixels into a page,
+  flicked back, the answer is that page's start rather than the one before it.
+  Going back two boundaries would let a small flick travel further than a large
+  one.
+
+  A snapping list does not coast: the settle replaces the fling, so the velocity
+  decides *which* point rather than how far. On Windows there is never a flick
+  to replace, because a wheel supplies no velocity.
+
+  What is left here is `maintainVisibleContentPosition`, which is a different
+  thing -- keeping the offset stable while content is inserted above it.
 - No scrollbars are drawn.
 - `contentBoundingRect.origin` is assumed to be zero; iOS positions its
   container view at that origin.

@@ -79,6 +79,25 @@ void Win32ScrollViewManager::update(RnWin32View *view, const ShadowView &shadowV
     entry.scrollEnabled = props->scrollEnabled;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
+
+    entry.snap.paging = props->pagingEnabled;
+    entry.snap.interval = static_cast<double>(props->snapToInterval);
+    entry.snap.offsets.clear();
+    for (const auto offset : props->snapToOffsets) {
+      entry.snap.offsets.push_back(static_cast<double>(offset));
+    }
+    switch (props->snapToAlignment) {
+      case facebook::react::ScrollViewSnapToAlignment::Center:
+        entry.snap.alignment = ScrollSnapAlignment::Center;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::End:
+        entry.snap.alignment = ScrollSnapAlignment::End;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::Start:
+      default:
+        entry.snap.alignment = ScrollSnapAlignment::Start;
+        break;
+    }
   }
 
   if (const auto state =
@@ -194,6 +213,10 @@ void Win32ScrollViewManager::endWheelDrag(Tag tag, std::uint64_t generation) {
   }
   entry.dragging = false;
   emitScrollEvent(entry, "endDrag");
+  // A wheel supplies no velocity, so there is never a flick to take over from
+  // here: the settle is always to the nearest point. That is also why this host
+  // models no momentum -- see the header.
+  settleOnSnapPoint(entry, 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +268,19 @@ void Win32ScrollViewManager::scrollTowards(Entry &entry, double x, double y, boo
   }
   entry.animationLastMillis = 0;
   animations()[entry.animationTimer] = {this, entry.tag};
+}
+
+bool Win32ScrollViewManager::settleOnSnapPoint(Entry &entry, double velocityY) {
+  const auto target = scrollSnapTarget(entry.snap,
+                                       entry.offsetY,
+                                       velocityY,
+                                       entry.containerSize.height,
+                                       entry.contentSize.height);
+  if (!target) {
+    return false;
+  }
+  scrollTowards(entry, entry.offsetX, *target, true);
+  return true;
 }
 
 void Win32ScrollViewManager::stopAnimation(Entry &entry) {

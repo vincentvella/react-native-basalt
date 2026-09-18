@@ -49,6 +49,14 @@ should.
 - **AND** it finishes at exactly the offset asked for
 - **AND** a gesture during the animation cancels it
 
+#### Scenario: A paging or snapping list settles on a point
+
+- **WHEN** a scroll view sets `pagingEnabled`, `snapToInterval` or
+  `snapToOffsets` and a gesture ends
+- **THEN** it animates to the next point in the direction it was flicked
+- **AND** it does not coast past it
+- **AND** it never settles outside the content
+
 #### Scenario: Pulling a scroll view refreshes it
 
 - **WHEN** the person pulls a scroll view carrying a refresh control

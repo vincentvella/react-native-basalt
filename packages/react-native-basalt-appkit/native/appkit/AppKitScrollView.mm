@@ -152,6 +152,25 @@ void AppKitScrollViewManager::update(RnAppKitView *view, const ShadowView &shado
     entry.scrollEnabled = props->scrollEnabled;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
+
+    entry.snap.paging = props->pagingEnabled;
+    entry.snap.interval = static_cast<double>(props->snapToInterval);
+    entry.snap.offsets.clear();
+    for (const auto offset : props->snapToOffsets) {
+      entry.snap.offsets.push_back(static_cast<double>(offset));
+    }
+    switch (props->snapToAlignment) {
+      case facebook::react::ScrollViewSnapToAlignment::Center:
+        entry.snap.alignment = ScrollSnapAlignment::Center;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::End:
+        entry.snap.alignment = ScrollSnapAlignment::End;
+        break;
+      case facebook::react::ScrollViewSnapToAlignment::Start:
+      default:
+        entry.snap.alignment = ScrollSnapAlignment::Start;
+        break;
+    }
   }
 
   if (const auto state =
@@ -242,10 +261,20 @@ bool AppKitScrollViewManager::scrollBy(Tag tag,
   if (ended && entry.dragging) {
     entry.dragging = false;
     emitScrollEvent(entry, "endDrag");
+    // A release. On this host the system may still be coasting, so the settle
+    // below waits for it to finish -- but a release with no momentum at all
+    // ends here and has to snap now.
+    if (!entry.coasting) {
+      settleOnSnapPoint(entry, 0.0);
+    }
   }
   if (momentumEnded && entry.coasting) {
     entry.coasting = false;
     emitScrollEvent(entry, "momentumEnd");
+    // macOS decelerates for us, so unlike GTK there is no velocity to take over
+    // from: the system has already carried the list as far as it was thrown,
+    // and what is left is to settle where it stopped.
+    settleOnSnapPoint(entry, 0.0);
   }
   return true;
 }
@@ -278,6 +307,19 @@ void AppKitScrollViewManager::scrollTowards(Entry &entry, double x, double y, bo
     entry.animation.stop();
     applyOffset(entry, x, y, true);
   }
+}
+
+bool AppKitScrollViewManager::settleOnSnapPoint(Entry &entry, double velocityY) {
+  const auto target = scrollSnapTarget(entry.snap,
+                                       entry.offsetY,
+                                       velocityY,
+                                       entry.containerSize.height,
+                                       entry.contentSize.height);
+  if (!target) {
+    return false;
+  }
+  scrollTowards(entry, entry.offsetX, *target, true);
+  return true;
 }
 
 void AppKitScrollViewManager::stopAnimation(Entry &entry) {

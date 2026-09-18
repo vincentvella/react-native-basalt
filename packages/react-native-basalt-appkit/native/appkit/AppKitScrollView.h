@@ -35,6 +35,7 @@
 #import "RnAppKitView.h"
 
 #include "ScrollAnimation.h"
+#include "ScrollSnap.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
 #include <react/renderer/core/EventEmitter.h>
@@ -123,6 +124,7 @@ class AppKitScrollViewManager {
     // An animated `scrollTo`. AppKit does its own deceleration, so unlike GTK
     // there is no fling stepper here to borrow -- this brings its own display
     // link, created when a curve starts and invalidated when it ends.
+    ScrollSnapConfig snap;
     ScrollAnimation animation;
     id displayLink{nil};
     double animationLastSeconds{0};
@@ -130,6 +132,7 @@ class AppKitScrollViewManager {
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
   void scrollTowards(Entry &entry, double x, double y, bool animated);
+  bool settleOnSnapPoint(Entry &entry, double velocityY);
   void stopAnimation(Entry &entry);
 
  public:
