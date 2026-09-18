@@ -20,6 +20,12 @@
 struct ID2D1RenderTarget;
 struct IWICBitmap;
 struct ID2D1Bitmap;
+// `D2D1_COLOR_F` is a typedef of this, so forward-declaring the struct is what
+// keeps d2d1.h out of a header that deliberately carries none of it -- the same
+// reason the three above are declared rather than included. Declaring the
+// typedef name instead is not possible, which is how this got here: it compiled
+// everywhere the header was included after d2d1.h and nowhere else.
+struct D2D_COLOR_F;
 
 namespace basalt::win32 {
 
@@ -61,7 +67,7 @@ class RnWin32Image {
             float boxWidth,
             float boxHeight,
             RnImageFit fit,
-            const D2D1_COLOR_F *tint = nullptr) const;
+            const D2D_COLOR_F *tint = nullptr) const;
 
  private:
   RnWin32Image() = default;
