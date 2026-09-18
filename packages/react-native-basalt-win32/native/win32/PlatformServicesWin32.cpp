@@ -577,6 +577,16 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   // seam concern, so it waits for the host. A prompt needs a custom dialog on
   // every platform -- GTK has the same gap, per docs/BACKLOG.md -- and is not
   // faked here.
+  //
+  // Onto the UI thread, and back at once. PlatformServices.h says this must
+  // not block, and it did: MessageBoxW ran right here, on the
+  // JavaScript thread, so while an alert was up the runtime rendered nothing,
+  // and a window closed meanwhile never quit -- shutdown joins the JavaScript
+  // thread, which was sitting in a dialog nobody would answer. showMenu's
+  // comment below even says it marshals "for the same reason showAlert" does.
+  // It did not; now it does. The end-to-end suite never saw it because its
+  // alerts are answered by BASALT_TEST_DIALOG before this is reached; the
+  // cross-host comparison, which does not script dialogs, hung on js/share.js.
   const std::wstring title = widen(request.title);
   const std::wstring message = widen(request.message);
 
@@ -587,30 +597,47 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
     type = MB_YESNOCANCEL;
   }
 
-  const int pressed = MessageBoxW(nullptr, message.c_str(), title.c_str(), type);
-  if (!onButton) {
-    return;
-  }
+  const size_t buttonCount = request.buttons.size();
+  postToUiThread([title, message, type, buttonCount, onButton = std::move(onButton)] {
+    // Owned by the app's window rather than by nothing: modal to it, placed
+    // over it, and destroyed with it -- so a window that closes while an alert
+    // is up takes the alert along instead of leaving it on screen for a
+    // process that is trying to exit.
+    HWND owner = GetActiveWindow();
+    if (owner == nullptr) {
+      owner = GetForegroundWindow();
+    }
+    // Task-modal only when there is no window to own it: then it is the one
+    // way to keep the rest of this thread's windows from taking input.
+    const UINT modality = owner == nullptr ? MB_TASKMODAL : 0;
+    const int pressed = MessageBoxW(owner, message.c_str(), title.c_str(), type | modality);
+    // Zero is the dialog going away without an answer, which is what its
+    // owner being destroyed does. There is no button to report, and the app
+    // asking has already been told its window is closing.
+    if (!onButton || pressed == 0) {
+      return;
+    }
 
-  // Reported as an index into the buttons the app gave, which is what React
-  // Native's callback means, rather than as Windows' IDOK/IDCANCEL.
-  int index = 0;
-  switch (pressed) {
-    case IDOK:
-    case IDYES:
-      index = 0;
-      break;
-    case IDNO:
-      index = 1;
-      break;
-    case IDCANCEL:
-      index = request.buttons.empty() ? 0 : static_cast<int>(request.buttons.size()) - 1;
-      break;
-    default:
-      index = 0;
-      break;
-  }
-  onButton(index, std::string{});
+    // Reported as an index into the buttons the app gave, which is what React
+    // Native's callback means, rather than as Windows' IDOK/IDCANCEL.
+    int index = 0;
+    switch (pressed) {
+      case IDOK:
+      case IDYES:
+        index = 0;
+        break;
+      case IDNO:
+        index = 1;
+        break;
+      case IDCANCEL:
+        index = buttonCount == 0 ? 0 : static_cast<int>(buttonCount) - 1;
+        break;
+      default:
+        index = 0;
+        break;
+    }
+    onButton(index, std::string{});
+  });
 }
 
 } // namespace basalt
