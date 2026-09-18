@@ -3,7 +3,8 @@
 ## 1. Settle the rule
 
 - [ ] Agree the three tests, or amend them
-- [ ] Answer the open question on single-desktop capabilities
+- [ ] Ensure every capability package reports whether it is supported here, not
+      only no-ops
 - [ ] Decide which half of spell checking this platform implements
 - [ ] Record the outcome in `plan/decisions.md`
 

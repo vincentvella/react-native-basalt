@@ -45,3 +45,23 @@ app's own windows.
   title bar
 - **THEN** it stays in core, because a platform that made you install a package
   for a menu would be worse rather than smaller
+
+### Requirement: A capability ships as one package and does nothing where it cannot
+
+The system SHALL ship a capability as a single package regardless of how many
+desktops implement it, and that package SHALL accept every call on a desktop
+that cannot perform it rather than failing.
+
+Doing nothing SHALL NOT be the only answer available: a capability that is
+unavailable SHALL also be reportable, so that an app can hide a control instead
+of offering one that does nothing.
+
+#### Scenario: The same app runs unchanged on a desktop that cannot do it
+
+- **WHEN** an app using a capability runs on a desktop with no implementation
+- **THEN** the calls do nothing and nothing throws
+
+#### Scenario: An app can ask before offering the control
+
+- **WHEN** an app asks whether the capability is supported here
+- **THEN** it gets an answer it can render from

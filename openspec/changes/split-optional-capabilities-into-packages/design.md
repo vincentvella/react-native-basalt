@@ -85,6 +85,23 @@ which is what `optionalNativeModules` does now with a hardcoded list of three.
 Expo, worklets and Reanimated keep their special cases only because they are
 third-party packages that will never carry a `basalt` key.
 
+**One package per capability, not one per desktop.** A capability only one
+desktop can do still ships as a single package, which installs and imports the
+same way everywhere and does nothing on the desktops that cannot do it.
+
+This is what the platform already does rather than a new idea. `<TitleBar>`
+accepts every call on a host with no title bar module and reports zero metrics;
+`windowControl`'s mutations are no-ops where GTK4 removed the call;
+`Menu.isSupported` is false on GNOME. The same app runs on three desktops
+unchanged, which is the property worth protecting -- a package per desktop would
+mean an app importing different modules per platform, which is the thing this
+platform exists to avoid.
+
+A no-op SHALL be paired with a way to ask, for the same reason `capabilities`
+exists on the window: an app should be able to hide a control rather than offer
+one that silently does nothing. Doing nothing quietly is right for a call an app
+makes anyway; it is wrong as the only answer available.
+
 **Version together, at first.** Separate packages do not have to mean
 independent versions, and independent versions of packages sharing a C++ ABI
 with the host is a support problem nobody here wants yet.
@@ -103,9 +120,6 @@ with the host is a support problem nobody here wants yet.
 
 ## Open Questions
 
-- Does a capability that only one desktop can do -- the title bar is Windows
-  only today -- belong in a package per desktop, or one package that reports the
-  others as unsupported? The second matches how `capabilities` already works.
 - Spell checking sits on the line. The platform's own dictionary is ordinary
   text behaviour and belongs in core; one that downloads a language is not.
   Which half this platform implements decides where it goes.
