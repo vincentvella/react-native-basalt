@@ -49,14 +49,5 @@
   },
   "include": ["src/**/*", "cli/**/*", "metro-config.js", "react-native.config.js"],
 
-  // `src/overrides` is deliberately not built, and that is not a shortcut.
-  //
-  // Those files never reach node. Metro resolves them by absolute path out of
-  // OVERRIDE_DIR and runs them through React Native's own Babel, which is also
-  // why three of them carry Flow annotations: they are rewrites of React
-  // Native's Flow-typed files, and keeping them in that dialect is what keeps
-  // them diffable against the originals when React Native moves. Compiling
-  // them would buy nothing and would put the emitted filenames -- which Metro
-  // selects by name, `Platform.linux.js` and its siblings -- behind a build.
-  "exclude": ["dist", "node_modules", "src/overrides"]
+  "exclude": ["dist", "node_modules"]
 }

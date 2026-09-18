@@ -27,7 +27,10 @@
 
 import Platform from 'react-native-basalt/upstream/Libraries/Utilities/Platform';
 
-declare var console: {[string]: $FlowFixMe};
+// React Native installs its own console methods and reads a private flag off
+// them. Declaring the shape here is what lets this file touch both without
+// claiming to know the rest of the global console.
+declare const console: Record<string, any> & {_isPolyfilled?: boolean};
 
 /**
  * Sets up developer tools for React Native.
@@ -55,7 +58,7 @@ if (__DEV__) {
         ]
       ).forEach(level => {
         const originalFunction = console[level];
-        console[level] = function (...args) {
+        console[level] = function (...args: unknown[]) {
           HMRClient.log(level, args);
           originalFunction.apply(console, args);
         };
@@ -65,7 +68,11 @@ if (__DEV__) {
 
   require('react-native-basalt/upstream/Libraries/Core/setUpReactRefresh');
 
-  global[`${global.__METRO_GLOBAL_PREFIX__ ?? ''}__loadBundleAsync`] =
+  // Metro's own global, whose name carries a configurable prefix, so it cannot
+  // be a declared property of anything.
+  (global as unknown as Record<string, unknown>)[
+    `${(global as unknown as {__METRO_GLOBAL_PREFIX__?: string}).__METRO_GLOBAL_PREFIX__ ?? ''}__loadBundleAsync`
+  ] =
     require('react-native-basalt/upstream/Libraries/Core/Devtools/loadBundleFromServer').default;
 
   // --- react-native-basalt -------------------------------------------------
@@ -78,7 +85,7 @@ if (__DEV__) {
   const DevSettings =
     require('react-native-basalt/upstream/Libraries/Utilities/DevSettings').default;
 
-  RCTDeviceEventEmitter.addListener('basaltDevMenu', action => {
+  RCTDeviceEventEmitter.addListener('basaltDevMenu', (action: string) => {
     switch (action) {
       case 'reload':
         DevSettings.reload('dev menu');

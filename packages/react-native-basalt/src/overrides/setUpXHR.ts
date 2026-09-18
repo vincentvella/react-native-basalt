@@ -68,8 +68,43 @@ function uuidv4() {
 // gets the unpatched one, and the two are indistinguishable until a response
 // arrives. Patching the prototype fixes every instance however it was made.
 const proto = BaseXMLHttpRequest.prototype;
-const baseResponseType = Object.getOwnPropertyDescriptor(proto, 'responseType');
-const baseResponse = Object.getOwnPropertyDescriptor(proto, 'response');
+
+/**
+ * The accessors this file wraps, on React Native's own XMLHttpRequest.
+ *
+ * A getter is required and a setter is not, which is not laxness: `response`
+ * is read-only on every XMLHttpRequest, including React Native's, so demanding
+ * a setter for it fails on a perfectly correct one. That mistake was made here
+ * once and only the running app found it -- the types were happy either way.
+ *
+ * A missing *getter* is a different thing: it means this override no longer
+ * matches the React Native it is shadowing, which is worth failing loudly on
+ * rather than quietly not wrapping.
+ */
+function getterOf(name: string): () => unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+  if (descriptor?.get == null) {
+    throw new Error(
+      `react-native-basalt: XMLHttpRequest has no ${name} getter to wrap; ` +
+        'this override no longer matches this React Native.',
+    );
+  }
+  return descriptor.get;
+}
+
+function setterOf(name: string): (value: unknown) => void {
+  const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+  if (descriptor?.set == null) {
+    throw new Error(
+      `react-native-basalt: XMLHttpRequest has no ${name} setter to wrap; ` +
+        'this override no longer matches this React Native.',
+    );
+  }
+  return descriptor.set;
+}
+
+const baseResponseType = {get: getterOf('responseType'), set: setterOf('responseType')};
+const baseResponse = {get: getterOf('response')};
 
 Object.defineProperty(proto, 'responseType', {
   configurable: true,

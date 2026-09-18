@@ -32,9 +32,11 @@
 
 import NativePlatformConstants from 'react-native-basalt/upstream/Libraries/Utilities/NativePlatformConstantsAndroid';
 
-export default function createPlatform(os) {
+import type {DesktopOS, DesktopPlatform, PlatformConstants} from './Platform';
+
+export default function createPlatform(os: DesktopOS): DesktopPlatform {
   return {
-    __constants: null,
+    __constants: null as PlatformConstants | null,
 
     OS: os,
 
@@ -42,9 +44,11 @@ export default function createPlatform(os) {
       return this.constants.Version;
     },
 
-    get constants() {
+    get constants(): PlatformConstants {
+      // Assigned on the line above, which the compiler cannot see through a
+      // getter reading `this`.
       if (this.__constants == null) {
-        this.__constants = NativePlatformConstants.getConstants();
+        this.__constants = NativePlatformConstants.getConstants() as PlatformConstants;
       }
       return this.__constants;
     },
@@ -62,11 +66,11 @@ export default function createPlatform(os) {
 
     // Neither is a thing on a desktop, and both are read unconditionally by
     // React Native's own code, so they answer rather than throw.
-    get isTV() {
+    get isTV(): false {
       return false;
     },
 
-    get isVision() {
+    get isVision(): false {
       return false;
     },
 
@@ -80,7 +84,8 @@ export default function createPlatform(os) {
     // exactly the kind of divergence a project about consistency should not
     // introduce. If desktop-vs-mobile branching is wanted, it belongs in an
     // explicit helper rather than smuggled into an API React Native owns.
-    select: spec =>
-      os in spec ? spec[os] : 'native' in spec ? spec.native : spec.default,
+    select<T>(spec: Record<string, T> & {native?: T; default?: T}): T | undefined {
+      return os in spec ? spec[os] : 'native' in spec ? spec.native : spec.default;
+    },
   };
 }

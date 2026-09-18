@@ -53,6 +53,43 @@ import StyleSheet from 'react-native-basalt/upstream/Libraries/StyleSheet/StyleS
  * how the native side tells a stale prop from a current one. Without it a fast
  * typist outruns the render loop and watches characters reorder themselves.
  */
+/**
+ * The props this file reads. Everything else is forwarded untouched, which is
+ * what the index signature says -- React Native's `TextInputProps` is large,
+ * exported as no usable type, and this is a rewrite of its component rather
+ * than a re-declaration of its surface.
+ */
+export type BasaltTextInputProps = {
+  value?: string;
+  defaultValue?: string;
+  onChange?: (event: TextInputChangeEvent) => void;
+  onChangeText?: (text: string) => void;
+  onFocus?: (event: unknown) => void;
+  onBlur?: (event: unknown) => void;
+  editable?: boolean;
+  style?: unknown;
+  [key: string]: unknown;
+};
+
+/** What the native component reports on every edit. */
+type TextInputChangeEvent = {
+  nativeEvent: {text: string; eventCount: number; target?: number};
+};
+
+/** The handle a caller gets, which is this and not the host instance. */
+export type BasaltTextInputHandle = {
+  focus: () => void;
+  blur: () => void;
+  clear: () => void;
+  setSelection: (start: number, end: number) => void;
+  isFocused: () => boolean;
+  /**
+   * React Native's own field instances carry this and upstream's guards read
+   * it. Optional, because the handle this file builds does not.
+   */
+  currentProps?: {editable?: boolean};
+};
+
 function TextInput(
   {
     value,
@@ -64,10 +101,12 @@ function TextInput(
     editable,
     style,
     ...rest
-  },
-  forwardedRef,
-) {
-  const inputRef = useRef(null);
+  }: BasaltTextInputProps,
+  forwardedRef: React.Ref<BasaltTextInputHandle>,
+): React.ReactElement {
+  const inputRef = useRef<React.ElementRef<typeof RCTSinglelineTextInputNativeComponent> | null>(
+    null,
+  );
   const [mostRecentEventCount, setMostRecentEventCount] = useState(0);
   const focused = useRef(false);
 
@@ -101,7 +140,7 @@ function TextInput(
         }
         onChangeText?.('');
       },
-      setSelection(start, end) {
+      setSelection(start: number, end: number) {
         if (inputRef.current != null) {
           Commands.setTextAndSelection(
             inputRef.current,
@@ -139,7 +178,7 @@ function TextInput(
   }, [handle]);
 
   const handleChange = useCallback(
-    event => {
+    (event: TextInputChangeEvent) => {
       const {text, eventCount} = event.nativeEvent;
       setMostRecentEventCount(eventCount);
       onChange?.(event);
@@ -149,7 +188,7 @@ function TextInput(
   );
 
   const handleFocus = useCallback(
-    event => {
+    (event: TextInputChangeEvent) => {
       focused.current = true;
       // The platform is the authority on what has focus, so the registry is
       // told here rather than by whoever called focus() -- a click into a field
@@ -161,7 +200,7 @@ function TextInput(
   );
 
   const handleBlur = useCallback(
-    event => {
+    (event: TextInputChangeEvent) => {
       focused.current = false;
       TextInputState.blurInput(handle);
       onBlur?.(event);
@@ -219,7 +258,7 @@ const ForwardedTextInput = React.forwardRef(TextInput);
 const State = {
   ...TextInputState,
 
-  focusTextInput(textField) {
+  focusTextInput(textField: BasaltTextInputHandle | null) {
     if (textField == null) {
       return;
     }
@@ -238,7 +277,7 @@ const State = {
     textField.focus?.();
   },
 
-  blurTextInput(textField) {
+  blurTextInput(textField: BasaltTextInputHandle | null) {
     if (textField == null) {
       return;
     }
@@ -250,6 +289,8 @@ const State = {
   },
 };
 
-ForwardedTextInput.State = State;
+// The statics React Native's TextInput carries. Assigned through an indexed
+// cast because a forwardRef component's type has no room for them.
+(ForwardedTextInput as unknown as Record<string, unknown>).State = State;
 
 export default ForwardedTextInput;

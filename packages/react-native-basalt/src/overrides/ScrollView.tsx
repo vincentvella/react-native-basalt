@@ -31,7 +31,19 @@
 import ScrollView from 'react-native-basalt/upstream/Libraries/Components/ScrollView/ScrollView';
 import * as React from 'react';
 
-function BasaltScrollView({refreshControl, children, ...props}) {
+type BasaltScrollViewProps = {
+  refreshControl?: React.ReactElement | null;
+  children?: React.ReactNode;
+  // React Native's ScrollView props, which it exports no usable type for. This
+  // component reads two and forwards the rest untouched.
+  [key: string]: unknown;
+};
+
+function BasaltScrollView({
+  refreshControl,
+  children,
+  ...props
+}: BasaltScrollViewProps): React.ReactElement {
   if (refreshControl == null) {
     return <ScrollView {...props}>{children}</ScrollView>;
   }
@@ -51,11 +63,15 @@ BasaltScrollView.displayName = 'ScrollView';
 // `ScrollView.Context` is read by VirtualizedList and by `ScrollView`'s own
 // children, and the statics are part of the public export. Copied rather than
 // re-declared so that anything React Native adds to them arrives here too.
-for (const key of Object.keys(ScrollView)) {
-  if (BasaltScrollView[key] === undefined) {
-    BasaltScrollView[key] = ScrollView[key];
+// Indexed by a string on both sides: these are React Native's statics, whose
+// names are not known here and whose shapes it publishes no types for.
+const statics = BasaltScrollView as unknown as Record<string, unknown>;
+const upstreamStatics = ScrollView as unknown as Record<string, unknown>;
+for (const key of Object.keys(upstreamStatics)) {
+  if (statics[key] === undefined) {
+    statics[key] = upstreamStatics[key];
   }
 }
-BasaltScrollView.Context = ScrollView.Context;
+statics.Context = upstreamStatics.Context;
 
 export default BasaltScrollView;

@@ -22,7 +22,7 @@
 
 'use strict';
 
-export function setGlobalHookSettings(_settings) {}
+export function setGlobalHookSettings(_settings: string) {}
 
 export function getGlobalHookSettings() {
   return null;

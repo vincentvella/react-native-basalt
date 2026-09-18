@@ -28,7 +28,7 @@
 
 ## 4. The overrides
 
-- [x] `src/overrides/*.js` stay as they are -- copied, not compiled; see the design
+- [x] `src/overrides/*.js` converted too -- all thirteen, Flow and all
 - [x] `OVERRIDE_DIR` resolves correctly -- the overrides are *copied* into
       `dist`, not compiled; see the tsconfig for why
 - [x] `Platform.linux.js`, `Platform.macos.js` and `Platform.windows.js` keep

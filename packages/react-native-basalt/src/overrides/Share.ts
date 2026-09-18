@@ -41,29 +41,32 @@ import NativeShareModule from 'react-native-basalt/upstream/Libraries/Share/Nati
 
 const invariant = require('invariant');
 
+/** One or the other must be there, which is what the union says. */
 export type ShareContent =
   | {
-      title?: string,
-      url: string,
-      message?: string,
+      title?: string;
+      url: string;
+      message?: string;
     }
   | {
-      title?: string,
-      url?: string,
-      message: string,
+      title?: string;
+      url?: string;
+      message: string;
     };
 
 export type ShareOptions = {
-  dialogTitle?: string,
-  excludedActivityTypes?: Array<string>,
-  tintColor?: string,
-  subject?: string,
-  anchor?: number,
+  dialogTitle?: string;
+  /** iOS's, accepted and ignored, so code written for it runs unchanged. */
+  excludedActivityTypes?: Array<string>;
+  tintColor?: string;
+  subject?: string;
+  anchor?: number;
 };
 
 export type ShareAction = {
-  action: 'sharedAction' | 'dismissedAction',
-  activityType?: ?string,
+  action: 'sharedAction' | 'dismissedAction';
+  /** Null here for the same reason it is null on Android. */
+  activityType?: string | null;
 };
 
 class Share {
@@ -91,10 +94,7 @@ class Share {
    * `excludedActivityTypes`, `tintColor`, `subject` and `anchor` are iOS's and
    * are accepted and ignored, so that code written for iOS runs unchanged.
    */
-  static share(
-    content: ShareContent,
-    options?: ShareOptions = {},
-  ): Promise<ShareAction> {
+  static share(content: ShareContent, options: ShareOptions = {}): Promise<ShareAction> {
     invariant(
       typeof content === 'object' && content !== null,
       'Content to share must be a valid object',
@@ -124,7 +124,7 @@ class Share {
         url: typeof content.url === 'string' ? content.url : undefined,
       },
       options.dialogTitle,
-    ).then(result => ({
+    ).then((result: {action?: string} | null) => ({
       // iOS's, and null here for the same reason it is null on Android: the
       // platform reports whether something was shared and not which service
       // took it.

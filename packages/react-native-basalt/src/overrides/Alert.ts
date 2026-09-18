@@ -49,37 +49,49 @@ export type AlertType = 'default' | 'plain-text' | 'secure-text' | 'login-passwo
 export type AlertButtonStyle = 'default' | 'cancel' | 'destructive';
 
 export type AlertButton = {
-  text?: string,
-  onPress?: ?((value?: string) => any) | ?Function,
-  isPreferred?: boolean,
-  style?: AlertButtonStyle,
+  text?: string;
+  /**
+   * The value is the text a prompt collected; `alert`'s buttons are called
+   * with nothing. One signature covers both, which is what React Native's own
+   * does.
+   */
+  onPress?: ((value?: string) => unknown) | null;
+  isPreferred?: boolean;
+  style?: AlertButtonStyle;
 };
 
 export type AlertButtons = Array<AlertButton>;
 
 export type AlertOptions = {
-  cancelable?: ?boolean,
-  userInterfaceStyle?: 'unspecified' | 'light' | 'dark',
-  onDismiss?: ?() => void,
+  cancelable?: boolean | null;
+  userInterfaceStyle?: 'unspecified' | 'light' | 'dark';
+  onDismiss?: (() => void) | null;
 };
+
+/** What a button does, once `show` has flattened the two calling shapes. */
+type AlertCallback = ((value?: string) => unknown) | null | undefined;
 
 // One place, because `alert` and `prompt` differ only in whether there is a
 // field and what the buttons were given as.
 function show(
-  title: ?string,
-  message?: ?string,
-  callbackOrButtons?: ?(((text: string) => void) | AlertButtons),
-  type?: ?AlertType,
+  title: string | null | undefined,
+  message?: string | null,
+  callbackOrButtons?: ((text: string) => void) | AlertButtons | null,
+  type?: AlertType | null,
   defaultValue?: string,
   options?: AlertOptions,
 ): void {
-  const callbacks: Array<?Function> = [];
+  const callbacks: AlertCallback[] = [];
   const buttons: Array<{text: string}> = [];
 
   if (typeof callbackOrButtons === 'function') {
     // `Alert.prompt(title, message, callback)`: one button, and the callback is
     // what it does.
-    callbacks[0] = callbackOrButtons;
+    // `Alert.prompt`'s callback is declared as taking the text, and every
+    // caller below may pass undefined -- which for a prompt cannot happen,
+    // because the native side always answers with the field's contents. The
+    // cast records that rather than widening React Native's own signature.
+    callbacks[0] = callbackOrButtons as (value?: string) => unknown;
     buttons.push({text: 'OK'});
   } else if (Array.isArray(callbackOrButtons)) {
     callbackOrButtons.forEach((button, index) => {
@@ -121,8 +133,8 @@ function show(
 
 class Alert {
   static alert(
-    title: ?string,
-    message?: ?string,
+    title: string | null | undefined,
+    message?: string | null,
     buttons?: AlertButtons,
     options?: AlertOptions,
   ): void {
@@ -137,14 +149,15 @@ class Alert {
    * warns and shows a plain alert if it is asked for.
    */
   static prompt(
-    title: ?string,
-    message?: ?string,
-    callbackOrButtons?: ?(((text: string) => void) | AlertButtons),
-    type?: ?AlertType = 'plain-text',
+    title: string | null | undefined,
+    message?: string | null,
+    callbackOrButtons?: ((text: string) => void) | AlertButtons | null,
+    type: AlertType | null = 'plain-text',
     defaultValue?: string,
     keyboardType?: string,
     options?: AlertOptions,
   ): void {
+    void keyboardType;
     show(title, message, callbackOrButtons, type, defaultValue, options);
   }
 }

@@ -37,7 +37,19 @@
 // this one is not compiled, so the sibling it used to sit beside is no longer
 // there. This is the file React Native's CLI loads from the package root, so
 // it must resolve with nothing but Node.
-const DESKTOP_PLATFORMS = require('./dist/metro-config').DESKTOP_PLATFORMS;
+// Required from `dist` at runtime, typed from the source.
+//
+// They are the same module. Splitting them this way is what stops checking
+// this file from depending on the output of the very compilation that checks
+// it -- `./dist/metro-config.d.ts` does not exist yet on a clean build, and a
+// config file that only type-checks on the second run is a trap.
+//
+// The path is built rather than written so that TypeScript does not try to
+// resolve it; the cast beside it says what it is.
+const metroConfig = /** @type {typeof import('./metro-config')} */ (
+  require(`${__dirname}/dist/metro-config`)
+);
+const DESKTOP_PLATFORMS = metroConfig.DESKTOP_PLATFORMS;
 
 // The same entry for each. They differ in their view layer and in nothing the
 // CLI can see, which is the whole argument of this project restated as four

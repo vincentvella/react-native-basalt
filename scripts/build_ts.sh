@@ -78,16 +78,6 @@ for package in "${PACKAGES[@]}"; do
   else
     "$TSC" --build "$package"
   fi
-
-  # The overrides are copied rather than compiled. They are Metro's, not node's:
-  # Metro resolves them by absolute path out of OVERRIDE_DIR and by platform
-  # extension (`./overrides/Platform` -> `Platform.linux.js`), and three of them
-  # carry the Flow annotations of the React Native files they shadow. Compiling
-  # them would rename nothing and break both. See the tsconfig.
-  if [ -d "$package/src/overrides" ]; then
-    mkdir -p "$package/dist/src/overrides"
-    cp "$package/src/overrides/"*.js "$package/dist/src/overrides/"
-  fi
 done
 
 echo "==> built"

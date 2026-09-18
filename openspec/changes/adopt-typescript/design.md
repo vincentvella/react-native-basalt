@@ -14,24 +14,27 @@ exactly those paths. The `exports` map already names them, so the map is the
 contract: whatever the layout becomes, those specifiers resolve to the same
 shapes.
 
-## The overrides are copied, not compiled -- which removes the hazard
+## The overrides are converted too
 
-*Revised once the build existed, which is why step 1 was to build nothing.*
+*Revised twice. First to "copy them", when three of them turned out to carry
+the Flow annotations of the React Native files they rewrite and `tsc` could not
+even copy them through. Then to this, because keeping a dialect nothing else in
+the toolchain uses is a cost paid on every read of those files, and the
+diffability it bought was against upstream files this project has already
+rewritten rather than tracked.*
 
-Two things were found by running `tsc` rather than by reading:
+So all thirteen are TypeScript, and `dist/src/overrides/*.js` is compiled
+output like everything else. The emitted filenames are what Metro selects by --
+`Platform.linux.js` and its siblings -- and compilation preserves them, which
+is checked by bundling and asking what `Platform.OS` says.
 
-- **Three of the thirteen overrides are Flow, not JavaScript.** `Alert.js`,
-  `Share.js` and `setUpDeveloperTools.js` carry optional-parameter and type-alias
-  syntax inherited from the React Native files they rewrite. `tsc` cannot even
-  copy them through.
-- **They never reach node.** Metro resolves them by absolute path out of
-  `OVERRIDE_DIR`, and by platform extension for `Platform.linux.js` and its
-  siblings, then runs them through React Native's own Babel -- which strips Flow
-  from everything.
-
-So they are copied into `dist` verbatim by the build script. That keeps their
-filenames by construction, keeps them in the dialect of the upstream files they
-shadow so the two stay diffable, and turns the hazard below into a non-issue.
+What they import cannot be typed and should not be. The
+`react-native-basalt/upstream/*` prefix is not a package: metro-config.ts turns
+it into an absolute path inside whichever React Native is being bundled, and
+behind it are React Native's internals at paths it reserves the right to move.
+`src/overrides/upstream.d.ts` declares the whole prefix as `any` in the
+shorthand form, which is the honest answer: a fabricated type there would be a
+guess the compiler then enforced, at the seam this project controls least.
 
 ## The override paths were the hazard
 

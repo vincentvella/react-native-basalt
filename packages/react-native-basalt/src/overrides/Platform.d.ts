@@ -37,6 +37,12 @@ export type PlatformSelectSpec<T> = Partial<Record<DesktopOS, T>> & {
 };
 
 export type DesktopPlatform = {
+  /**
+   * The cached `getConstants()` answer. Part of the shape because the getters
+   * below read it through `this`, which is how React Native's own Platform is
+   * written too; not something an app should touch.
+   */
+  __constants: PlatformConstants | null;
   readonly OS: DesktopOS;
   readonly Version: number;
   readonly constants: PlatformConstants;

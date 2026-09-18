@@ -30,7 +30,21 @@
 // Android's: these platforms report `PlatformConstantsAndroid` from C++, share
 // ReactCommon's prop parsing, and drive the same components Android's
 // JavaScript drives.
-import BaseViewConfig from 'react-native/Libraries/NativeComponent/BaseViewConfig.android';
+// A deep import into React Native, resolved by Metro and not through
+// `exports`, so TypeScript cannot follow it -- hence the declaration rather
+// than an import. The shape is React Native's own view config, for which it
+// publishes no type.
+//
+// `.default` explicitly: that module is ESM and this is a `require`, so the
+// interop an `import` would have done has to be done here. Without it the
+// spread below copies a module namespace instead of the config, `validAttributes`
+// is undefined, and every prop is dropped in JavaScript before it can reach
+// C++. What that looks like from the outside is an app whose buttons have no
+// accessibility role and whose fields cannot be focused -- which is how it was
+// found.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const upstream: any = require('react-native/Libraries/NativeComponent/BaseViewConfig.android');
+const BaseViewConfig = upstream.default ?? upstream;
 
 export default {
   ...BaseViewConfig,

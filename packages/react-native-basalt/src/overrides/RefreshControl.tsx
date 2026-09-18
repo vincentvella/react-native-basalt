@@ -26,17 +26,35 @@
  * @format
  */
 
-'use strict';
-
 import PullToRefreshViewNativeComponent from 'react-native-basalt/upstream/Libraries/Components/RefreshControl/PullToRefreshViewNativeComponent';
 import * as React from 'react';
+import type {StyleProp, ViewStyle} from 'react-native';
+
+/**
+ * React Native's own `RefreshControlProps`, which it does not export a usable
+ * type for. Android's four are named so that destructuring them out is a
+ * statement rather than an accident.
+ */
+export type RefreshControlProps = {
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  tintColor?: string;
+  title?: string;
+  titleColor?: string;
+  style?: StyleProp<ViewStyle>;
+  /** Android's half of the prop type, and meaningless here. */
+  enabled?: boolean;
+  colors?: ReadonlyArray<string>;
+  progressBackgroundColor?: string;
+  size?: number;
+};
 
 // core/DesktopControls.h's kRefreshControlHeight. Both numbers describe the
 // same row and neither can move without the other.
 const REFRESH_CONTROL_HEIGHT = 40;
 
-export default class RefreshControl extends React.Component {
-  render() {
+export default class RefreshControl extends React.Component<RefreshControlProps> {
+  render(): React.ReactNode {
     // `colors`, `progressBackgroundColor`, `size` and `enabled` are Android's
     // half of the prop type and mean nothing to this component, exactly as
     // they mean nothing to the iOS one.
@@ -65,7 +83,7 @@ export default class RefreshControl extends React.Component {
     );
   }
 
-  _onRefresh = () => {
+  _onRefresh = (): void => {
     this.props.onRefresh && this.props.onRefresh();
   };
 }
