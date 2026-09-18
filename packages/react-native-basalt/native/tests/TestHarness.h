@@ -34,7 +34,9 @@ struct TestCase {
 // TestHarness.cpp.
 std::vector<TestCase> &registry();
 void recordFailure(const std::string &where, const std::string &what);
-int runAllTests();
+// Runs the registered tests. Any arguments are substrings of test names: a test
+// runs if it matches one of them, and `--list` prints the names and exits.
+int runAllTests(int argc = 0, char **argv = nullptr);
 
 struct Registrar {
   Registrar(const char *name, std::function<void()> body) {

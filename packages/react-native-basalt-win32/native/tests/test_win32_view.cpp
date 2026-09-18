@@ -217,6 +217,6 @@ TEST(win32_view_describes_its_tree_like_the_other_hosts) {
   EXPECT_EQ(root->describeTree(), expected);
 }
 
-int main() {
-  return basalt::testing::runAllTests();
+int main(int argc, char **argv) {
+  return basalt::testing::runAllTests(argc, argv);
 }

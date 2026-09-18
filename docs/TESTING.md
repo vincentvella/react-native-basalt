@@ -7,6 +7,32 @@ scripts/test_all.sh                 # everything this machine can run
 scripts/test_all.sh --quick         # unit and Node suites only
 ```
 
+## Running one thing
+
+The whole suite is about a quarter of an hour per host, and most changes want
+one part of it. Everything here narrows, and each narrows the same way -- a
+substring of a name, and `--list` to see the names.
+
+```bash
+scripts/test_all.sh --list                  # the step names
+scripts/test_all.sh --only unit             # steps whose name contains "unit"
+scripts/test_all.sh --host gtk --only end   # the other host, end-to-end only
+
+python3 scripts/integration_test.py --list                    # scenario names
+python3 scripts/integration_test.py -k window                 # one scenario
+python3 scripts/integration_test.py -k window -k menu         # or several
+python3 scripts/integration_test.py --platform macos -k hover # and which host
+
+./build/basalt_gtk_tests --list             # test names
+./build/basalt_gtk_tests limits             # tests whose name contains "limits"
+./build/basalt_gtk_tests window switch      # or several
+```
+
+A filter that matches nothing says so and exits non-zero, rather than reporting
+that everything passed. That is not hypothetical: the unit binaries used to
+accept an argument and ignore it, so `basalt_gtk_tests hover` ran all 185 tests
+and printed a pass, which looks exactly like a filter that worked.
+
 It builds nothing but the demo bundle, and skips what is not built or not
 installed rather than failing -- so on a machine with one host it runs that
 host's suites and says which it left out. CI's jobs and that script are two

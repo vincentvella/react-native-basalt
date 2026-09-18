@@ -2688,7 +2688,28 @@ def main() -> int:
         default="auto",
         help="which host to run; auto picks the one that is built",
     )
+    # Running one scenario is the common case while working on it, and running
+    # all of them takes a quarter of an hour. Substring, case-insensitive,
+    # repeatable -- `-k window -k menu` runs both.
+    parser.add_argument(
+        "-k",
+        "--scenario",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="only scenarios whose name contains TEXT; repeatable",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="print the scenario names and exit",
+    )
     arguments = parser.parse_args()
+
+    if arguments.list:
+        for name, _ in SCENARIOS:
+            print(name)
+        return 0
 
     global INPUT_MODE, HOST, PLATFORM
     build = REPO / arguments.build_dir
@@ -2732,16 +2753,31 @@ def main() -> int:
         )
         return 1
 
+    wanted = SCENARIOS
+    if arguments.scenario:
+        needles = [text.lower() for text in arguments.scenario]
+        wanted = [
+            entry for entry in SCENARIOS
+            if any(needle in entry[0].lower() for needle in needles)
+        ]
+        if not wanted:
+            print(
+                f"error: no scenario matches {arguments.scenario}\n"
+                "       run with --list to see the names",
+                file=sys.stderr,
+            )
+            return 1
+
     note = (
         "real pointer events through the X server"
         if INPUT_MODE == "real"
         else "taps injected at the dispatcher, skipping the window system"
     )
-    print(f"running {len(SCENARIOS)} scenarios against {bundle.name} on {PLATFORM}")
+    print(f"running {len(wanted)} scenarios against {bundle.name} on {PLATFORM}")
     print(f"input: {INPUT_MODE} -- {note}")
     failed = 0
     skipped = 0
-    for name, scenario in SCENARIOS:
+    for name, scenario in wanted:
         try:
             scenario(bundle)
             print(f"  ok    {name}")
@@ -2768,7 +2804,7 @@ def main() -> int:
                 for line in tail_text(stream, 20).splitlines():
                     print(f"        {line}")
 
-    total = len(SCENARIOS) - skipped
+    total = len(wanted) - skipped
     tally = f"\n{total - failed}/{total} passed"
     if skipped:
         tally += f", {skipped} skipped"

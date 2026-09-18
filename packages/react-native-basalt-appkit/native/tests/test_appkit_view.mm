@@ -232,6 +232,6 @@ TEST(appkit_view_describes_its_tree_like_the_gtk_one) {
   }
 }
 
-int main() {
-  return basalt::testing::runAllTests();
+int main(int argc, char **argv) {
+  return basalt::testing::runAllTests(argc, argv);
 }

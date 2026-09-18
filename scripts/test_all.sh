@@ -15,6 +15,13 @@
 #   scripts/test_all.sh              # everything available
 #   scripts/test_all.sh --quick      # skip the end-to-end and parity suites
 #   scripts/test_all.sh --host gtk   # the other host, where a machine has two
+#   scripts/test_all.sh --only unit  # just the steps whose name contains "unit"
+#   scripts/test_all.sh --list       # the step names
+#
+# Narrowing matters: the whole thing is about a quarter of an hour per host, and
+# most changes want one step. The end-to-end suite narrows further on its own --
+# `integration_test.py -k window` runs one scenario -- and so do the unit
+# binaries, which take test-name substrings as arguments.
 #   BASALT_BUILD_DIR=build-x scripts/test_all.sh
 #
 # Exits non-zero if any step failed, after running all of them: one broken
@@ -28,11 +35,16 @@ cd "$root"
 build="${BASALT_BUILD_DIR:-build}"
 quick=0
 want=""
+only=""
 while (( $# )); do
   case "$1" in
     --quick) quick=1 ;;
     --host) want="${2:-}"; shift ;;
     --host=*) want="${1#*=}" ;;
+    --only) only="${2:-}"; shift ;;
+    --only=*) only="${1#*=}" ;;
+    --list) sed -n 's/^ *step "\([^"]*\)".*/\1/p' "$0" |
+              sed 's/\$suite/<host>_tests/' | sort -u; exit 0 ;;
     -h|--help) sed -n '2,23p' "$0" | sed 's|^#\ \?||'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -75,8 +87,16 @@ skipped=()
 
 # Runs one step, prints a banner, and remembers the verdict. Output is left
 # alone: a failing suite's own report is the useful part.
+#
+# `--only TEXT` narrows to steps whose name contains TEXT, because the whole
+# thing takes a quarter of an hour per host and most of the time you changed one
+# thing. A step nobody selected is not skipped -- it is not mentioned, so the
+# summary stays about what you asked for.
 step() {
   local name="$1"; shift
+  if [[ -n "$only" && "$name" != *"$only"* ]]; then
+    return 0
+  fi
   printf '\n\033[1m== %s\033[0m\n' "$name"
   if "$@"; then
     printf '\033[32mok\033[0m  %s\n' "$name"
@@ -87,6 +107,9 @@ step() {
 }
 
 skip() {
+  if [[ -n "$only" && "$1" != *"$only"* ]]; then
+    return 0
+  fi
   printf '\n\033[1m== %s\033[0m\n\033[33mskipped\033[0m -- %s\n' "$1" "$2"
   skipped+=("$1")
 }

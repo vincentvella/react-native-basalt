@@ -11,8 +11,6 @@
 #include <iostream>
 
 int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
 
   // No window is ever presented, but GTK still needs a display connection: on a
   // headless machine run this under a nested or virtual display server. See
@@ -23,5 +21,5 @@ int main(int argc, char **argv) {
     return 77; // The convention automake uses for "skipped", not "failed".
   }
 
-  return basalt::testing::runAllTests();
+  return basalt::testing::runAllTests(argc, argv);
 }

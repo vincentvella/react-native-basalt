@@ -6,6 +6,8 @@
 
 #include "TestHarness.h"
 
+#include <algorithm>
+#include <cctype>
 #include <sstream>
 
 namespace basalt::testing {
@@ -33,12 +35,56 @@ void recordFailure(const std::string &where, const std::string &what) {
   current().failures.push_back(where + ": " + what);
 }
 
-int runAllTests() {
+namespace {
+
+std::string lowered(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return text;
+}
+
+} // namespace
+
+int runAllTests(int argc, char **argv) {
+  // Arguments are substrings of test names, and a test runs if it matches any
+  // of them. There is a lot of the day in the difference between running one
+  // test and running all of them, and this runner used to accept an argument
+  // and silently ignore it -- which is worse than rejecting one, because it
+  // looks like the filter worked and every test passed.
+  std::vector<std::string> wanted;
+  for (int i = 1; i < argc; i++) {
+    const std::string argument = argv[i];
+    if (argument == "--list") {
+      for (const auto &test : registry()) {
+        std::cout << test.name << "\n";
+      }
+      return 0;
+    }
+    wanted.push_back(lowered(argument));
+  }
+
+  std::vector<TestCase> selected;
+  for (const auto &test : registry()) {
+    const std::string name = lowered(test.name);
+    if (wanted.empty() ||
+        std::any_of(wanted.begin(), wanted.end(), [&name](const std::string &needle) {
+          return name.find(needle) != std::string::npos;
+        })) {
+      selected.push_back(test);
+    }
+  }
+
+  if (selected.empty()) {
+    std::cout << "no test matches; --list prints the names\n";
+    return 1;
+  }
+
   int failed = 0;
 
-  std::cout << "running " << registry().size() << " tests\n";
+  std::cout << "running " << selected.size() << " tests\n";
 
-  for (const auto &test : registry()) {
+  for (const auto &test : selected) {
     current().name = test.name;
     current().failures.clear();
 
@@ -55,7 +101,7 @@ int runAllTests() {
     }
   }
 
-  std::cout << "\n" << registry().size() - static_cast<size_t>(failed) << "/" << registry().size()
+  std::cout << "\n" << selected.size() - static_cast<size_t>(failed) << "/" << selected.size()
             << " passed\n";
   return failed == 0 ? 0 : 1;
 }
