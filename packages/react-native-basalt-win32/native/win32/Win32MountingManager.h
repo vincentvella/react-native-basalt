@@ -38,6 +38,11 @@ namespace basalt {
 class Win32MountingManager final : public facebook::react::IMountingManager,
                                    public MountingWalk<Win32MountingManager, win32::RnWin32View *> {
  public:
+
+  // The image loader, for the host to hand to React Native's
+  // `ImageLoaderModule` -- which is what `Image.getSize` and `Image.prefetch`
+  // reach. Shared so that module can hold a weak reference to it.
+  std::shared_ptr<win32::Win32ImageLoader> imageLoader() const { return imageLoader_; }
   Win32MountingManager();
   ~Win32MountingManager() noexcept override;
 
@@ -182,7 +187,10 @@ class Win32MountingManager final : public facebook::react::IMountingManager,
 
   // Fetching and decoding, off the UI thread. Holds the decoded-pixel cache
   // too, and outlives this object while a load is in flight -- see the header.
-  win32::Win32ImageLoader imageLoader_;
+  // Shared rather than held by value: React Native's `ImageLoaderModule` takes
+  // a `weak_ptr<IImageLoader>`, and this is the loader it gets.
+  std::shared_ptr<win32::Win32ImageLoader> imageLoader_ =
+      std::make_shared<win32::Win32ImageLoader>();
 
   // A <Switch> is a controlled component: the drawing is not allowed to decide
   // its own state, so the value React last sent is kept here and the view is

@@ -423,7 +423,7 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
   const auto known = imageUris_.find(tag);
   if (known != imageUris_.end() && known->second == uri) {
     if (!uri.empty()) {
-      imageLoader_.load(uri, [this, tag, fit](GdkTexture *texture, const std::string &) {
+      imageLoader_->load(uri, [this, tag, fit](GdkTexture *texture, const std::string &) {
         if (RnView *target = viewForTag(tag); target != nullptr) {
           rn_view_set_texture(target, texture, fit);
         }
@@ -464,7 +464,7 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
     emitter->onLoadStart();
   }
 
-  imageLoader_.load(uri, [this, tag, fit, source, isExpoImage](GdkTexture *texture,
+  imageLoader_->load(uri, [this, tag, fit, source, isExpoImage](GdkTexture *texture,
                                                               const std::string &error) {
     // The view may have been deleted while the image was in flight, which is
     // why this looks the tag up again rather than capturing the widget.

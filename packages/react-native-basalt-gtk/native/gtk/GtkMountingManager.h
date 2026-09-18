@@ -26,6 +26,11 @@ namespace basalt {
 class GtkMountingManager final : public facebook::react::IMountingManager,
                                  public MountingWalk<GtkMountingManager, RnView *> {
  public:
+
+  // The image loader, for the host to hand to React Native's
+  // `ImageLoaderModule` -- which is what `Image.getSize` and `Image.prefetch`
+  // reach. Shared so that module can hold a weak reference to it.
+  std::shared_ptr<GtkImageLoader> imageLoader() const { return imageLoader_; }
   GtkMountingManager();
   ~GtkMountingManager() noexcept override;
 
@@ -115,7 +120,10 @@ class GtkMountingManager final : public facebook::react::IMountingManager,
   void applyTextInput(RnView *view, const facebook::react::ShadowView &shadowView);
   void applyLayoutMetrics(RnView *view, const facebook::react::ShadowView &shadowView);
 
-  GtkImageLoader imageLoader_;
+  // Shared rather than held by value: React Native's `ImageLoaderModule` takes
+  // a `weak_ptr<IImageLoader>`, and this is the loader it gets. See
+  // `imageLoader()`.
+  std::shared_ptr<GtkImageLoader> imageLoader_ = std::make_shared<GtkImageLoader>();
   GtkScrollViewManager scrollViews_;
   GtkTextInputManager textInputs_;
 

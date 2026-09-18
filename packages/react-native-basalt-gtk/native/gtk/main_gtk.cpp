@@ -27,6 +27,8 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "GtkMountingManager.h"
+
+#include <react/io/ImageLoaderModule.h>
 #include "GtkRunLoopObserver.h"
 #include "GtkFocus.h"
 #include "LogBoxSurface.h"
@@ -746,15 +748,26 @@ class LinuxFeatureFlags : public facebook::react::ReactNativeFeatureFlagsDefault
 // consults these before its own, so naming a module it also provides replaces
 // it. Today that is only PlatformConstants; this is also the seam an Expo port
 // would use.
-facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scriptURL,
-                                                              bool devMode) {
+facebook::react::TurboModuleProviders makeTurboModuleProviders(
+    std::string scriptURL,
+    bool devMode,
+    std::weak_ptr<basalt::GtkImageLoader> imageLoader) {
   facebook::react::TurboModuleProviders providers;
   providers.emplace_back(
-      [scriptURL = std::move(scriptURL), devMode](const std::string &name,
+      [scriptURL = std::move(scriptURL), devMode, imageLoader = std::move(imageLoader)](
+          const std::string &name,
          const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
           return std::make_shared<basalt::DesktopPlatformConstantsModule>(jsInvoker);
+        }
+        // `Image.getSize` and `Image.prefetch`. Upstream builds this module
+        // with no loader at all and offers no way to supply one, so the answer
+        // is to build it here with the loader this host already has -- which
+        // is also the one holding the decoded images, so a size asked for
+        // something on screen costs nothing. See docs/backlog/upstream.md.
+        if (name == facebook::react::ImageLoaderModule::kModuleName) {
+          return std::make_shared<facebook::react::ImageLoaderModule>(jsInvoker, imageLoader);
         }
         if (name == basalt::DesktopAppearanceModule::kModuleName) {
           return std::make_shared<basalt::DesktopAppearanceModule>(jsInvoker);
@@ -1214,7 +1227,8 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                   facebook::react::getDefaultOnJsErrorFunc(),
                                                   logToGlib,
                                                   nullptr,
-                                                  makeTurboModuleProviders(basalt::scriptURLFor(
+                                                  makeTurboModuleProviders(
+                                                      basalt::scriptURLFor(
                                                       host->bundlePath,
                                                       config.enableDevMode,
                                                       config.devServerHost,
@@ -1222,7 +1236,9 @@ void onActivate(GtkApplication *app, gpointer data) {
                                                       host->sourcePath.empty() ? "index"
                                                                                : host->sourcePath,
                                                       "linux"),
-                                                                  config.enableDevMode),
+                                                                  config.enableDevMode,
+                                                                  host->mountingManager
+                                                                      ->imageLoader()),
                                                   // React Native's error
                                                   // inspector. ReactCxxPlatform
                                                   // implements the LogBox

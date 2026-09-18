@@ -2,14 +2,13 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (6):**
+**Open (5):**
 
 1. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
 2. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
 3. Assets are never fetched over the network, so a dev server's assets do not wor
 4. Nothing caches a downloaded asset, which is right for a local file and will no
 5. onProgress and onPartialLoad are never emitted
-6. IImageLoader itself is still unimplemented, so Image
 
 - ~~Nothing evicts the texture cache.~~ Done on all three, in
   `core/ImageCache.h`. Each host kept decoded images in an `unordered_map`
@@ -60,5 +59,15 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 - Nothing caches a downloaded asset, which is right for a local file and will
   not be for a remote one.
 - `onProgress` and `onPartialLoad` are never emitted.
-- `IImageLoader` itself is still unimplemented, so `Image.getSize` and
-  `Image.prefetch` do nothing. That is a separate seam from the rendering path.
+- ~~`IImageLoader` itself is still unimplemented, so `Image.getSize` and
+  `Image.prefetch` do nothing.~~ Done on all three. Each host's image loader
+  now *is* an `IImageLoader`, so a size asked for something already on screen
+  is answered from the same cache that is holding its pixels.
+
+  The reason it was unimplemented is upstream and worth knowing before anyone
+  looks for the seam: `ReactCxxTurboModuleProvider` constructs
+  `ImageLoaderModule(jsInvoker_)` with the default empty `weak_ptr`, and
+  nothing in `ReactInstanceConfig` can supply one. So there is no hook to fill
+  in -- the module has to be built by the host instead, which works because a
+  host's own providers are consulted before the built-in ones. See
+  `docs/backlog/upstream.md`.

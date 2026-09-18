@@ -44,6 +44,8 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "Win32MountingManager.h"
+
+#include <react/io/ImageLoaderModule.h>
 #include "Win32MenuBar.h"
 #include "Win32Packaging.h"
 #include "PointerButtons.h"
@@ -437,14 +439,24 @@ class DesktopFeatureFlags : public facebook::react::ReactNativeFeatureFlagsDefau
 // it. Every one comes from core/ and is shared with the other two hosts --
 // which is the whole argument of phase 17 arriving as a list of things this
 // file did not have to write.
-facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scriptURL,
-                                                               bool devMode) {
+facebook::react::TurboModuleProviders makeTurboModuleProviders(
+    std::string scriptURL,
+    bool devMode,
+    std::weak_ptr<basalt::win32::Win32ImageLoader> imageLoader) {
   facebook::react::TurboModuleProviders providers;
   providers.emplace_back(
-      [scriptURL = std::move(scriptURL), devMode](
+      [scriptURL = std::move(scriptURL), devMode, imageLoader = std::move(imageLoader)](
           const std::string &name,
           const std::shared_ptr<facebook::react::CallInvoker> &jsInvoker)
           -> std::shared_ptr<facebook::react::TurboModule> {
+        // `Image.getSize` and `Image.prefetch`. Upstream builds this module
+        // with no loader at all and offers no way to supply one, so the answer
+        // is to build it here with the loader this host already has -- which
+        // is also the one holding the decoded images, so a size asked for
+        // something on screen costs nothing. See docs/backlog/upstream.md.
+        if (name == facebook::react::ImageLoaderModule::kModuleName) {
+          return std::make_shared<facebook::react::ImageLoaderModule>(jsInvoker, imageLoader);
+        }
         if (name == facebook::react::PlatformConstantsModule::kModuleName) {
           return std::make_shared<basalt::DesktopPlatformConstantsModule>(jsInvoker);
         }
@@ -1995,7 +2007,8 @@ int main(int argc, char **argv) {
                                  config.devServerPort,
                                  gHost.sourcePath.empty() ? "index" : gHost.sourcePath,
                                  "windows"),
-            config.enableDevMode),
+            config.enableDevMode,
+            gHost.mountingManager->imageLoader()),
         // React Native's error inspector. ReactCxxPlatform implements the
         // LogBox TurboModule itself and only provides it when a host hands over
         // one of these; passing null, as this did, left NativeLogBox.show() a

@@ -2469,6 +2469,49 @@ def test_press_location(bundle: Path) -> None:
         raise Failure(f"the press landed at {x},{y} inside the button; expected about 76,36")
 
 
+def test_image_get_size(bundle: Path) -> None:
+    """`Image.getSize` answers, and a missing file rejects.
+
+    A different seam from the one that paints: the pixels on screen come from
+    the mounting manager, and this goes through React Native's own
+    `ImageLoader` module. That module takes an `IImageLoader` and
+    `ReactCxxTurboModuleProvider` builds it with none and offers no way to
+    supply one -- so `getSize` resolved never, on every host, until each
+    registered the module itself with the loader it already had.
+
+    Both halves matter. A host that answered every call would pass on the
+    first assertion alone while reporting a size for a file that does not
+    exist.
+    """
+    app = bundle_app(bundle.parent, "image")
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "3000"
+    for name in ("BASALT_TEST_TAP", "BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE",
+                 "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL",
+                 "BASALT_TEST_MENU", "BASALT_TEST_CLOSE_WINDOW"):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltImage"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+    logged = result.stdout + result.stderr
+
+    if "getSize 160x100" not in logged:
+        raise Failure(
+            "Image.getSize did not report the asset's size. Nothing at all "
+            f"means the module has no loader and the promise never settles.\n{tail_text(logged)}"
+        )
+    if "getSize missing rejected" not in logged:
+        raise Failure(
+            "Image.getSize resolved for a file that does not exist.\n"
+            + tail_text(logged)
+        )
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2994,6 +3037,7 @@ SCENARIOS = [
      test_content_inset),
     ("locationX and locationY are relative to the view that was pressed",
      test_press_location),
+    ("Image.getSize answers, and a missing file rejects", test_image_get_size),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("a window says how big it may be, and what this desktop can do about it",

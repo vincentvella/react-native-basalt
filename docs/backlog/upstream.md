@@ -2,7 +2,7 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (12):**
+**Open (13):**
 
 1. `http::Body::blob` is typed `std::optional<std::string>`
 2. The cxx `NetworkingModule` does not mention blobs at all
@@ -16,6 +16,7 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 10. `ReactCommon/cmake-utils/react-native-flags.cmake` hardcodes clang's command line
 11. Report that ReactCxxPlatform's PlatformConstantsModule hardcodes a React Nativ
 12. Consider upstreaming a Linux entry in getHostPlatform
+13. `ImageLoaderModule` is built with no loader and nothing can supply one
 
 - **`http::Body::blob` is typed `std::optional<std::string>`** in
   ReactCxxPlatform, and `convertRequestBody` sends `{blobId, offset, size}` --
@@ -85,3 +86,19 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   check. Worked around in `src/LinuxPlatformConstants.cpp`.
 - Consider upstreaming a Linux entry in `getHostPlatform.js` if the host build
   ever becomes something Meta would take.
+
+- **`ImageLoaderModule` is built with no loader and nothing can supply one.**
+  `ReactCxxTurboModuleProvider::operator()` constructs it as
+  `ImageLoaderModule(jsInvoker_)`, taking the default empty
+  `weak_ptr<IImageLoader>`, and `ReactInstanceConfig` has no field for one. So
+  `Image.getSize` and `Image.prefetch` cannot work on any ReactCxxPlatform host
+  as shipped: the promise never settles.
+
+  The interface exists and is small -- `loadImage` and `getCacheStatus` -- so
+  the fix upstream is a config field and one more constructor argument,
+  alongside the ones already there for the WebSocket client factory and the
+  dev UI delegate.
+
+  Worked around here by building the module in each host's own provider, which
+  is consulted first. That is a supported seam rather than a trick, but it
+  means every host has to know to do it.

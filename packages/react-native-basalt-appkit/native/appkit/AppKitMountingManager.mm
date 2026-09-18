@@ -361,7 +361,7 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
   const auto known = imageUris_.find(tag);
   if (known != imageUris_.end() && known->second == uri) {
     if (!uri.empty()) {
-      imageLoader_.load(uri, [this, tag, fit](CGImageRef image, const std::string &) {
+      imageLoader_->load(uri, [this, tag, fit](CGImageRef image, const std::string &) {
         if (RnAppKitView *target = viewForTag(tag); target != nil) {
           [target setRnImage:image fit:fit];
         }
@@ -402,7 +402,7 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
     emitter->onLoadStart();
   }
 
-  imageLoader_.load(uri, [this, tag, fit, source, isExpoImage](CGImageRef image,
+  imageLoader_->load(uri, [this, tag, fit, source, isExpoImage](CGImageRef image,
                                                               const std::string &error) {
     // The view may have been deleted while the image was in flight, which is
     // why this looks the tag up again rather than capturing the view.

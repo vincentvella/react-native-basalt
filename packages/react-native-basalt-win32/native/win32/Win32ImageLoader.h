@@ -35,9 +35,16 @@
 
 #include "ImageCache.h"
 
+#include <react/io/IImageLoader.h>
+
 namespace basalt::win32 {
 
-class Win32ImageLoader {
+// Also React Native's own `IImageLoader`, which is what `Image.getSize` and
+// `Image.prefetch` reach. Upstream's `ImageLoaderModule` takes one and
+// `ReactCxxTurboModuleProvider` never supplies it -- see
+// docs/backlog/upstream.md -- so the host registers the module itself with
+// this as the loader.
+class Win32ImageLoader : public facebook::react::IImageLoader {
  public:
   // `image` is null when the load failed, and `error` says why. Always called
   // on the UI thread, and possibly before `load` has returned -- a cache hit is
@@ -54,9 +61,18 @@ class Win32ImageLoader {
 
   void load(const std::string &uri, Callback callback);
 
-  // Drops the decoded pixels. Nothing calls it yet, and that is a gap rather
-  // than a decision: a long-lived app that scrolls through many remote images
-  // grows without bound, which docs/BACKLOG.md records for GTK as well.
+  // --- IImageLoader ----------------------------------------------------------
+  //
+  // The same decode as `load`, reporting the size rather than the pixels. It
+  // goes through the same cache, so `Image.getSize` on something already on
+  // screen answers without touching the disk or the network.
+  void loadImage(const std::string &uri,
+                 const facebook::react::IImageLoaderOnLoadCallback &&onLoad) override;
+
+  facebook::react::IImageLoader::CacheStatus getCacheStatus(const std::string &uri) override;
+
+  // Drops every decoded image at once, for a host shutting a surface down.
+  // Ordinary eviction is core/ImageCache.h's, which runs on every insert.
   void clearCache();
 
  private:

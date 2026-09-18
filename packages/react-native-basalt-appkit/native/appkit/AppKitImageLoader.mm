@@ -125,4 +125,32 @@ void AppKitImageLoader::load(const std::string &uri, Callback &&callback) {
   }).detach();
 }
 
+
+void AppKitImageLoader::loadImage(const std::string &uri,
+                                  const facebook::react::IImageLoaderOnLoadCallback &&onLoad) {
+  // Copied because the callback outlives this call: `load` answers on a later
+  // turn of the main queue, and the reference it was handed is gone by then.
+  auto callback = onLoad;
+  load(uri, [callback](CGImageRef image, const std::string &error) {
+    if (image == nullptr) {
+      // The message rather than a size: `Image.getSize` rejects with it, and a
+      // zero-by-zero success would be indistinguishable from a 0x0 image.
+      callback(0.0, 0.0, error.empty() ? "could not load image" : error.c_str());
+      return;
+    }
+    callback(static_cast<double>(CGImageGetWidth(image)),
+             static_cast<double>(CGImageGetHeight(image)),
+             nullptr);
+  });
+}
+
+facebook::react::IImageLoader::CacheStatus AppKitImageLoader::getCacheStatus(
+    const std::string &uri) {
+  // Memory or nothing: there is no disk cache here, and saying `Disk` would be
+  // claiming a persistence this has not got.
+  return cache_.find(uri) != cache_.end()
+      ? facebook::react::IImageLoader::CacheStatus::Memory
+      : facebook::react::IImageLoader::CacheStatus::None;
+}
+
 } // namespace basalt

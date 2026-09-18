@@ -26,9 +26,16 @@
 
 #include "ImageCache.h"
 
+#include <react/io/IImageLoader.h>
+
 namespace basalt {
 
-class AppKitImageLoader {
+// Also React Native's own `IImageLoader`, which is what `Image.getSize` and
+// `Image.prefetch` reach. Upstream's `ImageLoaderModule` takes one and
+// `ReactCxxTurboModuleProvider` never supplies it -- see
+// docs/backlog/upstream.md -- so the host registers the module itself with
+// this as the loader.
+class AppKitImageLoader : public facebook::react::IImageLoader {
  public:
   // `image` is null when the load failed, and `error` says why. Always called
   // on the main thread, possibly synchronously if the image is cached.
@@ -43,6 +50,16 @@ class AppKitImageLoader {
   AppKitImageLoader &operator=(AppKitImageLoader &&) = delete;
 
   void load(const std::string &uri, Callback &&callback);
+
+  // --- IImageLoader ----------------------------------------------------------
+  //
+  // The same decode as `load`, reporting the size rather than the pixels. It
+  // goes through the same cache, so `Image.getSize` on something already on
+  // screen answers without touching the disk or the network.
+  void loadImage(const std::string &uri,
+                 const facebook::react::IImageLoaderOnLoadCallback &&onLoad) override;
+
+  facebook::react::IImageLoader::CacheStatus getCacheStatus(const std::string &uri) override;
 
  private:
   struct Pending;

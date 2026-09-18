@@ -29,6 +29,11 @@ namespace basalt {
 class AppKitMountingManager final : public facebook::react::IMountingManager,
                                  public MountingWalk<AppKitMountingManager, RnAppKitView *> {
  public:
+
+  // The image loader, for the host to hand to React Native's
+  // `ImageLoaderModule` -- which is what `Image.getSize` and `Image.prefetch`
+  // reach. Shared so that module can hold a weak reference to it.
+  std::shared_ptr<AppKitImageLoader> imageLoader() const { return imageLoader_; }
   AppKitMountingManager();
   ~AppKitMountingManager() noexcept override;
 
@@ -111,7 +116,9 @@ class AppKitMountingManager final : public facebook::react::IMountingManager,
 
   AppKitScrollViewManager scrollViews_;
   AppKitTextInputManager textInputs_;
-  AppKitImageLoader imageLoader_;
+  // Shared rather than held by value: React Native's `ImageLoaderModule` takes
+  // a `weak_ptr<IImageLoader>`, and this is the loader it gets.
+  std::shared_ptr<AppKitImageLoader> imageLoader_ = std::make_shared<AppKitImageLoader>();
 
   // A <Switch> is a controlled component: the widget is not allowed to decide
   // its own state, so the value React last sent is kept here and put straight

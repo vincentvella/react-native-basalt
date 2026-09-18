@@ -442,7 +442,7 @@ void Win32MountingManager::applyImage(RnWin32View *view, const ShadowView &shado
   // loader is a member and cannot outlive the manager -- and the loader itself
   // guards the case where the manager goes first.
   const Tag tag = shadowView.tag;
-  imageLoader_.load(uri, [this, tag, uri, fit](std::shared_ptr<win32::RnWin32Image> image,
+  imageLoader_->load(uri, [this, tag, uri, fit](std::shared_ptr<win32::RnWin32Image> image,
                                                const std::string &error) {
     (void)error;
     RnWin32View *target = viewForTag(tag);

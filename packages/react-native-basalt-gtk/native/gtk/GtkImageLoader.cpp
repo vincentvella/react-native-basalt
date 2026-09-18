@@ -96,4 +96,33 @@ void GtkImageLoader::load(const std::string &uri, Callback &&callback) {
   }).detach();
 }
 
+
+void GtkImageLoader::loadImage(const std::string &uri,
+                               const facebook::react::IImageLoaderOnLoadCallback &&onLoad) {
+  // Copied because the callback outlives this call: `load` may answer on a
+  // later turn of the main loop, and the reference it was handed is gone by
+  // then.
+  auto callback = onLoad;
+  load(uri, [callback](GdkTexture *texture, const std::string &error) {
+    if (texture == nullptr) {
+      // The message rather than a size: `Image.getSize` rejects with it, and a
+      // zero-by-zero success would be indistinguishable from a 0x0 image.
+      callback(0.0, 0.0, error.empty() ? "could not load image" : error.c_str());
+      return;
+    }
+    callback(static_cast<double>(gdk_texture_get_width(texture)),
+             static_cast<double>(gdk_texture_get_height(texture)),
+             nullptr);
+  });
+}
+
+facebook::react::IImageLoader::CacheStatus GtkImageLoader::getCacheStatus(
+    const std::string &uri) {
+  // Memory or nothing: there is no disk cache here, and saying `Disk` would be
+  // claiming a persistence this has not got.
+  return cache_.find(uri) != cache_.end()
+      ? facebook::react::IImageLoader::CacheStatus::Memory
+      : facebook::react::IImageLoader::CacheStatus::None;
+}
+
 } // namespace basalt

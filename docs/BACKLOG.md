@@ -21,7 +21,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Input](backlog/input.md) | 4 | Gestures a cursor cannot make, and the rest of RNGH's relation graph. |
 | [Text](backlog/text.md) | 7 | Measurement and layout gaps. |
 | [TextInput](backlog/textinput.md) | 8 | Multiline, `maxLength`, keyboard types, spell check. |
-| [Image](backlog/image.md) | 6 | Animated images, decorative props. |
+| [Image](backlog/image.md) | 5 | Animated images, decorative props. |
 | [ScrollView](backlog/scrollview.md) | 4 | Trackpad scrolling unverified, zoom, `contentBoundingRect`, view culling. |
 | [Components](backlog/components.md) | 5 | What is not implemented at all, and `<Modal>` as a real window. |
 | [Accessibility](backlog/accessibility.md) | 4 | Nothing has been tested against a real screen reader. |
@@ -36,7 +36,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Host wiring](backlog/host-wiring.md) | 7 | Dev support, error reporting, the offline `__DEV__` bundle. |
 | [Compatibility](backlog/compatibility.md) | 7 | Which React Native versions work, and which cannot. |
 | [Testing](backlog/testing.md) | 11 | What the suites cannot see. Was two sections with the same name, 800 lines apart; merged. |
-| [Upstream](backlog/upstream.md) | 12 | Bugs and gaps in React Native and Expo, with the workarounds here. |
+| [Upstream](backlog/upstream.md) | 13 | Bugs and gaps in React Native and Expo, with the workarounds here. |
 
 ## How to use this
 

@@ -44,6 +44,24 @@ const styles = StyleSheet.create({
 });
 
 function App() {
+  // `Image.getSize` goes through React Native's ImageLoader module, which is a
+  // different seam from the one that paints: the pixels above come from the
+  // mounting manager, and this asks the loader directly. It answered nothing
+  // at all until the host started supplying a loader -- upstream builds the
+  // module with none. Logged so the end-to-end suite can check it.
+  React.useEffect(() => {
+    Image.getSize(
+      FILE.uri,
+      (width, height) => console.log(`getSize ${width}x${height}`),
+      error => console.log(`getSize failed: ${error}`),
+    );
+    Image.getSize(
+      MISSING.uri,
+      (width, height) => console.log(`getSize missing ${width}x${height}`),
+      () => console.log('getSize missing rejected'),
+    );
+  }, []);
+
   return (
     <View style={styles.page}>
       <View style={styles.row}>

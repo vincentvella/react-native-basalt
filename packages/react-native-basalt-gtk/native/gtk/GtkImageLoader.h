@@ -32,9 +32,16 @@
 
 #include "ImageCache.h"
 
+#include <react/io/IImageLoader.h>
+
 namespace basalt {
 
-class GtkImageLoader {
+// Also React Native's own `IImageLoader`, which is what `Image.getSize` and
+// `Image.prefetch` reach. Upstream's `ImageLoaderModule` takes one and
+// `ReactCxxTurboModuleProvider` never supplies it -- see
+// docs/backlog/upstream.md -- so the host registers the module itself with
+// this as the loader.
+class GtkImageLoader : public facebook::react::IImageLoader {
  public:
   // `texture` is null when the load failed, and `error` says why. Always called
   // on the GTK main thread, possibly synchronously if the image is cached.
@@ -50,6 +57,16 @@ class GtkImageLoader {
 
   void load(const std::string &uri, Callback &&callback);
 
+  // --- IImageLoader ----------------------------------------------------------
+  //
+  // The same decode as `load`, reporting the size rather than the pixels. It
+  // goes through the same cache, so `Image.getSize` on something already on
+  // screen answers without touching the disk or the network.
+  void loadImage(const std::string &uri,
+                 const facebook::react::IImageLoaderOnLoadCallback &&onLoad) override;
+
+  facebook::react::IImageLoader::CacheStatus getCacheStatus(const std::string &uri) override;
+
  private:
   struct Pending;
 
@@ -58,7 +75,6 @@ class GtkImageLoader {
   // Decoded textures, keyed by URI. Textures are immutable and shareable, so
   // two <Image>s with the same source paint the same object.
   //
-  // Nothing evicts from this yet; see docs/BACKLOG.md.
   // Caches a texture and releases whatever the policy dropped.
   void remember(const std::string &uri, GdkTexture *texture);
 
