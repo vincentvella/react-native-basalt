@@ -2,14 +2,15 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (6):**
+**Open (7):**
 
 1. React Native 0.82 and older cannot reach a native module
-2. React Native 0
-3. Supporting React Native 0
+2. React Native 0.83 through 0.86 are refused rather than untested-but-allowed
+3. Supporting React Native 0.81, which is what kino pins
 4. CI checks one React Native per run
 5. Expo starts but no Expo module works
-6. No @shopify/react-native-skia, which is not this platform's to fix, but is wor
+6. No @shopify/react-native-skia, which stops one real app dead
+7. The version this host reports cannot express a prerelease tag
 
 Found by bundling and running a real application.
 
@@ -45,3 +46,7 @@ Found by bundling and running a real application.
   every config plugin's native half are each their own port.
 - No `@shopify/react-native-skia`, which is not this platform's to fix, but is
   worth knowing as the thing that stops one real app dead.
+- **The version this host reports cannot express a prerelease tag.** The Android
+  spec it answers types `prerelease` as an optional int, so there is nowhere to
+  put `-rc.1`. Stable releases have none, so this only matters for somebody
+  testing against a release candidate.

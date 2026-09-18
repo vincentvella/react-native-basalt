@@ -40,6 +40,8 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   images never showed this because they are `{uri: ...}` rather than requires.
 - Assets are never fetched over the network, so a dev server's assets do not
   work; `downloadAsync` rejects saying so. The host has an http client already.
+  And nothing is cached: `downloadAsync` returns the file where it lies, which
+  is right for a local asset and will not be right for a remote one.
 - Nothing caches a downloaded asset, which is right for a local file and will
   not be for a remote one.
 - `onProgress` and `onPartialLoad` are never emitted.

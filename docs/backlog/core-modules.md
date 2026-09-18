@@ -2,7 +2,7 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (6):**
+**Open (7):**
 
 1. React Native's JavaScript branches two ways and a third platform lands on iOS
 2. Notifications on macOS need a person
@@ -10,6 +10,7 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 4. Scheduling
 5. Packaging the host as an application
 6. A Metro error still has no red box
+7. `ToastAndroid` is absent, deliberately
 
 ReactCxxPlatform supplies fourteen TurboModules: `Animated`, `AppState`,
 `DeviceInfo`, `DevLoadingView`, `DevSettings`, `ImageLoader`, `LogBox`,
@@ -31,6 +32,9 @@ so anything importing them dies at startup.
   system control to repaint.
 - ~~**`BlobModule`**~~ **done in phase 31**, on both desktops. What is left:
   blob request bodies and `responseType: 'blob'`, both blocked upstream (below),
+  and `readAsArrayBuffer`, which does not exist here and does not exist in React
+  Native's own JavaScript either -- `FileReader` has no such method, so there is
+  no native half to be missing yet. Worth knowing before somebody goes looking.
   binary websocket frames, and `readAsText` understanding only UTF-8.
 - ~~**`Clipboard`**, **`Vibration`**, **`AlertManager`**, **`LinkingManager`**,
   **`I18nManager`**, **`AccessibilityInfo`**~~ **done in phase 32**, on both
@@ -53,6 +57,9 @@ so anything importing them dies at startup.
   anything about it. What *is* asserted is that a bundled host answers
   `granted` where an unbundled one answers `denied`, and that the send is
   accepted.
+- **`ToastAndroid` is absent**, and deliberately: it is Android's own module and
+  only throws if an app imports it directly. Listed so that the throw is a known
+  answer rather than a surprise.
 - ~~**`ShareModule`**~~ is done on all three, and it took a JavaScript override
   as well as a module: `Share.js` branches on `Platform.OS` being exactly
   `android` or `ios` and rejects with "Unsupported platform" otherwise, so no

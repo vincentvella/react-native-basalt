@@ -2,11 +2,13 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (3):**
+**Open (5):**
 
 1. Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11
 2. contentBoundingRect
 3. disableViewCulling is never set, which will matter once AT-SPI lands
+4. contentInset and scrollIndicatorInsets are reported and never applied
+5. No zoom
 
 - Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11.
 - ~~No momentum.~~ See the Input section. What is left is Windows, which has no
@@ -62,6 +64,13 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   position and cannot be used to change it. `flashScrollIndicators` is
   correspondingly still a no-op -- the bar is always on screen, so there is
   nothing to flash.
+- **`contentInset` and `scrollIndicatorInsets` are reported and never applied**,
+  on all three. They are read from props and passed through in the scroll event,
+  and nothing positions against them -- so a list that asks to be inset from the
+  top scrolls as though it had not.
+- **No zoom.** `zoomScale` is reported as 1 and nothing changes it.
+  Pinch-to-zoom has no implementation on any of the three, and a desktop has no
+  obvious gesture for it.
 - `contentBoundingRect.origin` is assumed to be zero; iOS positions its
   container view at that origin.
 - `disableViewCulling` is never set, which will matter once AT-SPI lands.

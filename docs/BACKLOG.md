@@ -11,7 +11,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | --- | --- | --- |
 | [Desktop capabilities](backlog/desktop-capabilities.md) | 11 | Windows, menus and dialogs are done; the catalogue at the end of that file is the rest of the surface -- drag and drop, tray, permissions, power, displays, global shortcuts -- checked one at a time against the repository. |
 | [Ecosystem](backlog/ecosystem.md) | 4 | Nobody else can use this yet: nothing is published. `npx react-native-basalt init`, and porting a first third-party native module. |
-| [Core modules](backlog/core-modules.md) | 6 | React Native APIs with no implementation here. |
+| [Core modules](backlog/core-modules.md) | 7 | React Native APIs with no implementation here. |
 | [Expo](backlog/expo.md) | 11 | Beyond the template: more Expo views, notification delivery and scheduling. |
 
 ## Components and behaviour
@@ -22,7 +22,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Text](backlog/text.md) | 7 | Measurement and layout gaps. |
 | [TextInput](backlog/textinput.md) | 8 | Multiline, `maxLength`, keyboard types, spell check. |
 | [Image](backlog/image.md) | 7 | Animated images, decorative props. |
-| [ScrollView](backlog/scrollview.md) | 3 | Trackpad scrolling unverified, `contentBoundingRect`, view culling. |
+| [ScrollView](backlog/scrollview.md) | 5 | Trackpad scrolling unverified, `contentInset`, zoom, `contentBoundingRect`, view culling. |
 | [Components](backlog/components.md) | 5 | What is not implemented at all, and `<Modal>` as a real window. |
 | [Accessibility](backlog/accessibility.md) | 5 | Nothing has been tested against a real screen reader. |
 | [Correctness](backlog/correctness.md) | 5 | Things that work but not quite right. |
@@ -34,7 +34,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Windows, the platform](backlog/platform-windows.md) | 7 | A peer since phase 47. What is left is named, and none of it is a missing half. |
 | [macOS](backlog/platform-macos.md) | 15 | Hit testing and transforms, accessibility, fonts. |
 | [Host wiring](backlog/host-wiring.md) | 7 | Dev support, error reporting, the offline `__DEV__` bundle. |
-| [Compatibility](backlog/compatibility.md) | 6 | Which React Native versions work, and which cannot. |
+| [Compatibility](backlog/compatibility.md) | 7 | Which React Native versions work, and which cannot. |
 | [Testing](backlog/testing.md) | 12 | What the suites cannot see. Was two sections with the same name, 800 lines apart; merged. |
 | [Upstream](backlog/upstream.md) | 12 | Bugs and gaps in React Native and Expo, with the workarounds here. |
 

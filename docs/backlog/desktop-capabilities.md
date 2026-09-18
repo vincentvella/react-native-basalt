@@ -193,6 +193,14 @@ that boundary to place.
   Images, HTML, RTF and a list of files are each a separate pasteboard type on
   each platform, and none is carried.
 
+  On Linux there is a second limit, and it is structural rather than missing
+  work: `clipboardText` sees only this application's own clipboard.
+  `GdkClipboard` reads asynchronously -- it may have to ask another process --
+  and the seam is synchronous because `Clipboard.getString()` resolves at once.
+  Reading another application's clipboard needs an async path core does not hand
+  down. The file says so plainly rather than returning an empty string, which
+  would look like an empty clipboard.
+
 - **Shell integration** -- *partial*. Opening a URL works (`Linking`). Opening a
   path with its default application, revealing a file in the file manager, and
   moving one to the trash do not. Custom URL schemes are declared by
