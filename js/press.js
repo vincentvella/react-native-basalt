@@ -50,7 +50,15 @@ function App() {
     <View style={styles.page}>
       <Pressable
         style={({pressed}) => [styles.button, pressed && styles.pressed]}
-        onPress={() => {
+        onPress={event => {
+          // `locationX`/`locationY` come from `Touch::offsetPoint`, which is
+          // where inside *this view* the press landed. The button is not at
+          // the surface's origin, so a host reporting the page point instead
+          // reports numbers larger than the button by exactly its position --
+          // which is what all three did until they read the target's own
+          // coordinates. Logged so the end-to-end suite can check it.
+          const {locationX, locationY} = event.nativeEvent;
+          console.log(`press at ${Math.round(locationX)},${Math.round(locationY)}`);
           setCount(previous => {
             const next = previous + 1;
             console.log(`pressed ${next}`);

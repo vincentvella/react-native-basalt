@@ -2,13 +2,12 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (5):**
+**Open (4):**
 
 1. setIsJSResponder is a no-op
-2. Touch::offsetPoint carries page coordinates rather than coordinates relative t
-3. PanResponder works, verified with real pointer motion through an X server agai
-4. Multi-touch is not modelled: one pointer, identifier 0
-5. Wayland input is unverified
+2. PanResponder works, verified with real pointer motion through an X server agai
+3. Multi-touch is not modelled: one pointer, identifier 0
+4. Wayland input is unverified
 
 - ~~No hover.~~ Done on all three hosts. `onPointerEnter`, `onPointerLeave`,
   `onPointerOver`, `onPointerOut` and `onPointerMove` fire, and `js/hover.js`
@@ -47,9 +46,27 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   the only way to reach the sibling *behind* an overlay without replacing
   GTK's picking, and that would mean redoing the transform and clip handling it
   already gets right.
-- `Touch::offsetPoint` carries page coordinates rather than coordinates relative
-  to the target view. Pressability does not read it; anything doing its own hit
-  maths would.
+- ~~`Touch::offsetPoint` carries page coordinates rather than coordinates
+  relative to the target view.~~ Fixed on all three. It is what
+  `locationX`/`locationY` are built from, so the numbers an app read were
+  larger than its view by exactly that view's position -- right only at the
+  surface's origin.
+
+  The old entry said there was no cheap way to get the target's absolute
+  origin. There is, and it was already there: the hit test computes the local
+  point at every level on the way down and throws it away. GTK asks
+  `gtk_widget_compute_point`, which is correct through a transform because this
+  platform composes transforms into allocations. AppKit and Win32 walk up
+  composing `rnLocalToParent` / `localToParent` and invert the chain -- the
+  same matrix the hit test inverts one level at a time, so a press and the
+  coordinates it reports cannot disagree about where a view is.
+
+  Not `-[NSView convertPoint:fromView:]`, which ignores the layer transform and
+  would answer for a rotated view as though it were not rotated.
+
+  Ten tests, five per host, against the walk rather than the event -- no unit
+  test here can read a touch -- plus an end-to-end scenario on a button inset
+  by its page's padding, so page and local differ by a number it can name.
 - ~~No keyboard focus model outside `<TextInput>`.~~ Tab reaches a
   `<Pressable>` on all three hosts, Enter and space press it, and `onFocus` and
   `onBlur` fire. The decision the old entry asked for went this way, and both

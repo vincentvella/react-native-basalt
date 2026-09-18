@@ -571,6 +571,44 @@ bool GtkTouchDispatcher::yieldToGesture(double x, double y) {
   return true;
 }
 
+// Where a page point falls inside one view, for `Touch::offsetPoint`.
+//
+// Asked of GTK rather than computed here: `gtk_widget_compute_point` walks the
+// widget hierarchy, and this platform composes a view's transform into its
+// allocation -- see docs/DECISIONS.md -- so the answer accounts for a rotated
+// or scaled ancestor without this knowing that transforms exist.
+//
+// The page point is the fallback, which is what every touch carried before. It
+// happens when the target has been unmounted between the press and this event,
+// where nothing better is available and refusing would drop the touch.
+static void pointInView(GtkMountingManager *manager,
+                        RnView *root,
+                        Tag target,
+                        double pageX,
+                        double pageY,
+                        double &viewX,
+                        double &viewY) {
+  viewX = pageX;
+  viewY = pageY;
+
+  RnView *view = manager->viewForTag(target);
+  if (view == nullptr || root == nullptr) {
+    return;
+  }
+
+  // Field by field: GRAPHENE_POINT_INIT is a compound literal, which this
+  // build rejects under -Wpedantic.
+  graphene_point_t in;
+  in.x = static_cast<float>(pageX);
+  in.y = static_cast<float>(pageY);
+
+  graphene_point_t out;
+  if (gtk_widget_compute_point(GTK_WIDGET(root), GTK_WIDGET(view), &in, &out)) {
+    viewX = out.x;
+    viewY = out.y;
+  }
+}
+
 void GtkTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) {
   const auto emitter =
       std::dynamic_pointer_cast<const TouchEventEmitter>(mountingManager_->eventEmitterForTag(target));
@@ -584,13 +622,20 @@ void GtkTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) {
   touch.identifier = kPointerIdentifier;
   touch.target = target;
   // Coordinates arrive relative to the surface root, which is what React Native
-  // calls the page. offsetPoint should be relative to the target view; until
-  // there is a cheap way to get the target's absolute origin, page coordinates
-  // are the honest approximation. Pressability does not read offsetPoint.
+  // calls the page.
   touch.pagePoint = Point{.x = static_cast<facebook::react::Float>(x),
                           .y = static_cast<facebook::react::Float>(y)};
   touch.screenPoint = touch.pagePoint;
-  touch.offsetPoint = touch.pagePoint;
+
+  // Relative to the target, which is what `offsetPoint` means and what
+  // `locationX`/`locationY` are built from. It carried the page point until
+  // now: right only for a view at the surface's origin, and wrong by that
+  // view's position for every other.
+  double offsetX = x;
+  double offsetY = y;
+  pointInView(mountingManager_, surfaceRoot_, target, x, y, offsetX, offsetY);
+  touch.offsetPoint = Point{.x = static_cast<facebook::react::Float>(offsetX),
+                            .y = static_cast<facebook::react::Float>(offsetY)};
   touch.force = 1.0F;
   touch.timeStamp = now;
 

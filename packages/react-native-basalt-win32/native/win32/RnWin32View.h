@@ -345,6 +345,16 @@ class RnWin32View {
   // `docs/DECISIONS.md` records GTK hitting.
   void localToParent(float out[6]) const;
 
+  // A point in `root`'s coordinates, expressed in this view's own.
+  //
+  // Walks up composing `localToParent` and inverts the chain, which is the
+  // same matrix `hitTest` inverts one level at a time on the way down -- so a
+  // press and the coordinates it reports cannot disagree about where a view
+  // is. Answers false when the chain has no inverse, which `scale: 0` produces
+  // and which has no sensible point in it.
+  bool pageToLocal(const RnWin32View *root, float pageX, float pageY,
+                   float &outX, float &outY) const;
+
   // --- Painting ------------------------------------------------------------
 
   // Paints this view and its subtree into `target`, which must be between

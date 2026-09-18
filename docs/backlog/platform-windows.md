@@ -2,16 +2,15 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (8):**
+**Open (7):**
 
 1. The Hermes patch is applied by hand and nothing reapplies it
 2. React Native's own warnings are not enforced on Windows
-3. `offsetPoint` is page coordinates on all three platforms
-4. `BASALT_SNAPSHOT` cannot see a `<TextInput>` on Windows
-5. A `<TextInput>` on Windows is always on top of everything
-6. The Windows choreographer is a 16ms timer
-7. `scripts/integration_test.py` skips Fast Refresh on Windows
-8. Nothing makes a red build hard to ignore
+3. `BASALT_SNAPSHOT` cannot see a `<TextInput>` on Windows
+4. A `<TextInput>` on Windows is always on top of everything
+5. The Windows choreographer is a 16ms timer
+6. `scripts/integration_test.py` skips Fast Refresh on Windows
+7. Nothing makes a red build hard to ignore
 
 Since phase 47 Windows is a peer rather than a port in progress. It mounts every
 component the other two desktops do -- `<View>`, `<Text>`, `<Image>`,
@@ -89,14 +88,12 @@ and none of it is a missing half.
   wheel is not among them any more -- phase 45 took it, and routed it through
   the mounting manager rather than the touch dispatcher, because what it needs
   is the list of tags that are ScrollViews.
-- **`offsetPoint` is page coordinates on all three platforms.** A touch should
-  carry its position relative to the view it hit, and instead carries it
-  relative to the surface root. Pressability does not read it, which is why
-  nothing has noticed. On Windows the fix is cheap and was left out for
-  symmetry: the hit chain the dispatcher already builds for gestures carries
-  exactly the origin needed, so it only has to be built for touches too --
-  which means paying for it on every press rather than only when RNGH is
-  attached.
+- ~~**`offsetPoint` is page coordinates on all three platforms.**~~ Fixed on
+  all three; see `docs/backlog/input.md` for how. Windows walks up from the
+  target composing `localToParent` and inverts the chain, rather than building
+  the gesture hit chain on every press as this entry proposed -- the walk is
+  only as deep as the view, and it is the same matrix `hitTest` inverts coming
+  down, which is the property worth having.
 - ~~**No `<ScrollView>` on Windows.**~~ Phase 45. What it does not have is
   scrollbars, momentum, and a precision touchpad -- a Windows touchpad reports
   through `WM_POINTER*` rather than `WM_MOUSEWHEEL`, so a two-finger scroll

@@ -18,7 +18,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 
 | Area | Open | What is left there |
 | --- | --- | --- |
-| [Input](backlog/input.md) | 5 | Gestures a cursor cannot make, and the rest of RNGH's relation graph. |
+| [Input](backlog/input.md) | 4 | Gestures a cursor cannot make, and the rest of RNGH's relation graph. |
 | [Text](backlog/text.md) | 7 | Measurement and layout gaps. |
 | [TextInput](backlog/textinput.md) | 8 | Multiline, `maxLength`, keyboard types, spell check. |
 | [Image](backlog/image.md) | 7 | Animated images, decorative props. |

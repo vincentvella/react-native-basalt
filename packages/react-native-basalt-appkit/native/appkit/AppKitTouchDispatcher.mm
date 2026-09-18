@@ -405,6 +405,27 @@ bool AppKitTouchDispatcher::yieldToGesture(double x, double y) {
   return true;
 }
 
+// Where a page point falls inside one view, for `Touch::offsetPoint`.
+//
+// The walk is `rnPageToLocal:fromRoot:into:`, on the view, so that it can be
+// tested without a dispatcher. The page point is the fallback, which is what
+// every touch carried before: the target unmounted between the press and this
+// event, or a chain with no inverse. Refusing would drop the touch.
+static NSPoint pointInView(basalt::AppKitMountingManager *manager,
+                           RnAppKitView *root,
+                           facebook::react::Tag target,
+                           double pageX,
+                           double pageY) {
+  const NSPoint page = NSMakePoint(pageX, pageY);
+  RnAppKitView *view = manager == nullptr ? nil : manager->viewForTag(target);
+  if (view == nil || root == nil) {
+    return page;
+  }
+
+  NSPoint local = page;
+  return [view rnPageToLocal:page fromRoot:root into:&local] ? local : page;
+}
+
 void AppKitTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) {
   const auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(
       mountingManager_->eventEmitterForTag(target));
@@ -418,13 +439,18 @@ void AppKitTouchDispatcher::emit(TouchKind kind, Tag target, double x, double y)
   touch.identifier = kPointerIdentifier;
   touch.target = target;
   // Coordinates arrive relative to the surface root, which is what React Native
-  // calls the page. offsetPoint should be relative to the target view; until
-  // there is a cheap way to get the target's absolute origin, page coordinates
-  // are the honest approximation. Pressability does not read offsetPoint.
+  // calls the page.
   touch.pagePoint = Point{.x = static_cast<facebook::react::Float>(x),
                           .y = static_cast<facebook::react::Float>(y)};
   touch.screenPoint = touch.pagePoint;
-  touch.offsetPoint = touch.pagePoint;
+
+  // Relative to the target, which is what `offsetPoint` means and what
+  // `locationX`/`locationY` are built from. It carried the page point until
+  // now: right only for a view at the surface's origin, and wrong by that
+  // view's position for every other.
+  const NSPoint offset = pointInView(mountingManager_, surfaceRoot_, target, x, y);
+  touch.offsetPoint = Point{.x = static_cast<facebook::react::Float>(offset.x),
+                            .y = static_cast<facebook::react::Float>(offset.y)};
   touch.force = 1.0F;
   touch.timeStamp = now;
 

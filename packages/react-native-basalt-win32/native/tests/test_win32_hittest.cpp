@@ -264,3 +264,100 @@ TEST(pointer_events_shows_up_in_the_tree_dump) {
   // arrived if each host prints it.
   EXPECT(view->describeTree().find("pe=box-none") != std::string::npos);
 }
+
+// --------------------------------------------------------------------------
+// offsetPoint
+// --------------------------------------------------------------------------
+//
+// `pageToLocal` is what `Touch::offsetPoint` is built from, and it inverts the
+// same chain `hitTest` above inverts on the way down. The AppKit suite has the
+// same five cases against `rnPageToLocal:fromRoot:into:`.
+
+TEST(page_to_local_subtracts_the_ancestors) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *middle = tree.box(10, 50, 60, 300, 300);
+  RnWin32View *leaf = tree.box(20, 20, 30, 100, 100);
+  root->insertChild(middle, 0);
+  middle->insertChild(leaf, 0);
+
+  float x = 0.0f;
+  float y = 0.0f;
+  EXPECT(leaf->pageToLocal(root, 100.0f, 120.0f, x, y));
+  // 100 - 50 - 20, and 120 - 60 - 30.
+  EXPECT_NEAR(x, 30.0f, 0.001f);
+  EXPECT_NEAR(y, 30.0f, 0.001f);
+}
+
+// The root's own point is the page point, which is the case that made the old
+// behaviour look right for as long as it did.
+TEST(page_to_local_at_the_root_is_the_page_point) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+
+  float x = 0.0f;
+  float y = 0.0f;
+  EXPECT(root->pageToLocal(root, 100.0f, 120.0f, x, y));
+  EXPECT_NEAR(x, 100.0f, 0.001f);
+  EXPECT_NEAR(y, 120.0f, 0.001f);
+}
+
+TEST(page_to_local_follows_a_transformed_ancestor) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *moved = tree.box(10, 0, 0, 100, 100);
+  // Shifted 100 right and 50 down by a transform rather than by its frame.
+  const float translate[16] = {
+      1, 0, 0, 0, //
+      0, 1, 0, 0, //
+      0, 0, 1, 0, //
+      100, 50, 0, 1};
+  moved->setTransform(translate);
+  root->insertChild(moved, 0);
+
+  float x = 0.0f;
+  float y = 0.0f;
+  EXPECT(moved->pageToLocal(root, 110.0f, 60.0f, x, y));
+  // The press is 10 into the view as drawn, not 110.
+  EXPECT_NEAR(x, 10.0f, 0.001f);
+  EXPECT_NEAR(y, 10.0f, 0.001f);
+}
+
+// A scrolled ancestor moves its children, and the offset has to come back out
+// -- the same offset `hitTest` adds on the way down.
+TEST(page_to_local_follows_a_scrolled_ancestor) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *scroller = tree.box(10, 0, 0, 200, 200);
+  RnWin32View *row = tree.box(20, 0, 300, 200, 50);
+  root->insertChild(scroller, 0);
+  scroller->insertChild(row, 0);
+  scroller->setScrollOffset(0.0f, 280.0f);
+
+  float x = 0.0f;
+  float y = 0.0f;
+  // The row starts at 300 in content space and the view is scrolled 280, so it
+  // is drawn 20 down -- and a press there is at the row's own top.
+  EXPECT(row->pageToLocal(root, 10.0f, 20.0f, x, y));
+  EXPECT_NEAR(x, 10.0f, 0.001f);
+  EXPECT_NEAR(y, 0.0f, 0.001f);
+}
+
+TEST(page_to_local_refuses_a_chain_with_no_inverse) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 400, 400);
+  RnWin32View *flat = tree.box(10, 0, 0, 100, 100);
+  const float flattened[16] = {
+      0, 0, 0, 0, //
+      0, 0, 0, 0, //
+      0, 0, 1, 0, //
+      0, 0, 0, 1};
+  flat->setTransform(flattened);
+  root->insertChild(flat, 0);
+
+  float x = -1.0f;
+  float y = -1.0f;
+  EXPECT(!flat->pageToLocal(root, 10.0f, 10.0f, x, y));
+  // Untouched, so the caller's fallback is what is used.
+  EXPECT_NEAR(x, -1.0f, 0.001f);
+}

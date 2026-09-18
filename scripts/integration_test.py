@@ -2419,6 +2419,56 @@ def test_content_inset(bundle: Path) -> None:
         )
 
 
+def test_press_location(bundle: Path) -> None:
+    """`locationX`/`locationY` are where inside the target the press landed.
+
+    They come from `Touch::offsetPoint`, which carried the *page* point on all
+    three hosts until the target's own coordinates were computed -- right only
+    for a view sitting at the surface's origin, and wrong by that view's
+    position for every other.
+
+    js/press.js is the app for it because its button is inset by the page's
+    24pt padding, so page and local differ by a number this can name. A tap at
+    (100, 60) is 76 into the button and 36 down; a host reporting the page
+    point logs 100,60 instead.
+    """
+    app = bundle_app(bundle.parent, "press")
+
+    with tempfile.TemporaryDirectory() as directory:
+        env = dict(os.environ)
+        env["BASALT_QUIT_AFTER_MS"] = "3000"
+        env["BASALT_TEST_TAP"] = "100,60"
+        for name in ("BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                     "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL", "BASALT_TEST_MENU",
+                     "BASALT_TEST_CLOSE_WINDOW"):
+            env.pop(name, None)
+
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltPress"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        logged = result.stdout + result.stderr
+
+    if "pressed 1" not in logged:
+        raise Failure(f"the tap did not press the button.\n{tail_text(logged)}")
+
+    match = re.search(r"press at (-?\d+),(-?\d+)", logged)
+    if match is None:
+        raise Failure(f"the app logged no press location.\n{tail_text(logged)}")
+    x, y = int(match.group(1)), int(match.group(2))
+
+    # The page's padding is 24, so the button's own origin is (24, 24).
+    if (x, y) == (100, 60):
+        raise Failure(
+            "locationX/locationY are the page point (100,60). offsetPoint is "
+            "supposed to be relative to the target, which here is (76,36)."
+        )
+    if abs(x - 76) > 2 or abs(y - 36) > 2:
+        raise Failure(f"the press landed at {x},{y} inside the button; expected about 76,36")
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2942,6 +2992,8 @@ SCENARIOS = [
      test_scrollbar_can_be_turned_off),
     ("contentInset changes the range, and scrollIndicatorInsets only the bar",
      test_content_inset),
+    ("locationX and locationY are relative to the view that was pressed",
+     test_press_location),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("a window says how big it may be, and what this desktop can do about it",

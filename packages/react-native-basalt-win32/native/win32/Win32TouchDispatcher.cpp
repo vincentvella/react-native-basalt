@@ -386,13 +386,28 @@ void Win32TouchDispatcher::emit(TouchKind kind, Tag target, double x, double y) 
   touch.identifier = kPointerIdentifier;
   touch.target = target;
   // Coordinates arrive relative to the surface root, which is what React Native
-  // calls the page. offsetPoint should be relative to the target view; until
-  // there is a cheap way to get the target's absolute origin, page coordinates
-  // are the honest approximation. Pressability does not read offsetPoint.
+  // calls the page.
   touch.pagePoint = Point{.x = static_cast<facebook::react::Float>(x),
                           .y = static_cast<facebook::react::Float>(y)};
   touch.screenPoint = touch.pagePoint;
-  touch.offsetPoint = touch.pagePoint;
+  // Relative to the target, which is what `offsetPoint` means and what
+  // `locationX`/`locationY` are built from. It carried the page point until
+  // now: right only for a view at the surface's origin, and wrong by that
+  // view's position for every other.
+  //
+  // The page point is the fallback, which is what every touch carried before:
+  // the target unmounted between the press and this event, or a chain with no
+  // inverse. Refusing would drop the touch.
+  float offsetX = static_cast<float>(x);
+  float offsetY = static_cast<float>(y);
+  if (mountingManager_ != nullptr) {
+    if (RnWin32View *view = mountingManager_->viewForTag(target)) {
+      view->pageToLocal(surfaceRoot_, static_cast<float>(x), static_cast<float>(y),
+                        offsetX, offsetY);
+    }
+  }
+  touch.offsetPoint = Point{.x = static_cast<facebook::react::Float>(offsetX),
+                            .y = static_cast<facebook::react::Float>(offsetY)};
   touch.force = 1.0F;
   touch.timeStamp = now;
 

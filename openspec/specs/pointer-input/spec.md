@@ -15,6 +15,14 @@ gesture handlers behave as they do on a phone.
 
 Each window SHALL hit-test against its own view tree.
 
+#### Scenario: A press reports where inside the view it landed
+
+- **WHEN** a press lands on a view that is not at the surface's origin
+- **THEN** the coordinates the app reads are relative to that view, not to the
+  surface
+- **AND** a transformed or scrolled ancestor is accounted for, so they agree
+  with where the press was hit-tested
+
 #### Scenario: A press runs the handler of the view under it
 
 - **WHEN** the person presses a pressable view

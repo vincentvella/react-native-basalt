@@ -914,6 +914,36 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   return CGAffineTransformConcat(local, translation);
 }
 
+- (BOOL)rnPageToLocal:(NSPoint)page fromRoot:(RnAppKitView *)root into:(NSPoint *)out {
+  CGAffineTransform toPage = CGAffineTransformIdentity;
+
+  for (RnAppKitView *node = self; node != nil && node != root;) {
+    toPage = CGAffineTransformConcat(toPage, [node rnLocalToParent]);
+
+    RnAppKitView *parent =
+        [node.superview isKindOfClass:[RnAppKitView class]] ? (RnAppKitView *)node.superview : nil;
+    if (parent == nil) {
+      break;
+    }
+    // A scrolled ancestor moves its children by its bounds origin, which is
+    // not part of any child's own placement -- the same offset the hit test
+    // adds back on the way down.
+    const NSPoint scroll = parent.bounds.origin;
+    toPage =
+        CGAffineTransformConcat(toPage, CGAffineTransformMakeTranslation(-scroll.x, -scroll.y));
+    node = parent;
+  }
+
+  const CGFloat determinant = toPage.a * toPage.d - toPage.b * toPage.c;
+  if (determinant == 0.0) {
+    return NO;
+  }
+  if (out != NULL) {
+    *out = CGPointApplyAffineTransform(page, CGAffineTransformInvert(toPage));
+  }
+  return YES;
+}
+
 - (NSArray<RnAppKitView *> *)rnChildrenInPaintOrder {
   NSMutableArray<RnAppKitView *> *ordered = [NSMutableArray array];
   for (NSView *child in self.subviews) {

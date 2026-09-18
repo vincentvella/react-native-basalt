@@ -323,6 +323,33 @@ void RnWin32View::localToParent(float out[6]) const {
   compose(composed, translation, out);
 }
 
+bool RnWin32View::pageToLocal(const RnWin32View *root,
+                              float pageX,
+                              float pageY,
+                              float &outX,
+                              float &outY) const {
+  float toPage[6] = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+
+  for (const RnWin32View *node = this; node != nullptr && node != root;) {
+    float local[6];
+    node->localToParent(local);
+    compose(toPage, local, toPage);
+
+    const RnWin32View *parent = node->parent();
+    if (parent == nullptr) {
+      break;
+    }
+    // A scrolled ancestor moves its children by its offset, which is not part
+    // of any child's own placement -- the same offset `paintChildren`
+    // subtracts and `hitTest` adds back.
+    const float scroll[6] = {1.0f, 0.0f, 0.0f, 1.0f, -parent->scrollX(), -parent->scrollY()};
+    compose(toPage, scroll, toPage);
+    node = parent;
+  }
+
+  return invertPoint(toPage, pageX, pageY, outX, outY);
+}
+
 std::vector<RnWin32View *> RnWin32View::childrenInPaintOrder() const {
   std::vector<RnWin32View *> ordered = children_;
   const bool needsSorting =

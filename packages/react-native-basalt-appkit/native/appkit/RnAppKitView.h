@@ -228,6 +228,21 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // perspective -- has no 2D inverse, and this answers with the translation
 // alone, which is what hit testing did for every transform before this existed.
 - (CGAffineTransform)rnLocalToParent;
+
+// A point in `root`'s coordinates, expressed in this view's own.
+//
+// Walks up composing `rnLocalToParent` and inverts the chain, which is the
+// same matrix the hit test inverts one level at a time on the way down -- so a
+// press and the coordinates it reports cannot disagree about where a view is.
+//
+// Not `-[NSView convertPoint:fromView:]`, which ignores the layer transform
+// and so answers for a rotated view as though it were not rotated.
+//
+// NO when the chain has no inverse, which `scale: 0` produces and which has no
+// sensible point in it; `out` is untouched then.
+- (BOOL)rnPageToLocal:(NSPoint)page
+             fromRoot:(nullable RnAppKitView *)root
+                 into:(NSPoint *)out;
 - (void)setRnCornerRadius:(CGFloat)radius;
 
 // Per-corner radii, as four (horizontal, vertical) pairs -- eight floats -- in

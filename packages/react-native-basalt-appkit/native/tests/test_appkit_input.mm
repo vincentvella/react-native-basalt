@@ -160,6 +160,98 @@ TEST(hit_test_skips_a_view_scaled_to_nothing) {
   }
 }
 
+// --------------------------------------------------------------------------
+// offsetPoint
+// --------------------------------------------------------------------------
+//
+// `Touch::offsetPoint` is where inside the target a press landed, and what
+// `locationX`/`locationY` are built from. It carried the *page* point until
+// now, which is right only for a view at the surface's origin.
+//
+// No unit test can read a touch event here -- see docs/backlog/testing.md --
+// so what is tested is the walk the dispatcher uses, which is the whole of the
+// arithmetic.
+
+TEST(page_to_local_subtracts_the_ancestors) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    RnAppKitView *middle = box(10, 50, 60, 300, 300);
+    RnAppKitView *leaf = box(20, 20, 30, 100, 100);
+    [root insertRnChild:middle atIndex:0];
+    [middle insertRnChild:leaf atIndex:0];
+
+    NSPoint local = NSZeroPoint;
+    EXPECT([leaf rnPageToLocal:NSMakePoint(100, 120) fromRoot:root into:&local]);
+    // 100 - 50 - 20, and 120 - 60 - 30.
+    EXPECT_NEAR(local.x, 30.0, 0.001);
+    EXPECT_NEAR(local.y, 30.0, 0.001);
+  }
+}
+
+// The root's own point is the page point, which is the case that made the old
+// behaviour look right for as long as it did.
+TEST(page_to_local_at_the_root_is_the_page_point) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    NSPoint local = NSZeroPoint;
+    EXPECT([root rnPageToLocal:NSMakePoint(100, 120) fromRoot:root into:&local]);
+    EXPECT_NEAR(local.x, 100.0, 0.001);
+    EXPECT_NEAR(local.y, 120.0, 0.001);
+  }
+}
+
+TEST(page_to_local_follows_a_transformed_ancestor) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    RnAppKitView *moved = box(10, 0, 0, 100, 100);
+    // Shifted 100 right and 50 down by a transform rather than by its frame.
+    const float translate[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 50, 0, 1};
+    [moved setRnTransform:translate];
+    [root insertRnChild:moved atIndex:0];
+
+    NSPoint local = NSZeroPoint;
+    EXPECT([moved rnPageToLocal:NSMakePoint(110, 60) fromRoot:root into:&local]);
+    // The press is 10 into the view as drawn, not 110.
+    EXPECT_NEAR(local.x, 10.0, 0.001);
+    EXPECT_NEAR(local.y, 10.0, 0.001);
+  }
+}
+
+// A scrolled ancestor moves its children, and the offset has to come back out
+// -- the same offset the hit test adds on the way down.
+TEST(page_to_local_follows_a_scrolled_ancestor) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    RnAppKitView *scroller = box(10, 0, 0, 200, 200);
+    RnAppKitView *row = box(20, 0, 300, 200, 50);
+    [root insertRnChild:scroller atIndex:0];
+    [scroller insertRnChild:row atIndex:0];
+    [scroller setRnScrollOffsetX:0 y:280];
+
+    NSPoint local = NSZeroPoint;
+    // The row starts at 300 in content space and the view is scrolled 280, so
+    // it is drawn 20 down -- and a press there is at the row's own top.
+    EXPECT([row rnPageToLocal:NSMakePoint(10, 20) fromRoot:root into:&local]);
+    EXPECT_NEAR(local.x, 10.0, 0.001);
+    EXPECT_NEAR(local.y, 0.0, 0.001);
+  }
+}
+
+TEST(page_to_local_refuses_a_chain_with_no_inverse) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 400, 400);
+    RnAppKitView *flat = box(10, 0, 0, 100, 100);
+    const float flattened[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    [flat setRnTransform:flattened];
+    [root insertRnChild:flat atIndex:0];
+
+    NSPoint local = NSMakePoint(-1, -1);
+    EXPECT(![flat rnPageToLocal:NSMakePoint(10, 10) fromRoot:root into:&local]);
+    // Untouched, so the caller's fallback is what is used.
+    EXPECT_NEAR(local.x, -1.0, 0.001);
+  }
+}
+
 TEST(hit_test_finds_the_deepest_view) {
   @autoreleasepool {
     RnAppKitView *root = box(1, 0, 0, 200, 200);
