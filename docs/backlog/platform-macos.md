@@ -6,28 +6,37 @@ Six of this file's entries were struck on 2026-09-18 after being checked
 against the code rather than remembered. Five of them had been done for days.
 If an entry here is about to be picked up, run the thing it describes first.
 
-**Open (9):**
+**Open (8):**
 
-1. Hit testing ignores `transform`
-2. Justified text
-3. Fonts loaded at runtime are untested
-4. No `keyboardType`, `autoCapitalize`, `autoCorrect` or `spellCheck`
-5. Nothing tested against a real screen reader
-6. No accessibility subroles
-7. `accessibilityValue`, `accessibilityLiveRegion` and `accessibilityLabelledBy`
-8. No animated images
-9. No gesture cancellation from the platform
+1. Justified text
+2. Fonts loaded at runtime are untested
+3. No `keyboardType`, `autoCapitalize`, `autoCorrect` or `spellCheck`
+4. Nothing tested against a real screen reader
+5. No accessibility subroles
+6. `accessibilityValue`, `accessibilityLiveRegion` and `accessibilityLabelledBy`
+7. No animated images
+8. No gesture cancellation from the platform
 
-- **Hit testing ignores `transform`.** `RnAppKitHitTest` walks `child.frame` and
-  never consults the layer transform, so a rotated view is clickable where it
-  used to be and not where it is drawn. GTK does not have this bug, because it
-  composes the transform into the widget's allocation and `gtk_widget_pick`
-  follows -- which is the reason `docs/DECISIONS.md` gives for putting it there
-  rather than in the paint. Windows does not have it either, because it inverts
-  each view's matrix on the way down. Found in phase 40 while writing the
-  Windows equivalent; not fixed, because there is no Mac to check a fix on. The
-  test that would catch it is `hit_test_follows_a_transform` in
-  `packages/react-native-basalt-win32/native/tests/test_win32_hittest.cpp`.
+- ~~**Hit testing ignores `transform`.**~~ Fixed, the way Windows already did
+  it: `RnAppKitView` gains `rnLocalToParent`, the frame's translation with the
+  transform composed in about the centre, and the hit test inverts it on the
+  way down instead of subtracting the frame's origin. The two were the same
+  thing for every untransformed view, which is why subtracting passed every
+  test there was.
+
+  Public for the same reason Win32's `localToParent` is: hit testing inverts
+  what placement produces, and deriving it twice is how the two come to
+  disagree.
+
+  A transform with no 2D inverse is the case worth naming. `scale: 0` is legal
+  and draws nothing, so it is skipped and the press reaches what is behind it;
+  a perspective transform is not affine, and answers with the translation
+  alone -- which is what every transform got before this.
+
+  Three tests, and each was run against the old code first to check it failed:
+  a translation, which moves the drawing and not the frame; a quarter turn,
+  which cannot be got right by adjusting an offset because the corners leave
+  the frame and the centre does not move; and the degenerate scale.
 - ~~**No accessibility.**~~ Done: roles, names, hints, states and hiding, with
   nine tests in `test_appkit_accessibility.mm`. What is left of it is listed
   separately below -- subroles, `accessibilityValue`, and nothing having been

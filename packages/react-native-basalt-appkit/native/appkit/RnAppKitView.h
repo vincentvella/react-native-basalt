@@ -218,6 +218,16 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // by zIndex. The same list hit testing walks in reverse, so what is on top is
 // what is hit -- the Win32 host pairs them the same way.
 - (NSArray<RnAppKitView *> *)rnChildrenInPaintOrder;
+
+// This view's placement in its parent: the frame's translation with the
+// transform composed in, anchored at the centre.
+//
+// Public for one reason, which is the same reason Win32's `localToParent` is:
+// hit testing inverts this, so deriving it anywhere else would let the two end
+// up with different ideas of where a view is. A transform that is not affine --
+// perspective -- has no 2D inverse, and this answers with the translation
+// alone, which is what hit testing did for every transform before this existed.
+- (CGAffineTransform)rnLocalToParent;
 - (void)setRnCornerRadius:(CGFloat)radius;
 
 // Per-corner radii, as four (horizontal, vertical) pairs -- eight floats -- in

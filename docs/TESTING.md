@@ -129,8 +129,10 @@ actually happened is a platform question. The GTK suite's
 `test_accessibility.cpp` asserts the same thing about `GtkAccessibleRole`.
 
 `native/tests/test_appkit_input.mm` is hit testing and the touch state machine.
-Hit testing is a pure function of the view tree, so it needs no mouse, no window
-server, and no permission to synthesise an event -- which matters, because a
+It covers what `test_win32_hittest.cpp` does, including that a press follows a
+`transform` -- a translation, a quarter turn, and a `scale: 0` that has no
+inverse and is skipped. Hit testing is a pure function of the view tree, so it
+needs no mouse, no window server, and no permission to synthesise an event -- which matters, because a
 real click on macOS means `CGEvent` and accessibility permission an automated
 run does not have. Unlike the GTK equivalent none of it needs a window:
 `gtk_widget_pick` skips unmapped widgets, so those tests show a window and pump

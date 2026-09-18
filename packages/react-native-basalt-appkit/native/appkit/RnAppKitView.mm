@@ -70,8 +70,23 @@ RnAppKitView *RnAppKitHitTest(RnAppKitView *root, CGFloat x, CGFloat y) {
   // for a button drawn on top of it.
   if (root.rnPointerEvents != RnAppKitPointerEventsBoxOnly) {
     for (RnAppKitView *child in [root rnChildrenInPaintOrder].reverseObjectEnumerator) {
-      const NSRect frame = child.frame;
-      RnAppKitView *hit = RnAppKitHitTest(child, bx - frame.origin.x, by - frame.origin.y);
+      // Into the child's own space by inverting what places it in this one.
+      // Subtracting the frame origin would be the same thing for an
+      // untransformed view and wrong for every other: a rotated view was
+      // clickable where it would have been rather than where it is drawn.
+      const CGAffineTransform toParent = [child rnLocalToParent];
+
+      // A transform can be degenerate -- `scale: 0` is legal and draws
+      // nothing. There is no point inside something with no area, so it is
+      // skipped rather than inverted.
+      const CGFloat determinant = toParent.a * toParent.d - toParent.b * toParent.c;
+      if (determinant == 0.0) {
+        continue;
+      }
+
+      const CGPoint local =
+          CGPointApplyAffineTransform(NSMakePoint(bx, by), CGAffineTransformInvert(toParent));
+      RnAppKitView *hit = RnAppKitHitTest(child, local.x, local.y);
       if (hit != nil) {
         return hit;
       }
@@ -870,6 +885,33 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
 
 - (NSInteger)rnZIndex {
   return _zIndex;
+}
+
+- (CGAffineTransform)rnLocalToParent {
+  const NSRect frame = self.frame;
+  const CGAffineTransform translation =
+      CGAffineTransformMakeTranslation(frame.origin.x, frame.origin.y);
+
+  // `CATransform3DIsAffine` is false for a perspective transform, which has no
+  // 2D inverse to hit test with. React Native can express one; nothing here
+  // draws it yet -- see docs/backlog/correctness.md -- and answering with the
+  // translation keeps such a view clickable at its untransformed place rather
+  // than nowhere at all.
+  if (!_hasTransform || !CATransform3DIsAffine(_transform)) {
+    return translation;
+  }
+
+  // Anchored at the centre, because that is where CALayer's default anchor
+  // point is and so where the drawn transform turns. Written as move the
+  // centre to the origin, transform, move it back, then place the frame --
+  // the same four steps, in the same order, as Win32's `localToParent`.
+  const CGFloat centreX = frame.size.width / 2.0;
+  const CGFloat centreY = frame.size.height / 2.0;
+
+  CGAffineTransform local = CGAffineTransformMakeTranslation(-centreX, -centreY);
+  local = CGAffineTransformConcat(local, CATransform3DGetAffineTransform(_transform));
+  local = CGAffineTransformConcat(local, CGAffineTransformMakeTranslation(centreX, centreY));
+  return CGAffineTransformConcat(local, translation);
 }
 
 - (NSArray<RnAppKitView *> *)rnChildrenInPaintOrder {

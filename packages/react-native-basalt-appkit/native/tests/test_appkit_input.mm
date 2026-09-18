@@ -100,6 +100,66 @@ TEST(hit_test_uses_top_left_coordinates) {
   }
 }
 
+// A transformed view is hit where it is *drawn*, not where its frame is.
+//
+// The two are the same for every untransformed view, which is why subtracting
+// the frame origin passed every test here for as long as it did. A translation
+// is the cheapest case that tells them apart: the frame does not move, the
+// drawing does, and a press has to follow the drawing.
+TEST(hit_test_follows_a_translated_view) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *child = box(10, 0, 0, 40, 40);
+    // matrix3d, CSS order: identity with a 100pt shift right and 50 down.
+    const float moved[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 50, 0, 1};
+    [child setRnTransform:moved];
+    [root insertRnChild:child atIndex:0];
+
+    // Where it is drawn.
+    EXPECT_EQ((long)hit(root, 120, 70), 10L);
+    // Where its frame is, and where it is no longer drawn.
+    EXPECT_EQ((long)hit(root, 20, 20), 1L);
+  }
+}
+
+// A rotation, which is the case that cannot be got right by adjusting an
+// offset: the corners of the drawn box are outside its frame and its centre is
+// in the same place.
+TEST(hit_test_follows_a_rotated_view) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *child = box(10, 50, 50, 100, 20);
+    // 90 degrees. A box 100 wide and 20 tall becomes 20 wide and 100 tall,
+    // about its own centre at (100, 60).
+    const float quarterTurn[16] = {0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    [child setRnTransform:quarterTurn];
+    [root insertRnChild:child atIndex:0];
+
+    // The centre does not move, so it is still the child.
+    EXPECT_EQ((long)hit(root, 100, 60), 10L);
+    // Above and below the centre: inside the turned box, outside the frame.
+    EXPECT_EQ((long)hit(root, 100, 20), 10L);
+    EXPECT_EQ((long)hit(root, 100, 100), 10L);
+    // Left and right of the centre: inside the frame, outside the turned box.
+    EXPECT_EQ((long)hit(root, 60, 60), 1L);
+    EXPECT_EQ((long)hit(root, 140, 60), 1L);
+  }
+}
+
+// `scale: 0` is legal, draws nothing, and has no inverse. Skipped rather than
+// inverted, and the press carries on to what is behind it.
+TEST(hit_test_skips_a_view_scaled_to_nothing) {
+  @autoreleasepool {
+    RnAppKitView *root = box(1, 0, 0, 200, 200);
+    RnAppKitView *child = box(10, 0, 0, 100, 100);
+    const float flattened[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    [child setRnTransform:flattened];
+    [root insertRnChild:child atIndex:0];
+
+    EXPECT_EQ((long)hit(root, 50, 50), 1L);
+  }
+}
+
 TEST(hit_test_finds_the_deepest_view) {
   @autoreleasepool {
     RnAppKitView *root = box(1, 0, 0, 200, 200);
