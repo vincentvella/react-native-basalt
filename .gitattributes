@@ -1,0 +1,19 @@
+# Line endings are LF, everywhere, on every platform.
+#
+# This repository is developed on Linux, macOS and Windows, and every text file
+# in it is LF. Without this file git has no opinion on the matter: it compares
+# bytes, so any Windows tool that rewrites a file in place -- npm linking this
+# package into an app, an editor saving with its own default -- produces a
+# whole-file diff that is a line ending and nothing else. That is not
+# hypothetical. It blocked a pull, and `git diff --ignore-cr-at-eol` returning
+# an empty diff was the only way to tell the difference between "nothing
+# changed" and "everything changed".
+#
+# `text=auto` lets git detect text and store it LF-normalised in the index;
+# `eol=lf` checks it back out as LF rather than the platform's default. The
+# scripts are the case that fails loudly rather than silently: a CRLF shebang
+# asks the kernel for an interpreter whose name ends in a carriage return.
+* text=auto eol=lf
+
+# Detected as binary already, named here so no future heuristic gets a vote.
+*.png binary
