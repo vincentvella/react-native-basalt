@@ -264,12 +264,48 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
   // opposite corners overlapping -- so they are resolved against the layout
   // metrics rather than read raw.
   const auto borders = props->resolveBorderMetrics(shadowView.layoutMetrics);
-  // One radius where React Native has four, each with its own horizontal and
-  // vertical value. Right for the overwhelmingly common single `borderRadius`
-  // and visibly wrong for anything else; doing it properly needs a path
-  // geometry rather than a rounded rect. The AppKit side has exactly the same
-  // limitation for the same reason.
-  view->setCornerRadius(borders.borderRadii.topLeft.horizontal);
+  // All four corners, each with its own horizontal and vertical radius, in the
+  // order GtkMountingManager passes them and describeTree prints them. This
+  // used to hand over the top-left horizontal radius alone, which was right for
+  // a single `borderRadius` and visibly wrong for anything else.
+  const float radii[8] = {
+      static_cast<float>(borders.borderRadii.topLeft.horizontal),
+      static_cast<float>(borders.borderRadii.topLeft.vertical),
+      static_cast<float>(borders.borderRadii.topRight.horizontal),
+      static_cast<float>(borders.borderRadii.topRight.vertical),
+      static_cast<float>(borders.borderRadii.bottomRight.horizontal),
+      static_cast<float>(borders.borderRadii.bottomRight.vertical),
+      static_cast<float>(borders.borderRadii.bottomLeft.horizontal),
+      static_cast<float>(borders.borderRadii.bottomLeft.vertical),
+  };
+  view->setCornerRadii(radii);
+
+  // Top, right, bottom, left, as GTK takes them -- the order CSS names the
+  // edges in, and not the order RectangleEdges stores them. An edge without a
+  // colour is transparent, so it draws nothing whatever its width.
+  const float widths[4] = {
+      static_cast<float>(borders.borderWidths.top),
+      static_cast<float>(borders.borderWidths.right),
+      static_cast<float>(borders.borderWidths.bottom),
+      static_cast<float>(borders.borderWidths.left),
+  };
+  float colours[16] = {};
+  const facebook::react::SharedColor *edges[4] = {
+      &borders.borderColors.top,
+      &borders.borderColors.right,
+      &borders.borderColors.bottom,
+      &borders.borderColors.left,
+  };
+  for (int i = 0; i < 4; i++) {
+    if (*edges[i]) {
+      const auto components = facebook::react::colorComponentsFromColor(*edges[i]);
+      colours[i * 4 + 0] = components.red;
+      colours[i * 4 + 1] = components.green;
+      colours[i * 4 + 2] = components.blue;
+      colours[i * 4 + 3] = components.alpha;
+    }
+  }
+  view->setBorders(widths, colours);
 
   view->setZIndex(static_cast<int>(props->zIndex.value_or(0)));
 
@@ -302,15 +338,6 @@ void Win32MountingManager::applyProps(RnWin32View *view, const ShadowView &shado
       view->setPointerEvents(win32::RnWin32View::PointerEvents::Auto);
       break;
   }
-
-  // TODO(props): per-corner radii, borders. The GTK and AppKit
-  // sides have both of them.
-  //
-  // Since phase 47 this gap is visible rather than asserted: `describeTree`
-  // prints `radii=` and `borderw=`/`borderc=`, so a bordered view dumps
-  // differently here than on the other two and scripts/compare_hosts.sh fails
-  // on it. That is deliberate -- it was invisible before, which is how AppKit
-  // went this long drawing no borders and still comparing equal.
 }
 
 // A <Paragraph> carries its text in state, not props: ParagraphShadowNode

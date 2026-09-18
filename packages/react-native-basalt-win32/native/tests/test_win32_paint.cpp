@@ -223,3 +223,161 @@ TEST(win32_paint_rounds_the_background_to_the_corner_radius) {
   EXPECT_PIXEL(pixels, 50, 50, 255, 0, 0, 255);
   EXPECT_TRANSPARENT(pixels, 2, 2);
 }
+
+// ---------------------------------------------------------------------------
+// Per-corner radii and borders
+//
+// This host drew one circular radius -- the top-left horizontal one -- and no
+// border at all, while GTK and AppKit drew both. The tree dump said so, which
+// is how scripts/compare_hosts.sh caught it; these say what reached the pixels.
+// ---------------------------------------------------------------------------
+
+TEST(win32_paint_rounds_each_corner_on_its_own) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *box = tree.colouredBox(2, 0, 0, 100, 100, 1.0f, 0.0f, 0.0f);
+  // Top-left and bottom-right rounded, the other two square: what
+  // borderTopLeftRadius and borderBottomRightRadius alone ask for.
+  const float radii[8] = {40, 40, 0, 0, 40, 40, 0, 0};
+  box->setCornerRadii(radii);
+  root->insertChild(box, 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  EXPECT_TRANSPARENT(pixels, 3, 3);
+  EXPECT_TRANSPARENT(pixels, 96, 96);
+  // The two square corners are still there, which one radius for all four
+  // could never have produced.
+  EXPECT_PIXEL(pixels, 97, 2, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 2, 97, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 50, 50, 255, 0, 0, 255);
+}
+
+TEST(win32_paint_rounds_a_corner_elliptically) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *box = tree.colouredBox(2, 0, 0, 100, 100, 1.0f, 0.0f, 0.0f);
+  // 60 across and 20 down at the top-left. (15,3) is inside a 20-radius circle
+  // and outside this ellipse; (50,15) is inside the ellipse. Only an elliptical
+  // corner answers both.
+  const float radii[8] = {60, 20, 0, 0, 0, 0, 0, 0};
+  box->setCornerRadii(radii);
+  root->insertChild(box, 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  EXPECT_TRANSPARENT(pixels, 15, 3);
+  EXPECT_PIXEL(pixels, 50, 15, 255, 0, 0, 255);
+}
+
+TEST(win32_paint_draws_a_border_inside_the_box) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *box = tree.colouredBox(2, 0, 0, 100, 100, 0.0f, 0.0f, 1.0f);
+  const float widths[4] = {10, 10, 10, 10};
+  const float colours[16] = {1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1};
+  box->setBorders(widths, colours);
+  root->insertChild(box, 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  // Inside the frame on every side -- the border is part of the box, which is
+  // what Yoga already inset the content by -- and the middle untouched.
+  EXPECT_PIXEL(pixels, 50, 4, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 95, 50, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 50, 95, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 4, 50, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 50, 50, 0, 0, 255, 255);
+}
+
+TEST(win32_paint_colours_each_edge_and_mitres_the_corners) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *box = tree.box(2, 0, 0, 100, 100);
+  const float widths[4] = {10, 10, 10, 10};
+  // Top red, right green, bottom blue, left yellow.
+  const float colours[16] = {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1};
+  box->setBorders(widths, colours);
+  root->insertChild(box, 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  EXPECT_PIXEL(pixels, 50, 4, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 95, 50, 0, 255, 0, 255);
+  EXPECT_PIXEL(pixels, 50, 95, 0, 0, 255, 255);
+  EXPECT_PIXEL(pixels, 4, 50, 255, 255, 0, 255);
+  // The top-left corner is split down its diagonal, as CSS splits it: above the
+  // line from (0,0) to (10,10) is the top edge's, below it the left edge's.
+  EXPECT_PIXEL(pixels, 7, 2, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 2, 7, 255, 255, 0, 255);
+  // No background, so the middle is nothing.
+  EXPECT_TRANSPARENT(pixels, 50, 50);
+}
+
+TEST(win32_paint_draws_the_border_over_the_children) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *parent = tree.box(2, 0, 0, 100, 100);
+  const float widths[4] = {10, 10, 10, 10};
+  const float colours[16] = {1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1};
+  parent->setBorders(widths, colours);
+  root->insertChild(parent, 0);
+  // A child covering the whole box, border included: the border still shows,
+  // because it is painted after the content on every platform.
+  parent->insertChild(tree.colouredBox(3, 0, 0, 100, 100, 0.0f, 1.0f, 0.0f), 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  EXPECT_PIXEL(pixels, 50, 4, 255, 0, 0, 255);
+  EXPECT_PIXEL(pixels, 50, 50, 0, 255, 0, 255);
+}
+
+TEST(win32_paint_clips_children_to_each_corner) {
+  Tree tree;
+  RnWin32View *root = tree.box(1, 0, 0, 100, 100);
+  RnWin32View *parent = tree.box(2, 0, 0, 100, 100);
+  const float radii[8] = {40, 40, 0, 0, 0, 0, 0, 0};
+  parent->setCornerRadii(radii);
+  parent->setClipsChildren(true);
+  root->insertChild(parent, 0);
+  parent->insertChild(tree.colouredBox(3, 0, 0, 100, 100, 0.0f, 1.0f, 0.0f), 0);
+
+  const RnPixels pixels = basalt::win32::renderToPixels(*root);
+  EXPECT(!pixels.empty());
+  // overflow: hidden cuts the child at the rounded corner and nowhere else.
+  EXPECT_TRANSPARENT(pixels, 3, 3);
+  EXPECT_PIXEL(pixels, 97, 3, 0, 255, 0, 255);
+  EXPECT_PIXEL(pixels, 3, 97, 0, 255, 0, 255);
+}
+
+TEST(win32_describe_prints_radii_and_borders_as_gtk_does) {
+  // The line js/index.js's header produces on Linux, which is the one the
+  // cross-host comparison failed on: two rounded corners, one colour on three
+  // edges and another on the fourth.
+  RnWin32View view(16);
+  view.setFrame(0, 0, 50, 50);
+  const float radii[8] = {18, 18, 0, 0, 18, 18, 0, 0};
+  view.setCornerRadii(radii);
+  const float widths[4] = {4, 4, 4, 4};
+  const float gold[4] = {242 / 255.0f, 193 / 255.0f, 78 / 255.0f, 1.0f};
+  const float coral[4] = {242 / 255.0f, 111 / 255.0f, 86 / 255.0f, 1.0f};
+  float colours[16];
+  for (int c = 0; c < 4; c++) {
+    colours[0 + c] = gold[c];
+    colours[4 + c] = gold[c];
+    colours[8 + c] = gold[c];
+    colours[12 + c] = coral[c];
+  }
+  view.setBorders(widths, colours);
+
+  const std::string tree = view.describeTree();
+  EXPECT(tree.find(" radii=(18,18,0,0,18,18,0,0)") != std::string::npos);
+  EXPECT(tree.find(" borderw=(4,4,4,4) borderc=(#f2c14eff,#f2c14eff,#f2c14eff,#f26f56ff)") !=
+         std::string::npos);
+
+  // And a border that cannot be seen is not a border: GTK prints none for it,
+  // so neither does this.
+  const float clear[16] = {};
+  view.setBorders(widths, clear);
+  EXPECT(view.describeTree().find("borderw=") == std::string::npos);
+}

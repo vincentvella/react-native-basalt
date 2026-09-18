@@ -226,7 +226,34 @@ void RnWin32View::setClipsChildren(bool clips) {
 }
 
 void RnWin32View::setCornerRadius(float radius) {
-  cornerRadius_ = radius;
+  const float radii[8] = {radius, radius, radius, radius, radius, radius, radius, radius};
+  setCornerRadii(radii);
+}
+
+void RnWin32View::setCornerRadii(const float radii[8]) {
+  hasCornerRadii_ = false;
+  for (int i = 0; i < 8; i++) {
+    cornerRadii_[i] = radii != nullptr ? radii[i] : 0.0f;
+    if (cornerRadii_[i] > 0.0f) {
+      hasCornerRadii_ = true;
+    }
+  }
+}
+
+void RnWin32View::setBorders(const float widths[4], const float colours[16]) {
+  // "Has a border" is decided here, once, the way rn_view_set_borders decides
+  // it on GTK: some edge both wide and visible. Paint and the tree dump both
+  // read this flag, so they cannot disagree about whether a border exists.
+  hasBorders_ = false;
+  for (int i = 0; i < 4; i++) {
+    borderWidths_[i] = widths != nullptr ? widths[i] : 0.0f;
+    for (int c = 0; c < 4; c++) {
+      borderColours_[i * 4 + c] = colours != nullptr ? colours[i * 4 + c] : 0.0f;
+    }
+    if (borderWidths_[i] > 0.0f && borderColours_[i * 4 + 3] > 0.0f) {
+      hasBorders_ = true;
+    }
+  }
 }
 
 void RnWin32View::setZIndex(int zIndex) {
@@ -382,9 +409,15 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
       const D2D1_COLOR_F colour = D2D1::ColorF(
           backgroundColor_[0], backgroundColor_[1], backgroundColor_[2], backgroundColor_[3]);
       if (SUCCEEDED(target->CreateSolidColorBrush(colour, brush.GetAddressOf()))) {
-        if (cornerRadius_ > 0.0f) {
-          target->FillRoundedRectangle(D2D1::RoundedRect(bounds, cornerRadius_, cornerRadius_),
-                                       brush.Get());
+        if (hasCornerRadii_) {
+          // The real shape: each corner its own, elliptical where React Native
+          // says so. See roundedBoxGeometry in Win32Clip.h.
+          ComPtr<ID2D1Factory> factory;
+          target->GetFactory(factory.GetAddressOf());
+          const ComPtr<ID2D1Geometry> box = roundedBoxGeometry(factory.Get(), bounds, cornerRadii_);
+          if (box) {
+            target->FillGeometry(box.Get(), brush.Get());
+          }
         } else {
           target->FillRectangle(bounds, brush.Get());
         }
@@ -434,6 +467,14 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
       paintScrollIndicators(target);
     }
 
+    // The border: over the content, as GTK and AppKit draw it, and inside the
+    // view's own rounded box rather than around it -- React Native's border is
+    // part of the box, which is why Yoga has already inset the content by it.
+    // Below the DevTools overlay and the focus ring, which are not the app's.
+    if (hasBorders_) {
+      paintBorders(target);
+    }
+
     // React DevTools' overlay, over everything including the children. Above
     // the app on purpose: it is not part of it, and an inspected element half
     // hidden behind a card would be pointing at the wrong thing.
@@ -458,13 +499,20 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
                                              inset,
                                              (std::max)(inset, frame_.width - inset),
                                              (std::max)(inset, frame_.height - inset));
-        if (cornerRadius_ > 0.0f) {
-          target->DrawRoundedRectangle(
-              D2D1::RoundedRect(ring,
-                                (std::max)(0.0f, cornerRadius_ - inset),
-                                (std::max)(0.0f, cornerRadius_ - inset)),
-              brush.Get(),
-              kFocusRingWidth);
+        if (hasCornerRadii_) {
+          // The view's own shape, each radius pulled in by the inset so the
+          // ring follows the corner rather than cutting across it.
+          float insetRadii[8];
+          for (int i = 0; i < 8; i++) {
+            insetRadii[i] = (std::max)(0.0f, cornerRadii_[i] - inset);
+          }
+          ComPtr<ID2D1Factory> factory;
+          target->GetFactory(factory.GetAddressOf());
+          const ComPtr<ID2D1Geometry> outline =
+              roundedBoxGeometry(factory.Get(), ring, insetRadii);
+          if (outline) {
+            target->DrawGeometry(outline.Get(), brush.Get(), kFocusRingWidth);
+          }
         } else {
           target->DrawRectangle(ring, brush.Get(), kFocusRingWidth);
         }
@@ -473,6 +521,131 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
   }
 
   target->SetTransform(parentTransform);
+}
+
+// The border, as the ring between the view's rounded box and that box inset by
+// each edge's width.
+//
+// The inner corners follow CSS: each outer radius less the width of the edge
+// it meets, and never below zero -- which is why a thick border on a small
+// radius has a square inside, on every platform.
+//
+// One colour all round is one fill. Different colours per edge are how CSS
+// draws them: the ring is split along the diagonals from each outer corner to
+// the matching inner one, and each side is filled in its own colour. Those
+// sides are filled aliased inside a layer whose mask is the anti-aliased ring:
+// adjacent anti-aliased fills leave a faint seam down each diagonal where their
+// coverages meet, and the mask already gives the ring's own edges their
+// smoothing.
+void RnWin32View::paintBorders(ID2D1RenderTarget *target) const {
+  ComPtr<ID2D1Factory> factory;
+  target->GetFactory(factory.GetAddressOf());
+  if (!factory) {
+    return;
+  }
+
+  const float width = frame_.width;
+  const float height = frame_.height;
+  const float top = borderWidths_[0];
+  const float right = borderWidths_[1];
+  const float bottom = borderWidths_[2];
+  const float left = borderWidths_[3];
+
+  const auto floor0 = [](float value) { return (std::max)(0.0f, value); };
+  const D2D1_RECT_F outerRect = D2D1::RectF(0.0f, 0.0f, width, height);
+  const D2D1_RECT_F innerRect = D2D1::RectF(
+      left, top, (std::max)(left, width - right), (std::max)(top, height - bottom));
+  const float innerRadii[8] = {
+      floor0(cornerRadii_[0] - left),
+      floor0(cornerRadii_[1] - top),
+      floor0(cornerRadii_[2] - right),
+      floor0(cornerRadii_[3] - top),
+      floor0(cornerRadii_[4] - right),
+      floor0(cornerRadii_[5] - bottom),
+      floor0(cornerRadii_[6] - left),
+      floor0(cornerRadii_[7] - bottom),
+  };
+
+  const ComPtr<ID2D1Geometry> outer = roundedBoxGeometry(factory.Get(), outerRect, cornerRadii_);
+  const ComPtr<ID2D1Geometry> inner = roundedBoxGeometry(factory.Get(), innerRect, innerRadii);
+  if (!outer || !inner) {
+    return;
+  }
+
+  ComPtr<ID2D1PathGeometry> ring;
+  ComPtr<ID2D1GeometrySink> sink;
+  if (FAILED(factory->CreatePathGeometry(ring.GetAddressOf())) ||
+      FAILED(ring->Open(sink.GetAddressOf())) ||
+      FAILED(outer->CombineWithGeometry(
+          inner.Get(), D2D1_COMBINE_MODE_EXCLUDE, nullptr, sink.Get())) ||
+      FAILED(sink->Close())) {
+    return;
+  }
+
+  const auto colourOf = [this](int edge) {
+    const float *c = &borderColours_[edge * 4];
+    return D2D1::ColorF(c[0], c[1], c[2], c[3]);
+  };
+
+  bool oneColour = true;
+  for (int edge = 1; edge < 4; edge++) {
+    for (int c = 0; c < 4; c++) {
+      if (borderColours_[edge * 4 + c] != borderColours_[c]) {
+        oneColour = false;
+      }
+    }
+  }
+
+  if (oneColour) {
+    ComPtr<ID2D1SolidColorBrush> brush;
+    if (SUCCEEDED(target->CreateSolidColorBrush(colourOf(0), brush.GetAddressOf()))) {
+      target->FillGeometry(ring.Get(), brush.Get());
+    }
+    return;
+  }
+
+  ComPtr<ID2D1Layer> layer;
+  if (FAILED(target->CreateLayer(nullptr, layer.GetAddressOf()))) {
+    return;
+  }
+  auto parameters = D2D1::LayerParameters();
+  parameters.contentBounds = D2D1::InfiniteRect();
+  parameters.geometricMask = ring.Get();
+  target->PushLayer(parameters, layer.Get());
+
+  const D2D1_ANTIALIAS_MODE previous = target->GetAntialiasMode();
+  target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+
+  // Each side, from its two outer corners to the matching inner ones. Top,
+  // right, bottom, left, as the widths and colours are kept.
+  const D2D1_POINT_2F sides[4][4] = {
+      {{0.0f, 0.0f}, {width, 0.0f}, {width - right, top}, {left, top}},
+      {{width, 0.0f}, {width, height}, {width - right, height - bottom}, {width - right, top}},
+      {{width, height}, {0.0f, height}, {left, height - bottom}, {width - right, height - bottom}},
+      {{0.0f, height}, {0.0f, 0.0f}, {left, top}, {left, height - bottom}},
+  };
+  for (int edge = 0; edge < 4; edge++) {
+    if (borderWidths_[edge] <= 0.0f || borderColours_[edge * 4 + 3] <= 0.0f) {
+      continue;
+    }
+    ComPtr<ID2D1PathGeometry> side;
+    ComPtr<ID2D1GeometrySink> sideSink;
+    ComPtr<ID2D1SolidColorBrush> brush;
+    if (FAILED(factory->CreatePathGeometry(side.GetAddressOf())) ||
+        FAILED(side->Open(sideSink.GetAddressOf())) ||
+        FAILED(target->CreateSolidColorBrush(colourOf(edge), brush.GetAddressOf()))) {
+      continue;
+    }
+    sideSink->BeginFigure(sides[edge][0], D2D1_FIGURE_BEGIN_FILLED);
+    sideSink->AddLines(&sides[edge][1], 3);
+    sideSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (SUCCEEDED(sideSink->Close())) {
+      target->FillGeometry(side.Get(), brush.Get());
+    }
+  }
+
+  target->SetAntialiasMode(previous);
+  target->PopLayer();
 }
 
 // Reads the current transform rather than being handed one, which is what keeps
@@ -716,7 +889,7 @@ void RnWin32View::paintChildren(ID2D1RenderTarget *target) const {
   // `overflow: hidden`, and only that: the background above is clipped whether
   // or not this is set.
   const D2D1_RECT_F bounds = D2D1::RectF(0.0f, 0.0f, frame_.width, frame_.height);
-  ScopedGeometryClip clip(clipsChildren_ ? target : nullptr, bounds, cornerRadius_);
+  ScopedGeometryClip clip(clipsChildren_ ? target : nullptr, bounds, cornerRadii_);
 
   // A ScrollView's offset moves its children and nothing else, so it belongs
   // between this view's transform and theirs.
@@ -851,19 +1024,47 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
   if (clipsChildren_) {
     out += " clip";
   }
-  // Per-corner radii and per-edge borders, in the fields and the order the GTK
-  // and AppKit sides print them. This host has one circular radius rather than
-  // four elliptical ones, so it prints that radius eight times -- which is the
-  // truth about what it paints, and makes a view rounded here and there
-  // compare equal while an elliptical or per-corner one does not.
+  // Per-corner radii and per-edge borders, in the fields, the order and the
+  // formatting GTK prints them -- RnView.cpp's describe -- so that
+  // scripts/compare_hosts.sh compares what each host actually draws.
   //
-  // There is no borderw=/borderc= here because this host does not draw borders
-  // at all yet; see setCornerRadius's note. That is a real divergence from
-  // Linux, and printing nothing is what lets scripts/compare_hosts.sh say so
-  // rather than hiding it behind a dump that cannot express it.
-  if (cornerRadius_ > 0.0f) {
-    const double r = static_cast<double>(cornerRadius_);
-    appendFormat(out, " radii=(%g,%g,%g,%g,%g,%g,%g,%g)", r, r, r, r, r, r, r, r);
+  // Both were missing here until this host drew them: it printed one circular
+  // radius eight times and no border at all, and printing nothing was what let
+  // the comparison say so rather than hide it. Radii are eight numbers because
+  // React Native's are elliptical: top-left, top-right, bottom-right,
+  // bottom-left, horizontal then vertical.
+  if (hasCornerRadii_) {
+    appendFormat(out,
+                 " radii=(%g,%g,%g,%g,%g,%g,%g,%g)",
+                 static_cast<double>(cornerRadii_[0]),
+                 static_cast<double>(cornerRadii_[1]),
+                 static_cast<double>(cornerRadii_[2]),
+                 static_cast<double>(cornerRadii_[3]),
+                 static_cast<double>(cornerRadii_[4]),
+                 static_cast<double>(cornerRadii_[5]),
+                 static_cast<double>(cornerRadii_[6]),
+                 static_cast<double>(cornerRadii_[7]));
+  }
+  // Top, right, bottom, left, for both.
+  if (hasBorders_) {
+    appendFormat(out,
+                 " borderw=(%g,%g,%g,%g)",
+                 static_cast<double>(borderWidths_[0]),
+                 static_cast<double>(borderWidths_[1]),
+                 static_cast<double>(borderWidths_[2]),
+                 static_cast<double>(borderWidths_[3]));
+    out += " borderc=(";
+    for (int edge = 0; edge < 4; edge++) {
+      const float *c = &borderColours_[edge * 4];
+      appendFormat(out,
+                   "%s#%02x%02x%02x%02x",
+                   edge == 0 ? "" : ",",
+                   toByte(c[0]),
+                   toByte(c[1]),
+                   toByte(c[2]),
+                   toByte(c[3]));
+    }
+    out += ")";
   }
   if (hasTransform_) {
     // The 2D affine part, in the order CSS writes a matrix(): a, b, c, d, tx,

@@ -130,8 +130,24 @@ class RnWin32View {
   void setClipsChildren(bool clips);
   bool clipsChildren() const { return clipsChildren_; }
 
+  // One circular radius on all four corners: what `borderRadius` alone asks
+  // for, and what the paint tests use.
   void setCornerRadius(float radius);
-  float cornerRadius() const { return cornerRadius_; }
+  // Per corner, each with its own horizontal and vertical radius -- what React
+  // Native resolves every radius prop to -- in the order describeTree prints
+  // them: top-left, top-right, bottom-right, bottom-left, horizontal then
+  // vertical. This host drew one circular radius until it took eight.
+  void setCornerRadii(const float radii[8]);
+  const float *cornerRadii() const { return cornerRadii_; }
+
+  // Per edge, in CSS's order -- top, right, bottom, left -- with `colours` as
+  // four RGBA quads in the same order. Drawn inside the view's rounded box and
+  // over its content, as GTK and AppKit draw them. An edge with no width or no
+  // alpha draws nothing, and a view with no such edge has no border at all:
+  // which is also exactly when describeTree prints `borderw=` and `borderc=`,
+  // decided the way GTK decides it.
+  void setBorders(const float widths[4], const float colours[16]);
+  bool hasBorders() const { return hasBorders_; }
 
   // zIndex reorders painting and never the child list: Fabric's Insert and
   // Remove carry an index into that list, so it has to stay in mutation order.
@@ -358,6 +374,7 @@ class RnWin32View {
   void paintHighlights(ID2D1RenderTarget *target) const;
   // The overlay scrollbars, in this view's own coordinates.
   void paintScrollIndicators(ID2D1RenderTarget *target) const;
+  void paintBorders(ID2D1RenderTarget *target) const;
   void describeInto(std::string &out, int depth) const;
 
   int32_t tag_;
@@ -369,7 +386,12 @@ class RnWin32View {
   float backgroundColor_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   float opacity_ = 1.0f;
   bool clipsChildren_ = false;
-  float cornerRadius_ = 0.0f;
+  // See setCornerRadii and setBorders for the orders these are kept in.
+  float cornerRadii_[8] = {};
+  bool hasCornerRadii_ = false;
+  float borderWidths_[4] = {};
+  float borderColours_[16] = {};
+  bool hasBorders_ = false;
   HWND editablePeer_ = nullptr;
   std::string nativeId_;
   int zIndex_ = 0;
