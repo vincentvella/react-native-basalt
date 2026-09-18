@@ -44,9 +44,69 @@
  * @format
  */
 
-'use strict';
+import * as path from 'node:path';
 
-const path = require('path');
+/**
+ * Metro's resolver types, as far as this file uses them.
+ *
+ * Metro ships no usable types for `resolveRequest` and its context, and the
+ * shape is large. What is described here is exactly what this file reads and
+ * calls, which is the same rule the turbo modules and Metro's build API got.
+ */
+export type Resolution = {filePath: string; type?: string};
+
+export type ResolutionContext = {
+  resolveRequest: (
+    context: ResolutionContext,
+    moduleName: string,
+    platform: string | null,
+  ) => Resolution;
+  originModulePath?: string;
+  [key: string]: unknown;
+};
+
+export type ResolveRequest = (
+  context: ResolutionContext,
+  moduleName: string,
+  platform: string | null,
+) => Resolution;
+
+/**
+ * A Metro config, as far as this composes with one. Deliberately loose: an app
+ * hands in whatever `getDefaultConfig` produced, and claiming to know the rest
+ * of that object would be claiming to know Metro's config schema.
+ */
+export type MetroConfig = {
+  resolver?: {
+    platforms?: string[];
+    nodeModulesPaths?: string[];
+    resolveRequest?: ResolveRequest;
+    [key: string]: unknown;
+  };
+  server?: {
+    rewriteRequestUrl?: (url: string) => string;
+    [key: string]: unknown;
+  };
+  projectRoot?: string;
+  watchFolders?: string[];
+  [key: string]: unknown;
+};
+
+export type DesktopPlatformOptions = {
+  /** Which desktops to enable. Defaults to all three. */
+  platforms?: string[];
+  /** Which one a dev-server request with no `app=` is assumed to be. */
+  devServerPlatform?: string;
+  /** What to fall back to for a module with no desktop implementation. */
+  platformFallbacks?: string[];
+};
+
+/**
+ * One entry in an override table: the tail of a path React Native would have
+ * resolved, and what to use instead -- either a fixed path or one chosen by
+ * the platform being bundled for.
+ */
+type OverrideEntry = [string, string | ((platform: string) => string)];
 
 const OVERRIDE_DIR = path.join(__dirname, 'src', 'overrides');
 
@@ -59,7 +119,7 @@ const OVERRIDE_DIR = path.join(__dirname, 'src', 'overrides');
  * library that does not is no worse off. Picking different names would have
  * bought nothing and cost that.
  */
-const DESKTOP_PLATFORMS = ['linux', 'macos', 'windows'];
+export const DESKTOP_PLATFORMS = ['linux', 'macos', 'windows'];
 
 /**
  * Kind 1: React Native's self-importing deep-import shims.
@@ -78,7 +138,7 @@ const DESKTOP_PLATFORMS = ['linux', 'macos', 'windows'];
  * Spelled out rather than detected, so a new shim upstream produces an honest
  * failure here rather than a silent redirect to Android.
  */
-const SELF_IMPORTING_SHIMS = [
+export const SELF_IMPORTING_SHIMS = [
   path.join('Libraries', 'Alert', 'RCTAlertManager.js'),
   path.join('Libraries', 'Components', 'AccessibilityInfo', 'legacySendAccessibilityEvent.js'),
   path.join('Libraries', 'Components', 'DrawerAndroid', 'DrawerLayoutAndroid.js'),
@@ -124,7 +184,7 @@ const UPSTREAM_PREFIX = 'react-native-basalt/upstream/';
  * the one-line files it points at exist so that the difference between the
  * platforms stays exactly one string. See src/overrides/createPlatform.js.
  */
-const PLATFORM_OVERRIDES = [
+export const PLATFORM_OVERRIDES: ReadonlyArray<OverrideEntry> = [
   [
     // React Native's own file plus three props it registers and never declares:
     // `onPointerDown`, `onPointerUp` and `onPointerCancel` are in
@@ -136,7 +196,7 @@ const PLATFORM_OVERRIDES = [
   ],
   [
     path.join('Libraries', 'Utilities', 'Platform.js'),
-    platform => path.join(OVERRIDE_DIR, `Platform.${platform}.js`),
+    (platform: string) => path.join(OVERRIDE_DIR, `Platform.${platform}.js`),
   ],
   [
     // Not a shim: React Native's TextInput.js branches on `Platform.OS` being
@@ -203,7 +263,7 @@ const PLATFORM_OVERRIDES = [
  * no neutral file to resolve to. Keyed without an extension, because a request
  * that fails to resolve is only known by its extensionless path.
  */
-const MISSING_MODULES = [
+export const MISSING_MODULES: ReadonlyArray<OverrideEntry> = [
   [
     path.join('rndevtools', 'ReactDevToolsSettingsManager'),
     path.join(OVERRIDE_DIR, 'ReactDevToolsSettingsManager.js'),
@@ -253,9 +313,9 @@ const PLATFORM_FALLBACKS = ['android', 'ios'];
  * It is a workaround and it should not have to exist. The fix is a `platform`
  * field on ReactInstanceConfig, upstream.
  */
-const APP_ID_PREFIX = 'basalt-';
+export const APP_ID_PREFIX = 'basalt-';
 
-function appIdFor(platform) {
+export function appIdFor(platform: string): string {
   return APP_ID_PREFIX + platform;
 }
 
@@ -267,17 +327,28 @@ function appIdFor(platform) {
 // reports that the package is already being watched when it is not, and Metro
 // then refuses to read the very files this plugin hands it. Which is exactly
 // the layout this repository is developed in.
-function contains(parent, child) {
+function contains(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 // Matched on the tail of a path rather than an absolute one: the React Native
 // checkout can be a node_modules copy, a sibling clone or a workspace symlink.
-function matchTail(filePath, table, platform) {
+function matchTail(
+  filePath: string,
+  table: ReadonlyArray<OverrideEntry>,
+  platform: string | null,
+): string | null {
   for (const [tail, replacement] of table) {
     if (filePath.endsWith(tail)) {
-      return typeof replacement === 'function' ? replacement(platform) : replacement;
+      if (typeof replacement !== 'function') {
+        return replacement;
+      }
+      // A replacement chosen by platform cannot be chosen without one. Metro
+      // resolves with a null platform for its own internal requests, and the
+      // honest answer there is "this override does not apply" rather than a
+      // path with `Platform.null.js` in it.
+      return platform == null ? null : replacement(platform);
     }
   }
   return null;
@@ -294,15 +365,15 @@ function matchTail(filePath, table, platform) {
  * inside it also keeps this out of the `exports` check, which is half of what
  * UPSTREAM_PREFIX exists to avoid.
  */
-let reactNativeRootCache = null;
-function reactNativeRoot(resolve) {
+let reactNativeRootCache: string | null = null;
+function reactNativeRoot(resolve: () => Resolution): string {
   if (reactNativeRootCache == null) {
     reactNativeRootCache = path.dirname(resolve().filePath);
   }
   return reactNativeRootCache;
 }
 
-function replacementFor(filePath, platform) {
+function replacementFor(filePath: string, platform: string | null): string | null {
   const own = matchTail(filePath, PLATFORM_OVERRIDES, platform);
   if (own != null) {
     return own;
@@ -323,7 +394,11 @@ function replacementFor(filePath, platform) {
  * `fallback` is used when the request carries no `app=` this plugin recognises,
  * which is what an older host or a hand-typed URL looks like.
  */
-function correctBundlePlatform(url, platforms, fallback) {
+function correctBundlePlatform(
+  url: string,
+  platforms: ReadonlyArray<string>,
+  fallback: string,
+): string {
   if (!/\.(bundle|map)\b/.test(url)) {
     return url;
   }
@@ -363,7 +438,10 @@ function correctBundlePlatform(url, platforms, fallback) {
  *   platformFallbacks  which platforms to retry a failed resolution as, in
  *                      order. See PLATFORM_FALLBACKS. `[]` disables it.
  */
-function withDesktopPlatforms(config = {}, options = {}) {
+export function withDesktopPlatforms(
+  config: MetroConfig = {},
+  options: DesktopPlatformOptions = {},
+): MetroConfig {
   const enabled = options.platforms ?? DESKTOP_PLATFORMS;
   const devServerPlatform = options.devServerPlatform ?? enabled[0];
   const fallbacks = options.platformFallbacks ?? PLATFORM_FALLBACKS;
@@ -424,8 +502,14 @@ function withDesktopPlatforms(config = {}, options = {}) {
       ...resolver,
       platforms: withDesktop,
       nodeModulesPaths: withProject,
-      resolveRequest: (context, moduleName, platform) => {
-        const ours = enabled.includes(platform);
+      resolveRequest: (
+        context: ResolutionContext,
+        moduleName: string,
+        platform: string | null,
+      ): Resolution => {
+        // Metro resolves some of its own requests with no platform at all,
+        // and none of those are ours.
+        const ours = platform != null && enabled.includes(platform);
 
         // This package's own overrides reaching React Native's internals. See
         // UPSTREAM_PREFIX: the specifier becomes an absolute path so that
@@ -434,7 +518,7 @@ function withDesktopPlatforms(config = {}, options = {}) {
         // Resolve first, then decide. Rewriting the request instead would mean
         // reimplementing Metro's resolution to know what './Platform' meant
         // from any given file.
-        const resolveName = (name, target) =>
+        const resolveName = (name: string, target: string | null): Resolution =>
           existingResolveRequest
             ? existingResolveRequest(context, name, target)
             : context.resolveRequest(context, name, target);
@@ -449,7 +533,7 @@ function withDesktopPlatforms(config = {}, options = {}) {
           request = path.join(root, request.slice(UPSTREAM_PREFIX.length));
         }
 
-        const resolveAs = target => resolveName(request, target);
+        const resolveAs = (target: string | null): Resolution => resolveName(request, target);
 
         let resolution;
         try {
@@ -519,17 +603,7 @@ function withDesktopPlatforms(config = {}, options = {}) {
  * always did, so an app that has this in its metro.config.js keeps the exact
  * behaviour it had.
  */
-function withLinuxPlatform(config = {}) {
+export function withLinuxPlatform(config: MetroConfig = {}): MetroConfig {
   return withDesktopPlatforms(config, {platforms: ['linux']});
 }
 
-module.exports = {
-  withDesktopPlatforms,
-  withLinuxPlatform,
-  appIdFor,
-  APP_ID_PREFIX,
-  DESKTOP_PLATFORMS,
-  SELF_IMPORTING_SHIMS,
-  PLATFORM_OVERRIDES,
-  MISSING_MODULES,
-};

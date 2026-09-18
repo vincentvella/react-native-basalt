@@ -74,3 +74,46 @@ test('two requests for the same thing are the same request', () => {
   assert.ok(!sameRequest({title: 'A'}, {title: 'B'}));
   assert.ok(sameRequest({}, null));
 });
+
+// --------------------------------------------------------------------------
+// The package's require()-able surface
+// --------------------------------------------------------------------------
+//
+// Every one of these is reached by `require()` from a file the type checker
+// never sees -- an app's metro.config.js, this package's own
+// react-native.config.js, the host packages' CLI. So dropping one compiles
+// cleanly and fails at runtime somewhere else, which is exactly what happened
+// once: converting metro-config.js to TypeScript replaced its `module.exports`
+// block, and five of its eight exports went with it. The build was green.
+
+test('metro-config exports everything that requires it expects', () => {
+  const metroConfig = require(
+    path.join(__dirname, '..', 'packages/react-native-basalt/dist/metro-config.js'),
+  );
+  for (const name of [
+    'withDesktopPlatforms',
+    'withLinuxPlatform',
+    'appIdFor',
+    'APP_ID_PREFIX',
+    'DESKTOP_PLATFORMS',
+    'SELF_IMPORTING_SHIMS',
+    'PLATFORM_OVERRIDES',
+    'MISSING_MODULES',
+  ]) {
+    assert.notEqual(metroConfig[name], undefined, `metro-config no longer exports ${name}`);
+  }
+});
+
+test('react-native.config.js loads with nothing but Node', () => {
+  // React Native's CLI reads this from the package root by path convention
+  // rather than through `exports`, so it has to resolve without a bundler,
+  // without a transpiler, and without this repository's own layout.
+  const config = require(
+    path.join(__dirname, '..', 'packages/react-native-basalt/react-native.config.js'),
+  );
+  assert.deepEqual(Object.keys(config.platforms).sort(), ['linux', 'macos', 'windows']);
+  for (const platform of Object.values(config.platforms)) {
+    assert.equal(typeof platform.projectConfig, 'function');
+    assert.equal(platform.dependencyConfig(), null);
+  }
+});

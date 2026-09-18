@@ -19,9 +19,25 @@
  * @format
  */
 
+// Checked, not compiled.
+//
+// This file stays JavaScript on purpose, and it is the only one in the package
+// that does. React Native's CLI reads it from `node_modules/<package>/` by
+// path convention rather than through `exports`, so it has to be loadable as
+// CommonJS at exactly this path -- and what it exports is a data structure,
+// which is the one shape types buy nothing to write and everything to check.
+// `@ts-check` gives the checking without putting a tool this project does not
+// control behind a build step.
+// @ts-check
 'use strict';
 
-const DESKTOP_PLATFORMS = require('./metro-config').DESKTOP_PLATFORMS;
+/** @typedef {{projectConfig: () => object, dependencyConfig: () => null}} PlatformEntry */
+
+// `./dist/metro-config`, not `./metro-config`: that file is TypeScript now and
+// this one is not compiled, so the sibling it used to sit beside is no longer
+// there. This is the file React Native's CLI loads from the package root, so
+// it must resolve with nothing but Node.
+const DESKTOP_PLATFORMS = require('./dist/metro-config').DESKTOP_PLATFORMS;
 
 // The same entry for each. They differ in their view layer and in nothing the
 // CLI can see, which is the whole argument of this project restated as four
@@ -43,6 +59,7 @@ const DESKTOP_PLATFORMS = require('./metro-config').DESKTOP_PLATFORMS;
 // Without the field these are still platforms the CLI accepts, and resolution
 // stays with `withDesktopPlatforms` in metro-config.js, which is where the
 // actual policy lives.
+/** @type {Record<string, PlatformEntry>} */
 const platforms = {};
 for (const name of DESKTOP_PLATFORMS) {
   platforms[name] = {

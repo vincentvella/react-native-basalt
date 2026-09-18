@@ -4,7 +4,7 @@
 
 - [x] `tsconfig.json` with `strict: true`, emitting CommonJS
 - [x] A build script, and `prepack` so a packed package is always built
-- [ ] CI type-checks and builds, on a job that already runs
+- [x] CI type-checks and builds, on a job that already runs
 - [x] Prove the scaffolding with nothing converted yet -- `allowJs`, so the
       package builds and works before a single file is TypeScript
 
@@ -19,14 +19,16 @@
 
 ## 3. The CLI and the config files
 
-- [ ] `cli/*.js`, and land `cli/init.js` as TypeScript
-- [ ] `metro-config.js` and `react-native.config.js`, emitted as CommonJS at the
-      paths tools outside this project require them from
-- [ ] The `bin` entries still run under `npx`
+- [x] `cli/*.js`, and land `cli/init.ts` as TypeScript
+- [x] `metro-config.ts`, emitted as CommonJS
+- [x] `react-native.config.js` stays JavaScript, with `@ts-check` and JSDoc:
+      React Native's CLI reads it from the package root by path convention,
+      and what it exports is a data structure
+- [x] The `bin` entries still run under `npx`
 
 ## 4. The overrides
 
-- [ ] `src/overrides/*.js`, last and most carefully
+- [x] `src/overrides/*.js` stay as they are -- copied, not compiled; see the design
 - [x] `OVERRIDE_DIR` resolves correctly -- the overrides are *copied* into
       `dist`, not compiled; see the tsconfig for why
 - [x] `Platform.linux.js`, `Platform.macos.js` and `Platform.windows.js` keep
@@ -36,8 +38,8 @@
 ## 5. Everything that bundles must build first
 
 - [x] `scripts/bundle.sh` builds first
-- [ ] `compare_all.sh` and the CI jobs
-- [ ] A clear failure when the build has not run, rather than a confusing one
+- [x] `compare_all.sh` and the CI jobs
+- [x] A clear failure when the build has not run, rather than a confusing one
 
 ## 6. Records
 

@@ -37,7 +37,11 @@ const {getDefaultConfig, mergeConfig} = rnRequire('@react-native/metro-config');
 // Native modules that have no variant for them. Without it, bundling with
 // --platform linux produces a bundle that builds and then dies on
 // Platform.constants being undefined.
-const {withDesktopPlatforms} = require('../packages/react-native-basalt/metro-config');
+// The built package: react-native-basalt is TypeScript, and requiring the
+// source here does not fail cleanly -- Node 24 loads the .ts sibling and
+// reports `Unexpected token 'export'`, which names neither the file nor the
+// reason. Run scripts/build_ts.sh; scripts/bundle.sh does it for you.
+const {withDesktopPlatforms} = require('../packages/react-native-basalt/dist/metro-config');
 
 // See extraNodeModules below. Named individually so that nothing else of the
 // app's is in reach, and quietly empty when BASALT_EXPO_APP is unset.
