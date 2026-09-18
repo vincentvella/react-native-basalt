@@ -24,7 +24,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Image](backlog/image.md) | 7 | Animated images, decorative props. |
 | [ScrollView](backlog/scrollview.md) | 5 | Trackpad scrolling unverified, `contentInset`, zoom, `contentBoundingRect`, view culling. |
 | [Components](backlog/components.md) | 5 | What is not implemented at all, and `<Modal>` as a real window. |
-| [Accessibility](backlog/accessibility.md) | 5 | Nothing has been tested against a real screen reader. |
+| [Accessibility](backlog/accessibility.md) | 4 | Nothing has been tested against a real screen reader. |
 | [Correctness](backlog/correctness.md) | 5 | Things that work but not quite right. |
 
 ## Platforms and plumbing
@@ -35,7 +35,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [macOS](backlog/platform-macos.md) | 8 | Justified text, fonts, the rest of accessibility. |
 | [Host wiring](backlog/host-wiring.md) | 7 | Dev support, error reporting, the offline `__DEV__` bundle. |
 | [Compatibility](backlog/compatibility.md) | 7 | Which React Native versions work, and which cannot. |
-| [Testing](backlog/testing.md) | 12 | What the suites cannot see. Was two sections with the same name, 800 lines apart; merged. |
+| [Testing](backlog/testing.md) | 11 | What the suites cannot see. Was two sections with the same name, 800 lines apart; merged. |
 | [Upstream](backlog/upstream.md) | 12 | Bugs and gaps in React Native and Expo, with the workarounds here. |
 
 ## How to use this
@@ -47,3 +47,20 @@ than deleting it -- the order things were done in is the useful part, and
 
 An entry earns its length by saying *why*, not by saying more. If it is only a
 title, it is probably not understood well enough to schedule.
+
+**Check an entry before building it.** This file is read from -- a commit
+message quoted `backlog/platform-macos.md` to say macOS had no borders, five
+days after macOS got borders -- so a stale entry does not just sit there, it
+propagates. An audit on 2026-09-18 struck nine entries across three files, and
+in each case the thing was already done:
+
+| Where | Struck | The evidence was |
+| --- | --- | --- |
+| macOS | 6 of 15 | the test list, and `compare_hosts.sh` agreeing on `radii=` and `transform=` |
+| Testing | 2 of 12 | three AppKit test files that assert on real pixels |
+| Accessibility | 1 of 5 | six `focus_*` tests on GTK |
+
+Nothing about those nine was hard to check. What they had in common is that
+nobody looked: each was written when it was true and read later as though it
+still was. Running the thing an entry describes costs a minute and is the only
+way to know -- a grep finds code, and only running it finds behaviour.

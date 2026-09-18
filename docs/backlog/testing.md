@@ -2,32 +2,38 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (12):**
+**Open (11):**
 
-1. No rendering assertions on GTK or macOS
+1. No rendering assertions on GTK
 2. Nothing exercises the JS thread and the main thread concurrently
 3. The end-to-end scenarios hard-code tap coordinates from the demo's layout
 4. CI builds and tests Linux and Windows on every push
 5. The Fast Refresh scenario is skipped in CI
 6. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
-7. CI has no rendering assertions, so it cannot catch what the cairo renderer did
-8. Nothing tests tap-to-focus
-9. A `<TextInput>`'s wrapper is still an element of its own on Windows
-10. No unit test can observe an event
-11. The hover scenario cannot assert its order on GTK-over-quartz
-12. One flaky end-to-end scenario
+7. Nothing tests tap-to-focus
+8. A `<TextInput>`'s wrapper is still an element of its own on Windows
+9. No unit test can observe an event
+10. The hover scenario cannot assert its order on GTK-over-quartz
+11. One flaky end-to-end scenario
 
-- **No rendering assertions on GTK or macOS.** The widget tree says a view has a
-  colour and a frame, not that the right pixels reached the screen. This is not
+- **No rendering assertions on GTK.** The widget tree says a view has a colour
+  and a frame, not that the right pixels reached the screen. This is not
   theoretical -- GTK's cairo renderer mangled every transform in the demo and no
   test noticed. See `docs/TESTING.md`.
 
   Windows has them as of phase 39, because Direct2D renders offscreen with no
-  window and no display and the other two toolkits do not. So the question is no
-  longer what to assert -- `tests/test_win32_paint.cpp` is the list -- but what
-  each of the others costs: a display server and a `GdkTexture` read-back on
-  GTK, an offscreen `NSWindow` and a display cycle on macOS. The macOS snapshot
-  path in `AppKitSnapshot.mm` already does the hard half of the second one.
+  window and no display; `tests/test_win32_paint.cpp` is fourteen of them.
+
+  **macOS has them too, by a cheaper route than this entry predicted.** It
+  guessed at an offscreen `NSWindow` and a display cycle. What the three files
+  doing it actually use is a `CGBitmapContext` and the view's own `drawRect:` --
+  no window, no display, no permission: `test_appkit_image.mm` asserts where the
+  ink of each resize mode lands, `test_appkit_text.mm` that a paragraph draws
+  where its alignment says, and `test_appkit_scrollbar.mm` that the overlay
+  thumb is at the trailing edge.
+
+  What is left is GTK, which needs a display server and a `GdkTexture`
+  read-back, and is the one host where nothing checks the pixels.
 - Nothing exercises the JS thread and the main thread concurrently.
 - The end-to-end scenarios hard-code tap coordinates from the demo's layout.
   Finding a button by its label in the dumped tree would survive a restyle.
@@ -109,7 +115,11 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   is the quartz backend itself, and the answer is that this scenario should
   not be believed off a real Linux session at all.
 
-- CI has no rendering assertions, so it cannot catch what the cairo renderer did.
+- ~~CI has no rendering assertions, so it cannot catch what the cairo renderer
+  did.~~ It has them, on Windows: the job runs `basalt_win32_tests.exe`, and
+  `test_win32_paint.cpp`'s fourteen are in it. What CI still cannot catch is
+  what the *cairo* renderer does, because the GTK job has none -- which is the
+  entry above, and a narrower claim than this one was making.
 
 
 - **Nothing tests tap-to-focus.** Clicking a `<TextInput>` focuses it on both
