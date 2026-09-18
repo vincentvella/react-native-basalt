@@ -238,7 +238,7 @@ The interesting problem is that `<TextInput>` is a controlled component while
 reconcile the two: an `applying` flag so pushing a prop is not reported back as
 typing, a saved cursor position so the caret does not go home mid-word, and
 React Native's `eventCount` so a command older than what the user has since
-typed is dropped. See `plan/09-textinput.md`.
+typed is dropped.
 
 The JavaScript side is this project's own file rather than React Native's, which
 branches on `Platform.OS` being exactly `'android'` or `'ios'` and renders
@@ -272,54 +272,27 @@ project supplies them:
 The six non-obvious requirements, and the upstream bug found while building,
 are documented in the project README.
 
-## Roadmap
+## What is built, and what is next
 
-| Phase | Deliverable | State |
-|---|---|---|
-| 0 | GTK view layer, mounting manager, RN core builds | **done** |
-| 1 | Real mutations → GTK widgets, no JS | **done** |
-| 2 | `ReactHost` + Hermes + a live surface | **done** |
-| 3 | Metro bundle, `<View>` + flexbox, Fast Refresh | **done** |
-| 4 | Pango `TextLayoutManager`, `<Text>` | **done** |
-| 5 | Input & gestures | **done** |
-| 6 | `<Image>`, `<ScrollView>` | **done** |
-| 7 | Accessibility, and a test suite | **done** |
-| 8 | The `linux` Metro platform | **done** |
-| 9 | `<TextInput>` | **done** |
-| 10 | Point the host at a real app, and find out what breaks | **done** |
-| 11 | Run against a released React Native, not just `main` | **done** |
-| 12 | `run-linux`, `run-macos`, `run-windows`, and installable packages | **done**, not yet published |
-| 12a | Build from an installed React Native, on a pinned triple | **done** |
-| 13 | Port one third-party native module end to end | |
-| 14 | Expo's native runtime | **done** |
-| 15 | The asset pipeline | **done** |
-| 16 | Split the shared core from the toolkit | **done** |
-| 17 | A second view layer: macOS | **done** |
-| 17a | A third view layer: Windows, over Win32 and Direct2D | **done** |
-| 18 | Core modules: appearance, clipboard, linking, alerts | **done** |
-| 19 | CI on every push for Linux and Windows, and a release workflow | **done**; no release run yet |
-| 20 | An Expo app, installed from the packed packages, on Linux and Windows | **done** |
-| 21 | The window's title bar: colours, dark mode, an app-drawn header | **done** on Windows |
-| 22 | `npx react-native-basalt init` for an Expo app | **next** |
-| 23 | Fast Refresh end to end on Windows | **next** |
-| 24 | The title bar on Linux and macOS | |
-| 25 | A first release run; then prebuilt Hermes, and publishing | |
-| 26 | Desktop capabilities: more windows, menus, file dialogs | |
-| 27 | Packaging: Arch, Flatpak | |
+Not a table here. What the platform is required to do is `openspec/specs/`,
+which is validated rather than remembered; what is being worked on is
+`openspec/changes/`; what is missing is `docs/BACKLOG.md`, one file per area;
+and the order it is likely to happen in is the README's "Next".
 
-Rows 22 onwards are the order the work is expected to happen in, and a proposal
-rather than a commitment; the README's "Next" says why each is where it is. The
-table has been wrong in that direction before -- the rows from 13 were once a
-single "Expo, CLI, packaging", which hid that Expo alone was larger than the two
-phases before it. See `plan/backlog.md` for the detail behind each.
+A roadmap table lived here for a long time and was wrong about four of its own
+rows by the end -- it still listed "port one third-party native module" as
+unstarted after gesture-handler and Reanimated had both shipped. A schedule kept
+in a fourth place is a schedule nobody updates.
 
 ## Which components a platform claims
 
 `getDefaultComponentRegistryFactory()` is declared by ReactCommon and defined
 nowhere in it: each host supplies its own and, in doing so, declares what its
-platform can put on screen. It is defined per platform here --
-`gtk/ComponentRegistryGtk.cpp` with seven descriptors, `mac/ComponentRegistryAppKit.mm`
-with one -- and that is not tidiness. `ParagraphComponentDescriptor` constructs a
+platform can put on screen. It is defined once per host, in
+`ComponentRegistryGtk.cpp`, `ComponentRegistryAppKit.mm` and
+`ComponentRegistryWin32.cpp` -- fourteen descriptors on Linux and macOS, and
+thirteen on Windows, which does not register `ExpoImage` because nothing there
+mounts one yet. That is not tidiness. `ParagraphComponentDescriptor` constructs a
 `TextLayoutManager`, whose stub this build drops so the platform's own can be the
 only definition, so a shared registry means a platform with no text engine fails
 to link rather than failing to render text.

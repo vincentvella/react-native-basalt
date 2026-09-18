@@ -252,7 +252,7 @@ TEST(accessibility_role_is_reported_in_the_tree) {
 
 TEST(accessibility_role_can_change_after_mount) {
   // GTK cannot do this: a GtkAccessible's role is construct-only, so
-  // `plan/decisions.md` records that accessibilityRole is fixed once a widget
+  // `docs/DECISIONS.md` records that accessibilityRole is fixed once a widget
   // exists. UI Automation pulls rather than being pushed to, so there is
   // nothing baked in, and the mounting manager should not copy GTK's
   // restriction when it arrives.

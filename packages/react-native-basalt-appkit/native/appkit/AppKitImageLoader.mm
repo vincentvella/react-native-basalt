@@ -58,7 +58,7 @@ CGImageRef decode(const std::string &bytes, std::string *error) {
 
   // Index 0: an animated GIF and a multi-page TIFF both have more, and drawing
   // the first frame is the honest thing to do until there is an animator. See
-  // plan/backlog.md.
+  // docs/BACKLOG.md.
   CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, nullptr);
   CFRelease(source);
   if (image == nullptr) {

@@ -106,7 +106,7 @@ std::string registeredFontNamesJoined(char separator) {
   return joined;
 }
 
-// Worth distrusting, and recorded in plan/backlog.md alongside the same doubt
+// Worth distrusting, and recorded in docs/BACKLOG.md alongside the same doubt
 // about macOS: no font has been loaded at runtime and then rendered, on any of
 // the three desktops. AddFontResourceEx is documented to make a font available
 // to GDI; that DirectWrite's system collection also sees it is true on current

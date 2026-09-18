@@ -81,7 +81,7 @@ RnWin32TextLayout::create(std::string utf8Text, const RnTextStyle &style, int ma
       // In DIPs at 96 dpi, which is React Native's density-independent pixel
       // exactly. Nothing here multiplies by a scale factor, and nothing should:
       // the render target carries the display scale, the same division of
-      // labour `plan/decisions.md` records for Pango's absolute sizes.
+      // labour `docs/DECISIONS.md` records for Pango's absolute sizes.
       style.fontSize,
       L"",
       &format);
@@ -207,7 +207,7 @@ float RnWin32TextLayout::applyLineLimit(IDWriteTextLayout *layout) const {
   const UINT32 limit = static_cast<UINT32>(maximumNumberOfLines_);
   if (lineCount <= limit) {
     // A limit the paragraph already fits inside is not a truncation, and must
-    // not become one. This is the shape of the trap `plan/decisions.md` records
+    // not become one. This is the shape of the trap `docs/DECISIONS.md` records
     // Pango springing: there, setting the *default* ellipsize mode with no
     // height collapsed every wrapping paragraph to a single line. DirectWrite
     // will not trim without a height, so declining to set one here is what

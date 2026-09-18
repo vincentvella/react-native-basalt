@@ -1,7 +1,7 @@
 # The same intentions, spelled for two compiler front ends.
 #
 # Everything in this build was written for clang's command line, because until
-# Windows there were only clang targets: `plan/decisions.md` records why the
+# Windows there were only clang targets: `docs/DECISIONS.md` records why the
 # project is a clang codebase rather than a GCC one, and both desktops it had
 # were clang. MSVC's front end takes none of those spellings, and clang-cl takes
 # MSVC's rather than clang's -- it is the same compiler behind a different

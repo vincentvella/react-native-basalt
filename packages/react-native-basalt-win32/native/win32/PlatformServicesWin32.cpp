@@ -306,7 +306,7 @@ bool openUrl(const std::string &url) {
 // activation and the data-requested handler. That is worth doing and is not
 // done here, because it cannot be tested from the machine this was written on
 // and a share sheet that fails is worse than one that is plainly minimal. See
-// plan/backlog.md.
+// docs/BACKLOG.md.
 //
 // Until then, the picker core/ShareFallback.h builds out of a clipboard and a
 // mail client, which is what every desktop has. Nothing here beyond the call:
@@ -575,7 +575,7 @@ void showAlert(const AlertRequest &request, AlertCallback onButton) {
   // TaskDialogIndirect would give arbitrary buttons and is the right answer;
   // it needs a comctl32 v6 manifest, which is a host concern rather than a
   // seam concern, so it waits for the host. A prompt needs a custom dialog on
-  // every platform -- GTK has the same gap, per plan/backlog.md -- and is not
+  // every platform -- GTK has the same gap, per docs/BACKLOG.md -- and is not
   // faked here.
   const std::wstring title = widen(request.title);
   const std::wstring message = widen(request.message);

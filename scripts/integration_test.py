@@ -209,7 +209,7 @@ def click_field_with_cgevent(surface_height: int) -> None:
     system believes is there, which is worth something on its own.
     """
     # Derived rather than looked up. The field is exposed to accessibility as
-    # an AXGroup rather than an AXTextField -- see plan/backlog.md -- so there
+    # an AXGroup rather than an AXTextField -- see docs/BACKLOG.md -- so there
     # is no role to search for, and hunting the only group in the window would
     # break the first time the demo grows another.
     #
@@ -608,7 +608,7 @@ class Metro:
         Warming alone is all this is for. It used to do a second job by
         accident: the graph it built was the one HMRClient subscribed to, so on
         Linux Fast Refresh worked because of this call rather than because the
-        host was right. See plan/48-fast-refresh.md.
+        host was right.
         """
         try:
             self.fetch_bundle()
@@ -1348,7 +1348,7 @@ def test_initial_url(bundle: Path) -> None:
 
     What this does not cover is a URL delivered to an application that is
     *already* running. That needs single-instance activation on each desktop and
-    is a separate piece of work; see plan/backlog.md.
+    is a separate piece of work; see docs/BACKLOG.md.
     """
     app = bundle_app(bundle.parent, "modules")
 

@@ -10,7 +10,7 @@
 // What still cannot be asserted from here is the events. An EventEmitter built
 // by hand has no EventDispatcher, so `onChange` and `onFocus` go nowhere; the
 // end-to-end proof is `js/input.js` under BASALT_TEST_TAP and BASALT_TEST_TYPE,
-// which is in plan/46-windows-textinput.md. What is left is everything the
+// What is left is everything the
 // control itself can be asked: its text, its selection, its read-only and
 // password state, where it is, and whether the loop that writes it is broken
 // in the right place.

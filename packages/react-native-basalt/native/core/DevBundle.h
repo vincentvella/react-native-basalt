@@ -8,7 +8,7 @@
 //
 //   - Nothing is listening. curl reports a connection error, no body is
 //     produced, and falling back to the prebuilt bundle is exactly what should
-//     happen. Verified; see plan/33-dev-bundle-errors.md.
+//     happen. Verified.
 //   - Metro is running and answers 500, which is what it does for any error in
 //     your app -- a syntax error, a missing import, a failing transform. The
 //     body is Metro's JSON error report, and compiling it as JavaScript

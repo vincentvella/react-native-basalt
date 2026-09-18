@@ -42,14 +42,14 @@ const DESKTOP_PLATFORMS = require('./metro-config').DESKTOP_PLATFORMS;
 //
 // Without the field these are still platforms the CLI accepts, and resolution
 // stays with `withDesktopPlatforms` in metro-config.js, which is where the
-// actual policy lives. See plan/12-run-linux.md.
+// actual policy lives.
 const platforms = {};
 for (const name of DESKTOP_PLATFORMS) {
   platforms[name] = {
     projectConfig: () => ({}),
     // No autolinking: nothing here has native code to link yet, and claiming
     // otherwise would make the CLI generate references to files that do not
-    // exist. See plan/12-run-linux.md.
+    // exist.
     dependencyConfig: () => null,
   };
 }

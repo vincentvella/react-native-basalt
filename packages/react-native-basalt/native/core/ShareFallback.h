@@ -20,7 +20,7 @@
 // worse than being a plain one that does.
 //
 // An implementation that wants the real thing on Windows should replace its
-// `shareContent` and leave this alone; see plan/backlog.md.
+// `shareContent` and leave this alone; see docs/BACKLOG.md.
 
 #pragma once
 

@@ -7,7 +7,7 @@
 // the clip and the paint order are right. A picture does not.
 //
 // The pixels are the same render with the encoder left off, and they exist
-// because of a gap `plan/backlog.md` has carried since GTK: "the widget tree
+// because of a gap `docs/BACKLOG.md` has carried since GTK: "the widget tree
 // says a view has a colour and a frame, not that the right pixels reached the
 // screen -- GTK's cairo renderer mangled every transform in the demo and no
 // test noticed". Neither of the other hosts can close that cheaply. GTK needs a

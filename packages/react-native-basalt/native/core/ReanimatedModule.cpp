@@ -40,7 +40,7 @@ std::shared_ptr<reanimated::ReanimatedModuleProxy> &heldProxy() {
 // is installed. The frame is a timer for the same reason worklets' is: the
 // display link on each platform belongs to React Native's own choreographer,
 // which pauses whenever React Native has no animation of its own -- which is
-// exactly when a Reanimated one might be running. See plan/38-reanimated.md.
+// exactly when a Reanimated one might be running.
 constexpr double kFrameMilliseconds = 16;
 
 void scheduleFlush() {

@@ -108,7 +108,7 @@ void GtkTitleBar::startDrag() {
   // inside one drags the window, and there is no "begin a drag now" call to
   // make from a press. The host's overlay could wrap the app's drag regions in
   // one, which is where this belongs -- not in a method JavaScript calls after
-  // the press has already been delivered elsewhere. See plan/backlog.md.
+  // the press has already been delivered elsewhere. See docs/BACKLOG.md.
 }
 
 TitleBarMetrics GtkTitleBar::metrics() const {

@@ -56,7 +56,7 @@ class GtkImageLoader {
   // Decoded textures, keyed by URI. Textures are immutable and shareable, so
   // two <Image>s with the same source paint the same object.
   //
-  // Nothing evicts from this yet; see plan/backlog.md.
+  // Nothing evicts from this yet; see docs/BACKLOG.md.
   std::unordered_map<std::string, GdkTexture *> cache_;
 };
 

@@ -4,7 +4,7 @@
 // `ImageRequest` with no observer coordinator, so no `ImageResponse` ever
 // arrives and `ImageState` never carries anything to render. The platform view
 // is expected to load its own pixels, which is what Android does too, from
-// `ReactImageView` rather than from the shadow node. `plan/decisions.md` records
+// `ReactImageView` rather than from the shadow node. `docs/DECISIONS.md` records
 // the same conclusion for GTK.
 //
 // Two rules fall out of the lifetimes, and both are the reason this is a class
@@ -54,7 +54,7 @@ class Win32ImageLoader {
 
   // Drops the decoded pixels. Nothing calls it yet, and that is a gap rather
   // than a decision: a long-lived app that scrolls through many remote images
-  // grows without bound, which plan/backlog.md records for GTK as well.
+  // grows without bound, which docs/BACKLOG.md records for GTK as well.
   void clearCache();
 
  private:

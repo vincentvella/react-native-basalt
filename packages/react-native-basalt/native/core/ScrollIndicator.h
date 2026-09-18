@@ -22,7 +22,7 @@
 // An overlay indicator, like every modern desktop: a rounded bar inset from the
 // trailing edge, sized to the fraction of the content on screen, positioned by
 // how far through it you are. Not a classic scrollbar with arrows and a
-// trough -- nothing here is a drag target yet, which `plan/backlog` records.
+// trough -- nothing here is a drag target yet, which `docs/backlog` records.
 
 #pragma once
 

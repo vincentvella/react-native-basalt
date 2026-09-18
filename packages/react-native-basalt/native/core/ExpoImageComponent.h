@@ -24,7 +24,6 @@
 // Symbols are left out of the view config, so they are dropped in JavaScript
 // and never travel. An app using them gets an image without them rather than an
 // error, which is the honest outcome for a prop whose effect is decorative.
-// See plan/36-expo-image.md.
 
 #pragma once
 

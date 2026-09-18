@@ -20,7 +20,7 @@
 // in `MsgWaitForMultipleObjectsEx`. That is exactly "having drained whatever
 // else was pending", and blocking properly rather than polling is what keeps an
 // idle app at zero CPU -- which was the objection to `gtk_widget_add_tick_callback`
-// recorded in `plan/decisions.md`, and applies here for the same reason.
+// recorded in `docs/DECISIONS.md`, and applies here for the same reason.
 //
 // So this is a loop rather than an observer, and the host calls it instead of
 // writing its own.

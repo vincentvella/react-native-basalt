@@ -412,7 +412,7 @@ if(WIN32)
   # what React Native meant, so React Native's C++ is compiled here with its
   # warnings off -- which is a real loss, because warning-free upstream code is
   # what catches an API change early, and it is why the Linux build stays the
-  # one that guards that. Recorded in plan/backlog.md rather than papered over.
+  # one that guards that. Recorded in docs/BACKLOG.md rather than papered over.
   #
   # This project's *own* sources are unaffected: they are held to /W4
   # /permissive- by the platform package, and none of this reaches them.

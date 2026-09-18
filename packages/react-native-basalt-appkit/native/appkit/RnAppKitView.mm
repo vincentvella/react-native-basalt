@@ -198,7 +198,7 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
 }
 
 // Paint and nothing else: a press falls through to the content underneath.
-// Nothing here is a drag target yet -- plan/backlog records that.
+// Nothing here is a drag target yet -- docs/backlog records that.
 - (NSView *)hitTest:(NSPoint)point {
   (void)point;
   return nil;

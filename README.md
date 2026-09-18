@@ -83,7 +83,6 @@ the Win32 half.
 
 Every host produces a byte-identical view tree from the same script;
 `scripts/compare_hosts.sh` is what says so, for whichever of them are built.
-See `plan/17-shared-core.md` through `plan/22-the-name.md`.
 
 Inside the shared package, under `native/`:
 
@@ -171,7 +170,7 @@ Inside the shared package, under `native/`:
 `react-native-basalt-win32`, under `native/`:
 
     win32/RnWin32View.h/.cpp    Win32 view layer, painted with Direct2D. Not one
-                                HWND per view; see plan/decisions.md.
+                                HWND per view; see docs/DECISIONS.md.
     win32/Win32Snapshot.*       One offscreen render, two exits: a PNG, and the
                                 pixels tests/test_win32_paint.cpp asserts on.
                                 No window, no device, no display.
@@ -320,7 +319,7 @@ Ninja, from a shell that has run `vcvars64.bat`:
     cmake --build build
     build\basalt_win32_tests.exe
 
-`clang-cl` because `plan/decisions.md` prefers clang where there is a choice; it
+`clang-cl` because `docs/DECISIONS.md` prefers clang where there is a choice; it
 is a component of the same Build Tools install, and dropping the flag builds
 that half with `cl` instead.
 
@@ -340,7 +339,7 @@ refuses early and says what to install if vcpkg is missing its packages.
 Unlike the view layer, the core build **requires** clang-cl rather than `cl`:
 React Native's own CMake sets clang-style flags that `cl` does not understand,
 and Static Hermes uses `__builtin_expect`, which it does not have. See
-`plan/41-msvc-core.md`, which also records the three fixes Hermes needs on
+`docs/PORTING.md`, which also records the three fixes Hermes needs on
 Windows and why the prebuilt Hermes react-native-windows uses cannot be
 substituted.
 
@@ -470,8 +469,7 @@ const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
 module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
 ```
 
-That is what this project exists to show. `plan/15-expo-runtime.md` is how, and
-`plan/29-expo-on-macos.md` is the second desktop getting it for free.
+That is what this project exists to show.
 
 Beyond the template, a real app's dependency set -- expo-image, expo-font,
 expo-constants, expo-clipboard, gesture-handler, Reanimated, react-navigation
@@ -482,7 +480,6 @@ really is the app's `app.json`, and `Linking.createURL` produces the app's own
 scheme. That works because `globalThis.expo.modules` is a registry a C++ module
 can be added to now, and because the bundler writes the resolved Expo config
 beside the bundle the way Expo's own native builds embed it. See
-`plan/35-expo-modules.md`.
 
 `expo-image` renders too, which took the other half of the port: an Expo *view*
 is a Fabric component with a view config in front of it, and phase 36 built that
@@ -497,8 +494,6 @@ ship portable C++, so that port was compiling their sources and supplying the
 four things they expect from a platform -- plus one gap in React Native's own
 cxx platform, which never calls `Scheduler::reportMount` and so leaves every
 mount hook inert (phase 38).
-
-`plan/34-expo-dependencies.md` has the table.
 
 ## Supported React Native versions
 
@@ -516,8 +511,8 @@ unsupported version rather than failing three compile errors deep.
 That pinning is not caution, it is the shape of the problem. Hermes and React
 Native's C++ host layer both track `ReactCommon` closely enough that one version
 cannot serve several React Natives, and this is the only platform that builds
-Hermes from source rather than consuming a prebuilt one. `plan/14-pinned-versions.md`
-has the evidence; `plan/11-released-versions.md` covers what supporting a release
+Hermes from source rather than consuming a prebuilt one. `docs/PORTING.md`
+has the evidence; `docs/PORTING.md` covers what supporting a release
 took in the first place.
 
 ## Status
@@ -578,7 +573,6 @@ Not yet done:
   `TextInput.State.currentlyFocusedInput()` is not there. The JavaScript side is
   this project's own file rather than React Native's, which branches on
   `Platform.OS` being exactly `'android'` or `'ios'`; see
-  `plan/09-textinput.md`.
 - **No keyboard focus for anything else.** A `<TextInput>` takes focus because
   GtkText does, but `<Pressable>` and friends are not reachable by Tab, so a
   screen reader can read the interface and not drive it.
@@ -600,7 +594,7 @@ Not yet done:
   the first build compiles Hermes from source. And no third-party native module
   has been ported end to end, so what porting one costs is still unknown.
 
-See `plan/backlog.md` for the per-component detail.
+See `docs/BACKLOG.md` for the per-component detail.
 
 ## Testing
 
@@ -656,7 +650,7 @@ refreshes it, and LogBox's own images are not among the assets copied next to
 it. Use Metro for that.
 
 If Metro cannot build, the host says so and exits rather than starting: the
-error you see is Metro's own, code frame and all. See plan/33-dev-bundle-errors.md.
+error you see is Metro's own, code frame and all.
 
 Arguments are `basalt_gtk [bundle] [moduleName]`, defaulting to
 `build/main.jsbundle.js` and `BasaltDemo`. An **empty** module name starts a
@@ -701,7 +695,7 @@ Its environment variables are `BASALT_*` in place of `BASALT_*`:
 `BASALT_DEV`, `BASALT_DEV_HOST`, `BASALT_DEV_PORT`, `BASALT_DEV_ENTRY`,
 `BASALT_QUIT_AFTER_MS`, `BASALT_DUMP_TREE`, plus `BASALT_SNAPSHOT`, which writes
 a PNG of what is actually on screen. Two prefixes for the same knobs is an
-inconsistency that should become one; see `plan/20-macos-host.md` for why it has
+inconsistency that should become one; it has
 not yet.
 
 To check the two agree:
@@ -728,7 +722,6 @@ In an app's `metro.config.js`:
 
 Almost none of what this does is per-platform: the shims below resolve to the
 same place on all three, and only `Platform` differs, by one string. See
-`plan/21-js-platform-layer.md`.
 
 Getting there is mostly about a family of React Native files that cannot work on
 a platform React Native has never heard of:
@@ -814,7 +807,7 @@ compositor opacity rule, not the renderer.
 ## Next
 
 In the order it is likely to be done. The per-area detail is
-`plan/backlog.md`; the history is the roadmap in `docs/ARCHITECTURE.md`.
+`docs/BACKLOG.md`; how the thing is built is `docs/ARCHITECTURE.md`.
 
 1. **`npx react-native-basalt init`.** Adding a desktop to an Expo app works
    and is still manual: `@react-native/metro-config` and
@@ -829,7 +822,7 @@ In the order it is likely to be done. The per-area detail is
    and CI sets `BASALT_SKIP_FAST_REFRESH` on both jobs besides, because Metro
    on a GitHub runner never notices an edit. So the one thing standing between
    a working feature and a guarded one is a Windows path for the scenario, and
-   then a runner whose file watching works -- `plan/backlog.md` has what is
+   then a runner whose file watching works -- `docs/BACKLOG.md` has what is
    left to try on the second.
 3. **The title bar on Linux and macOS.** `useTitleBar`, `<TitleBar>` and
    `useTitleBarMetrics` do nothing off Windows. GTK can drop its decorations
@@ -862,7 +855,7 @@ correction. Fast Refresh failing on macOS was blamed on the dev script URL in
 cause. The cause was this project's own `SourceCode` module reporting a
 synthesised bundle URL, which named a Metro *graph* nobody had built -- and
 Linux was not exempt, only lucky, because the end-to-end suite happened to
-build that graph before the client asked for it. See `plan/48-fast-refresh.md`.
+build that graph before the client asked for it.
 
 ## Caveat
 

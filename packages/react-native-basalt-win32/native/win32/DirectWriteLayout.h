@@ -9,7 +9,7 @@
 // from `TextLayoutManager::measure`, and `Win32MountingManager` calls it when a
 // Paragraph's state arrives. That sharing is the point: if the two built
 // layouts differently, Yoga would allot a box computed one way and the view
-// would paint text laid out another. `plan/decisions.md` makes the same
+// would paint text laid out another. `docs/DECISIONS.md` makes the same
 // argument for Pango.
 
 #pragma once

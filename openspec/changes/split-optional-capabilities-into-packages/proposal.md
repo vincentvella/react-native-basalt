@@ -44,5 +44,5 @@ package is the decision that was made by not making it.
   entry point it provides.
 - Possibly moving shipped code out of `react-native-basalt`, which is a breaking
   change and is the reason to do it before anyone depends on it.
-- `plan/backlog/ecosystem.md`, which says publishing is next: this decides what
+- `docs/backlog/ecosystem.md`, which says publishing is next: this decides what
   is being published.

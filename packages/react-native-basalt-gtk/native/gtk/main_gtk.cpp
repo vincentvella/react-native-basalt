@@ -847,7 +847,7 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         // graph nobody built, Metro answers GraphNotFoundError, and Fast
         // Refresh silently never starts. ReactCxxPlatform's own SourceCode
         // module reports the URL the bundle really came from, which is the one
-        // whose graph exists. See plan/48-fast-refresh.md.
+        // whose graph exists.
         if (!devMode && name == basalt::DesktopSourceCodeModule::kModuleName) {
           return std::make_shared<basalt::DesktopSourceCodeModule>(jsInvoker, scriptURL);
         }
@@ -933,7 +933,7 @@ HostWindow *createHostWindow(Host *host,
   gtk_window_set_child(made->window, made->overlay);
   // The title bar is the main window's. It is a process-wide seam -- one title,
   // one style -- and making it per-window is its own piece of work; see
-  // plan/backlog.md.
+  // docs/BACKLOG.md.
   if (isMainWindow) {
     basalt::titleBar().attach(made->window, controls);
   }

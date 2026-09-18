@@ -121,7 +121,6 @@ Value DesktopWorkletsModule::installTurboModule(Runtime &runtime,
       // pauses whenever React Native has no animation running -- exactly when a
       // Reanimated one might be. Sixteen milliseconds is the honest
       // approximation until there is a frame source both can share; see
-      // plan/38-reanimated.md.
       .requestAnimationFrame =
           [](std::function<void(const double)> callback) {
             postDelayed(16, [callback = std::move(callback)]() {

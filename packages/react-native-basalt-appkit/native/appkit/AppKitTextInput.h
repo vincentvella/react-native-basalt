@@ -4,7 +4,7 @@
 // props, state and event emitter are pure C++ and measure through a
 // TextLayoutManager, which on this platform is the Core Text one. Android's
 // variant includes fbjni and calls into a Java FabricUIManager, so it is
-// unusable here; see plan/decisions.md. The component name is therefore
+// unusable here; see docs/DECISIONS.md. The component name is therefore
 // "TextInput", which is what src/overrides/TextInput.js asks for -- and the
 // same name the GTK side answers to.
 //
@@ -113,8 +113,7 @@ class AppKitTextInputManager {
     //
     // So the prop is applied when it *changes*, not when it differs from the
     // field. A controlled field's value changes as the user types; an
-    // uncontrolled one's never does. Found on Windows in phase 46; see
-    // plan/46-windows-textinput.md.
+    // uncontrolled one's never does. Found on Windows.
     std::string lastPropText;
     bool sawProps{false};
   };

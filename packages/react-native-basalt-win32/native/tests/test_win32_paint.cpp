@@ -1,7 +1,7 @@
 // What actually reached the pixels.
 //
 // Every other suite in this project asserts on the view tree: that a view has a
-// colour, a frame and a transform. `plan/backlog.md` has carried the gap that
+// colour, a frame and a transform. `docs/BACKLOG.md` has carried the gap that
 // leaves since GTK -- "GTK's cairo renderer mangled every transform in the demo
 // and no test noticed" -- because closing it on the other two platforms means a
 // display server or an offscreen window and a display cycle.

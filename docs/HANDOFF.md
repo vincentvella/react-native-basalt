@@ -23,7 +23,7 @@ That move is done: as of 2026-09-08 the project builds and runs there. See
 
 `Platform.OS === 'linux'` now, in development and release alike. `<TextInput>`
 is no longer blocked on the platform, but still needs keyboard input and a
-focus model. See `plan/decisions.md`.
+focus model. See `docs/DECISIONS.md`.
 
 87 React Native targets build (ReactCommon + ReactCxxPlatform, including
 `ReactHost`), plus Hermes and codegen. `basalt_gtk` runs a real React Native
@@ -181,10 +181,12 @@ input, scaling or accessibility.
 
 ## Working notes
 
-`plan/` is in the repo: milestone plans (`02-reacthost-surface.md` has the
-detailed next step, including the `ReactHost` constructor arguments read out of
-Fantom's `TesterAppDelegate`), a backlog of known gaps, and a decisions log
-recording why Path A, why clang, and why `RnLayout` does no layout.
+`docs/BACKLOG.md` and `docs/backlog/` carry the known gaps, one file per area.
+`docs/DECISIONS.md` records why Path A, why clang, and why `RnLayout` does no
+layout. `docs/PORTING.md` has what it takes to build React Native's core
+somewhere new -- the Hermes and MSVC fixes, and which React Natives are
+supported. Work being proposed or under way is `openspec/changes/`; what the
+platform is required to do is `openspec/specs/`.
 
 ## Not in this repo
 

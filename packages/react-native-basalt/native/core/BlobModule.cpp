@@ -207,7 +207,7 @@ void DesktopBlobModule::addNetworkingHandler(Runtime &rt) {
   // blobs at all -- so there is nothing to register with. Request bodies still
   // work, because core/HttpClient.cpp resolves a blob body through the registry
   // itself; `responseType: 'blob'` does not, and cannot until upstream's
-  // networking module grows a seam. See plan/31-blobs.md.
+  // networking module grows a seam.
   //
   // Silent rather than warning: JavaScript calls this once at startup on every
   // platform, and a warning every app sees and nobody can act on is noise.

@@ -230,7 +230,7 @@ class CurlHttpClient final : public IHttpClient {
     // read that object as a string before this code is ever called. Handling it
     // anyway, as an id, because that is what the type says it is and because
     // the day upstream fixes the type this becomes correct rather than needing
-    // to be written. See plan/31-blobs.md.
+    // to be written.
     std::string requestBody = body.string.value_or(std::string{});
     bool hasBody = body.string.has_value();
 

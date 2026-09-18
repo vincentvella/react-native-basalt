@@ -140,7 +140,7 @@ Object makeAssetModule(Runtime &runtime) {
               return rejectedPromise(
                   rt,
                   "no asset at " + path +
-                      ". Assets are not copied beside the bundle yet; see plan/16-assets.md.");
+                      ". Assets are not copied beside the bundle yet.");
             }
 
             return rt.global()

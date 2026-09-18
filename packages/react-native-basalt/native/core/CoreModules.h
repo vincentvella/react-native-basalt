@@ -94,7 +94,7 @@ class DesktopAlertModule
 // What this is not is a URL delivered to an application that is *already*
 // running. That needs single-instance activation on each desktop -- a
 // GApplication with G_APPLICATION_HANDLES_OPEN, an Apple Event handler, a named
-// pipe -- and is a separate piece of work; see plan/backlog.md.
+// pipe -- and is a separate piece of work; see docs/BACKLOG.md.
 void setInitialUrl(const std::string &url);
 const std::string &initialUrl();
 
@@ -253,7 +253,7 @@ class DesktopAccessibilityInfoModule
 // So the message is logged rather than shown. That is not a good answer and it
 // is a better one than throwing: an app that shows a toast is telling the user
 // something, and losing it silently is worse than losing it visibly in a log.
-// See plan/backlog.md.
+// See docs/BACKLOG.md.
 class DesktopToastModule
     : public facebook::react::NativeToastAndroidCxxSpec<DesktopToastModule> {
  public:

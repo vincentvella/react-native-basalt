@@ -251,7 +251,7 @@ const PLATFORM_FALLBACKS = ['android', 'ios'];
  * `basalt-<platform>` and this reads it back.
  *
  * It is a workaround and it should not have to exist. The fix is a `platform`
- * field on ReactInstanceConfig, upstream; see plan/21-js-platform-layer.md.
+ * field on ReactInstanceConfig, upstream.
  */
 const APP_ID_PREFIX = 'basalt-';
 

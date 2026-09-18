@@ -27,7 +27,7 @@
 // answer what this process last asked for -- which is what the GTK host's map
 // answers too, for a different reason. A notification a person has already
 // dismissed still counts as presented until something replaces it. Recorded in
-// plan/backlog.md rather than papered over.
+// docs/BACKLOG.md rather than papered over.
 
 #include "Notifications.h"
 

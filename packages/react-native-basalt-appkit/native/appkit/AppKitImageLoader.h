@@ -48,7 +48,7 @@ class AppKitImageLoader {
   // Decoded images, keyed by URI. CGImages are immutable and shareable, so two
   // <Image>s with the same source draw the same object.
   //
-  // Nothing evicts from this yet; see plan/backlog.md.
+  // Nothing evicts from this yet; see docs/BACKLOG.md.
   std::unordered_map<std::string, CGImageRef> cache_;
 };
 

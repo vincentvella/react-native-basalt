@@ -62,7 +62,7 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // the DirectWrite one, here. Android's variant includes fbjni and calls
       // into a Java FabricUIManager, so it cannot be used outside an Android
       // build. Both other desktops made the same choice; see
-      // plan/decisions.md. Its component name is "TextInput", which is what
+      // docs/DECISIONS.md. Its component name is "TextInput", which is what
       // React Native's own componentNameByReactViewName maps
       // RCTSinglelineTextInputView to, so nothing here renames anything.
       registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
@@ -71,7 +71,7 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // oversight: ExpoImage's seam exists in core/ExpoImageComponent.h and its
       // props class is portable, but nothing here mounts one yet.
       //
-      // See plan/backlog.md.
+      // See docs/BACKLOG.md.
 
       // --- The controls -----------------------------------------------------
       //

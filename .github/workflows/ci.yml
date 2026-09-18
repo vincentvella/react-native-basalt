@@ -31,11 +31,11 @@ name: CI
 on:
   push:
     branches: [main, ci]
-    # Prose needs no compiler. Most commits here are a plan/ write-up or a
+    # Prose needs no compiler. Most commits here are a docs/ write-up or a
     # README line, and each one was paying for every build job.
-    paths-ignore: ["plan/**", "docs/**", "**/*.md"]
+    paths-ignore: ["docs/**", "openspec/**", "**/*.md"]
   pull_request:
-    paths-ignore: ["plan/**", "docs/**", "**/*.md"]
+    paths-ignore: ["docs/**", "openspec/**", "**/*.md"]
   workflow_dispatch:
     inputs:
       drift:
@@ -81,7 +81,7 @@ jobs:
         # CI builds against a fixed release so that a red tick means this repo
         # regressed for someone who could actually use it, not that React Native
         # moved. The `drift` job below is what tracks main. See
-        # plan/11-released-versions.md.
+        # docs/PORTING.md.
         run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
 
       - name: Install system dependencies
@@ -266,7 +266,7 @@ jobs:
           # `"watcher": "inotify"` over exactly the root Metro was given, a
           # .watchmanconfig was in place, and the scenario failed the same way.
           # `serves_edit` answered *no*, so Metro had not seen the change at
-          # all. See plan/backlog.md for what is left to try.
+          # all. See docs/BACKLOG.md for what is left to try.
           #
           # It runs on developer machines, on macOS and on Linux, where it
           # passes.

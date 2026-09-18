@@ -133,7 +133,7 @@ function run(command, args, options, toolchain) {
  * handed the package itself. The second is what every app has. React Native's
  * npm package ships everything the host compiles against except
  * ReactCxxPlatform, and bootstrap fetches that at the app's exact version --
- * see plan/13-upstream-reactcxxplatform.md.
+ * see docs/PORTING.md.
  *
  * This used to refuse an installed package outright, saying the npm package
  * lacked the C++, long after bootstrap and CMake had learned to build from one.

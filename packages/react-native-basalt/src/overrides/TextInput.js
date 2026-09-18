@@ -25,7 +25,7 @@
  * reach the native component through `...rest`, and what was missing was the
  * native half on either side of them.
  *
- * `plan/backlog.md` tracks what is missing. The seam is here when it is time.
+ * `docs/BACKLOG.md` tracks what is missing. The seam is here when it is time.
  *
  * @format
  */

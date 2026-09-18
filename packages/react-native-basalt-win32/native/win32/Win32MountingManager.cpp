@@ -108,7 +108,7 @@ void Win32MountingManager::applyTransaction(SurfaceId surfaceId,
   // mount hook -- Reanimated's is the one that matters -- is waiting for this,
   // and without it an animated style is computed every frame, committed to the
   // shadow tree, and never resumed, so nothing moves. ReactCxxPlatform calls it
-  // nowhere; see plan/38-reanimated.md.
+  // nowhere.
   if (auto uiManager = sharedUIManager()) {
     uiManager->reportMount(surfaceId);
   }

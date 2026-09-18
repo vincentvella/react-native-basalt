@@ -99,7 +99,7 @@ RN_DIR="$(cd "$RN_DIR" && pwd)"
 # Native ships its C++, the codegen script, the Hermes pin and the version table
 # in the npm package. The one thing missing is ReactCxxPlatform, which is absent
 # from the package's `files` list, and which is the layer this host is built on.
-# See plan/13-upstream-reactcxxplatform.md.
+# See docs/PORTING.md.
 if [ -d "$RN_DIR/packages/react-native/ReactCommon" ]; then
   RN_PKG="$RN_DIR/packages/react-native"
   RN_LAYOUT=checkout
@@ -169,7 +169,7 @@ if [ "$RN_LAYOUT" = installed ] && [ ! -d "$RN_PKG/ReactCxxPlatform" ]; then
       "$TP/.rn-sparse" 2>/dev/null || die "no React Native tag v$RN_VERSION on GitHub.
   ReactCxxPlatform is not in the npm package, so it has to come from the tag
   matching your react-native, and there is no such tag. See
-  plan/13-upstream-reactcxxplatform.md."
+  docs/PORTING.md."
     (cd "$TP/.rn-sparse" && git sparse-checkout set --no-cone \
       packages/react-native/ReactCxxPlatform >/dev/null)
     [ -d "$TP/.rn-sparse/packages/react-native/ReactCxxPlatform" ] \
@@ -185,11 +185,11 @@ fi
 #
 # The compiler differs by name rather than by kind. clang everywhere, because
 # React Native is a clang codebase built -Wall -Werror -Wpedantic and
-# plan/decisions.md declines to paper over its own warnings with -Wno-*; on
+# docs/DECISIONS.md declines to paper over its own warnings with -Wno-*; on
 # Windows that same compiler is called clang-cl and takes MSVC's command line.
 # cl is not an alternative for the core build -- it understands neither -Werror
 # nor clang's -Wall, and Static Hermes uses __builtin_expect, which it does not
-# have. See plan/41-msvc-core.md.
+# have. See docs/PORTING.md.
 if [ "$HOST_OS" = windows ]; then
   BOOTSTRAP_TOOLS="cmake ninja clang-cl curl tar node"
 else
@@ -349,7 +349,7 @@ fi
 if [ "$HOST_OS" = windows ]; then
   HERMES_CALLABLE="$TP/hermes/include/hermes/VM/Callable.h"
   if [ -f "$HERMES_CALLABLE" ] && ! grep -q "HERMES_EMPTY_BASES Environment" "$HERMES_CALLABLE"; then
-    log "patching Hermes: HERMES_EMPTY_BASES on VM::Environment (see plan/41-msvc-core.md)"
+    log "patching Hermes: HERMES_EMPTY_BASES on VM::Environment (see docs/PORTING.md)"
     # The macro comes from a header Callable.h does not already include.
     grep -q '#include "hermes/Support/Compiler.h"' "$HERMES_CALLABLE" || \
       sed -i '/#include "hermes\/VM\/ArrayStorage.h"/i #include "hermes/Support/Compiler.h"' \
@@ -359,7 +359,7 @@ if [ "$HOST_OS" = windows ]; then
     grep -q "HERMES_EMPTY_BASES Environment" "$HERMES_CALLABLE" || die \
       "could not apply the HERMES_EMPTY_BASES patch to $HERMES_CALLABLE.
   Hermes $HERMES_VERSION may have changed that declaration. See
-  plan/41-msvc-core.md for what the patch is and why."
+  docs/PORTING.md for what the patch is and why."
   fi
 fi
 
@@ -383,7 +383,7 @@ if ! hermes_is_built; then
   log "building Hermes (slow; RN's own host flags)"
 
   # Three extra arguments on Windows, each answering something that only goes
-  # wrong there. plan/41-msvc-core.md has the detail; briefly:
+  # wrong there. docs/PORTING.md has the detail; briefly:
   #
   #   HERMES_ALLOW_BOOST_CONTEXT=0  its vendored boost::context's *Windows*
   #                                 stack allocator throws where the POSIX one
@@ -434,7 +434,7 @@ if ! hermes_is_built; then
   # names the one prefix that must be left alone.
   #
   # This path had never run. Hermes was built by hand in phase 41 and every
-  # bootstrap since has found it already built, which is what plan/backlog.md
+  # bootstrap since has found it already built, which is what docs/BACKLOG.md
   # meant by "nothing has run bootstrap from an empty third_party on Windows".
   if [ "$HOST_OS" = windows ]; then
     MSYS2_ARG_CONV_EXCL='-DCMAKE_CXX_FLAGS=' \
@@ -553,7 +553,7 @@ if [ "$HOST_OS" = windows ]; then
   cmake --build build -j \${BUILD_JOBS:-12}
 
 Run it from a shell that has run vcvars64.bat, or clang-cl will not find the
-Windows SDK. clang-cl rather than cl: see plan/41-msvc-core.md.
+Windows SDK. clang-cl rather than cl: see docs/PORTING.md.
 
 CMAKE_BUILD_TYPE is not optional here, unlike on the other two desktops. Left
 unset, MSVC picks the debug C runtime -- and vcpkg follows it to the debug

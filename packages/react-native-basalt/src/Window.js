@@ -61,7 +61,7 @@
  * window, which now only happens when there is no handler to refuse it.
  *
  * `useWindow()` inside a second window's tree still reports the *active*
- * window, not the one it is in; that is a real gap and is in plan/backlog.md.
+ * window, not the one it is in; that is a real gap and is in docs/BACKLOG.md.
  *
  * @format
  */

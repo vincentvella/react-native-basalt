@@ -14,8 +14,7 @@
  * so the tree says how many without needing a text engine.
  *
  * Nothing here shows a dialog: `Alert.alert` is modal, and a test that stopped
- * for a human would never finish. That one is exercised by hand -- see
- * plan/32-core-modules.md.
+ * for a human would never finish. That one is exercised by hand.
  *
  * @format
  */

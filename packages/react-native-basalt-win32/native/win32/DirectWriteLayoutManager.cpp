@@ -6,7 +6,7 @@
 // `cmake/ReactNativeCore.cmake` removes the stub source from
 // `react_renderer_textlayoutmanager` after `add_subdirectory` so the two do not
 // collide. Same arrangement as Pango's and Core Text's; see
-// `plan/decisions.md`.
+// `docs/DECISIONS.md`.
 
 #include "DirectWriteLayout.h"
 

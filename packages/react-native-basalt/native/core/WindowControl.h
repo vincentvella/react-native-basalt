@@ -15,7 +15,7 @@
 //
 // One window, which is the honest limit. Every function here means "the
 // window", because the host makes exactly one; multiple windows are their own
-// piece of work and are in plan/backlog.md. When they arrive these grow a
+// piece of work and are in docs/BACKLOG.md. When they arrive these grow a
 // window argument and the module grows a handle, and nothing above changes
 // shape.
 

@@ -13,7 +13,7 @@
 // slightly wrong frame interval.
 //
 // So this is a multimedia timer at sixty hertz, and it is worth being clear
-// that this is a placeholder rather than a design. `plan/backlog.md` already
+// that this is a placeholder rather than a design. `docs/BACKLOG.md` already
 // records that worklets and Reanimated run on a sixteen-millisecond timer on
 // *both* other desktops for a related reason -- each platform's display link
 // belongs to React Native's own choreographer and pauses when React Native has
@@ -22,7 +22,7 @@
 //
 // What it does get right is the pausing. A timer that runs whether or not
 // anything is animating wakes the process sixty times a second forever, which
-// is the objection `plan/decisions.md` raises against
+// is the objection `docs/DECISIONS.md` raises against
 // `gtk_widget_add_tick_callback` and which matters more on a laptop than the
 // frame interval does.
 

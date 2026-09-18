@@ -115,7 +115,7 @@ TextMeasurement TextLayoutManager::measure(const AttributedStringBox &attributed
     // Reporting a zero frame for each keeps the count right, which is what
     // ParagraphShadowNode iterates over, but they are not positioned yet: doing
     // that properly needs PangoAttrShape placeholders sized from the child's
-    // own measurement. See plan/backlog.md.
+    // own measurement. See docs/BACKLOG.md.
     TextMeasurement::Attachments attachments;
     for (const auto &fragment : attributedString.getFragments()) {
       if (fragment.isAttachment()) {

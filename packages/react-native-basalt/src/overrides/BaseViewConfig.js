@@ -19,7 +19,7 @@
  * is what this platform needed them for; see core/PointerButtons.h.
  *
  * Reported rather than forked: the whole file is React Native's, this adds five
- * keys, and it goes away when upstream adds them. See plan/backlog.md.
+ * keys, and it goes away when upstream adds them. See docs/BACKLOG.md.
  *
  * @format
  */

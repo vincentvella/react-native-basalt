@@ -7,7 +7,7 @@
 //
 // Written second, which is the useful part: this began as private code inside
 // GtkImageLoader, and porting <Image> to macOS was the point at which "the same
-// thing twice" became visible. See plan/26-macos-image.md.
+// thing twice" became visible.
 
 #pragma once
 

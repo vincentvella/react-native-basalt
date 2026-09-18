@@ -11,7 +11,6 @@
 # Those are core/Worklets*.{h,cpp} here.
 #
 # Reanimated sits on top of this and is the same shape again; see
-# plan/38-reanimated.md.
 
 if(NOT DEFINED BASALT_WORKLETS)
   return()

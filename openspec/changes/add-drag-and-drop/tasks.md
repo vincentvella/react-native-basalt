@@ -26,4 +26,4 @@
 - [ ] Expose the React API and export it from `react-native-basalt`
 - [ ] Add a demo to `js/`
 - [ ] Add a test instrument for a synthetic drag, and a scenario asserting it
-- [ ] Update `docs/TESTING.md` and `plan/backlog/desktop-capabilities.md`
+- [ ] Update `docs/TESTING.md` and `docs/backlog/desktop-capabilities.md`

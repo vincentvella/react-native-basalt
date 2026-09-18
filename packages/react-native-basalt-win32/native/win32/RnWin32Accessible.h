@@ -8,7 +8,7 @@
 // two mounting managers push, this one has to be ready to be pulled.
 //
 // The consequence worth knowing: a GTK role is construct-only, which is why
-// `plan/decisions.md` records that `accessibilityRole` cannot change after
+// `docs/DECISIONS.md` records that `accessibilityRole` cannot change after
 // mount there. Nothing here has that constraint, because nothing is baked into
 // a widget class -- the provider reads the current value each time it is asked.
 // This platform can therefore do something GTK cannot, and the mounting manager

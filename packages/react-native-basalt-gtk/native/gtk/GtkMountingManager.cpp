@@ -543,7 +543,7 @@ void GtkMountingManager::applyAccessibility(RnView *view, const ShadowView &shad
   // name is announced once. Its *role* stays what it was built with: unlike
   // AppKit's, a GtkAccessible role is construct-only, so a wrapper that should
   // be presentational cannot become one here. That is the smaller half of the
-  // problem and is in plan/backlog.md.
+  // problem and is in docs/BACKLOG.md.
   if (GtkWidget *peer = rn_view_get_editable(view)) {
     gtk_accessible_update_property(GTK_ACCESSIBLE(peer),
                                    GTK_ACCESSIBLE_PROPERTY_LABEL,

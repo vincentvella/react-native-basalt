@@ -4,7 +4,7 @@
 // props, state and event emitter are pure C++ and measure through a
 // TextLayoutManager, which on this platform is the DirectWrite one. Android's
 // variant includes fbjni and calls into a Java FabricUIManager, so it is
-// unusable here; see plan/decisions.md. The component name is therefore
+// unusable here; see docs/DECISIONS.md. The component name is therefore
 // "TextInput", which is what packages/react-native-basalt's
 // src/overrides/TextInput.js asks for -- the same file both other desktops use,
 // because that override was never about Linux.

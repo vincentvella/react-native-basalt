@@ -155,7 +155,7 @@ NSString *keyEquivalentForRole(const std::string &role, NSEventModifierFlags *ma
 
 // The platform's own word for a role. An app that gave a label keeps it; one
 // that did not gets what every other Mac application says, localised by nobody
-// -- which is a gap and is in plan/backlog.md.
+// -- which is a gap and is in docs/BACKLOG.md.
 NSString *defaultLabelForRole(const std::string &role) {
   if (role == "about") {
     NSString *name = NSRunningApplication.currentApplication.localizedName;

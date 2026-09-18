@@ -76,7 +76,7 @@ endif()
 # never inherit them.
 #
 # Note that clang-cl reports as MSVC here, which is intended: it takes the same
-# flags, and `plan/decisions.md` prefers clang where there is a choice.
+# flags, and `docs/DECISIONS.md` prefers clang where there is a choice.
 # ---------------------------------------------------------------------------
 if(MSVC)
   set(BASALT_WIN32_WARNINGS /W4 /permissive-)

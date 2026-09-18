@@ -102,7 +102,7 @@ buildTextLayout(const AttributedString &attributedString,
     // An attachment is an inline `<View>`, which occupies space rather than
     // carrying text. Its string is a placeholder React Native does not intend
     // to be drawn, so it contributes no run -- which is also why the attachment
-    // rects the layout manager reports are all zero. See plan/backlog.md.
+    // rects the layout manager reports are all zero. See docs/BACKLOG.md.
     if (fragment.isAttachment()) {
       continue;
     }

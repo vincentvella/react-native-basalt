@@ -9,7 +9,7 @@
 //
 // Only the decode and the draw are here. Fetching the bytes -- file, data URI,
 // http -- is `core/ImageBytes.cpp` in the shared half, because a URI means the
-// same thing on every desktop; see `plan/decisions.md`.
+// same thing on every desktop; see `docs/DECISIONS.md`.
 
 #pragma once
 

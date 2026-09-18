@@ -326,7 +326,7 @@ class RnWin32View {
   // Direct2D matrix from these and `hitTest` inverts them, so the two cannot
   // disagree about where a view is -- which would show up as a rotated button
   // that is clickable where it used to be, and is exactly the bug
-  // `plan/decisions.md` records GTK hitting.
+  // `docs/DECISIONS.md` records GTK hitting.
   void localToParent(float out[6]) const;
 
   // --- Painting ------------------------------------------------------------

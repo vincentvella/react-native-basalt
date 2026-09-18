@@ -49,7 +49,7 @@ void startObservingColorScheme() {
   // the better answer, because it arrives on the thread that would have to
   // repaint. It belongs with the host for that reason.
   //
-  // The other two desktops subscribe and, per plan/backlog.md, have never been
+  // The other two desktops subscribe and, per docs/BACKLOG.md, have never been
   // watched firing. So nothing is lost here that is proven to work there.
 }
 

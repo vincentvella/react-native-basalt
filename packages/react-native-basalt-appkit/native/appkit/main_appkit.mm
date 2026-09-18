@@ -386,7 +386,7 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         // graph nobody built, Metro answers GraphNotFoundError, and Fast
         // Refresh silently never starts. ReactCxxPlatform's own SourceCode
         // module reports the URL the bundle really came from, which is the one
-        // whose graph exists. See plan/48-fast-refresh.md.
+        // whose graph exists.
         if (!devMode && name == basalt::DesktopSourceCodeModule::kModuleName) {
           return std::make_shared<basalt::DesktopSourceCodeModule>(jsInvoker, scriptURL);
         }
@@ -421,7 +421,7 @@ std::shared_ptr<const ContextContainer> makeContextContainer() {
 // BASALT_DUMP_TREE: write the view tree to a file on the way out, so an
 // automated run can assert on what React actually produced rather than on a
 // screenshot. The same idea as BASALT_DUMP_TREE, and the prefixes should
-// eventually be one; see plan/20-macos-host.md.
+// eventually be one.
 // BASALT_DUMP_MENU: write the application menu that is actually installed to a
 // file on the way out.
 //
@@ -612,7 +612,7 @@ void shutdown() {
 //
 // Every window, including the app's own. What this does *not* cover is Cmd-Q:
 // terminating goes through applicationShouldTerminate: and never asks a window
-// whether it minds, which is its own piece of work; see plan/backlog.md.
+// whether it minds, which is its own piece of work; see docs/BACKLOG.md.
 - (BOOL)windowShouldClose:(NSWindow *)sender {
   for (const auto &candidate : gHost.windows) {
     if (candidate->window != sender) {
@@ -752,7 +752,7 @@ HostWindow *createHostWindow(facebook::react::SurfaceId surfaceId,
                              id<NSWindowDelegate> delegate) {
   // The first window through here is the app's own, and the title bar belongs
   // to it alone: it is a process-wide seam -- one title, one style -- and
-  // making it per-window is its own piece of work. See plan/backlog.md.
+  // making it per-window is its own piece of work. See docs/BACKLOG.md.
   const bool isMainWindow = gHost.windows.empty();
 
   auto owned = std::make_unique<HostWindow>();

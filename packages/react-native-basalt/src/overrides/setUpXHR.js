@@ -40,7 +40,7 @@
  * NetworkingModule, at which point this file can go. NetworkingModule is a CRTP
  * TurboModule spec whose delivery method is private and non-virtual, so it
  * cannot be subclassed from here -- replacing it wholesale would mean
- * reimplementing every method to change one. See plan/31-blobs.md.
+ * reimplementing every method to change one.
  */
 
 'use strict';

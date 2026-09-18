@@ -13,7 +13,7 @@
 // -- Yoga would allot a box computed one way and the view would paint text laid
 // out another, and the result is clipped or overlapping text that looks like a
 // rendering bug rather than a measurement one. The GTK side makes the same
-// argument in `plan/decisions.md`.
+// argument in `docs/DECISIONS.md`.
 //
 // Unlike Pango, DirectWrite needs no mutex around any of this. Pango's font map
 // is not documented as reentrant, so GTK serialises every measurement on one

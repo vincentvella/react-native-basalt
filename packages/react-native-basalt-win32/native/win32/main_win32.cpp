@@ -538,7 +538,7 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(std::string scrip
         // graph nobody built, Metro answers GraphNotFoundError, and Fast
         // Refresh silently never starts. ReactCxxPlatform's own SourceCode
         // module reports the URL the bundle really came from, which is the one
-        // whose graph exists. See plan/48-fast-refresh.md.
+        // whose graph exists.
         if (!devMode && name == basalt::DesktopSourceCodeModule::kModuleName) {
           return std::make_shared<basalt::DesktopSourceCodeModule>(jsInvoker, scriptURL);
         }
@@ -1505,7 +1505,7 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       // window, because `useWindow()` is about the window an app is in --
       // answering this for every window would make Windows the one host where a
       // limit set for one applied to all of them. Per-window geometry is its
-      // own piece of work and is in plan/backlog.md.
+      // own piece of work and is in docs/BACKLOG.md.
       if (self != nullptr && self->surfaceId != kSurfaceId) {
         break;
       }

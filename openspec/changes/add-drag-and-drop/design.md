@@ -12,7 +12,7 @@ delivers.
 - Goal: one seam, three implementations, with the same payload model.
 - Goal: files and plain text, which every desktop agrees on.
 - Non-Goal: dragging between two windows of this application, which is the same
-  protocol but needs the per-window work in `plan/backlog/desktop-capabilities.md`.
+  protocol but needs the per-window work in `docs/backlog/desktop-capabilities.md`.
 - Non-Goal: custom drag imagery beyond what each toolkit gives by default.
 
 ## Decisions

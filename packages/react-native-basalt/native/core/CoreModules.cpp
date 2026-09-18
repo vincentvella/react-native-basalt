@@ -427,7 +427,7 @@ void DesktopAccessibilityInfoModule::setAccessibilityFocus(Runtime &rt, double r
   (void)reactTag;
   // Moving a screen reader's cursor needs the platform's accessibility API to
   // post a focus notification for a specific view, which neither mounting
-  // manager exposes by tag yet. See plan/backlog.md.
+  // manager exposes by tag yet. See docs/BACKLOG.md.
 }
 
 void DesktopAccessibilityInfoModule::announceForAccessibility(Runtime &rt, String announcement) {
