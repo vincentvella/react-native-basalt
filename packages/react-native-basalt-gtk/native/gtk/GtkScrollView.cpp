@@ -590,7 +590,10 @@ bool GtkScrollViewManager::dispatchCommand(Tag tag, const std::string &name, con
   }
 
   if (name == "flashScrollIndicators") {
-    // GTK's overlay scrollbars flash on their own; nothing to do.
+    // Nothing to flash: the indicator is always on screen while there is one to
+    // draw -- see updateIndicators above. Claimed and ignored rather than left
+    // to fall through, which would log an unimplemented command every time a
+    // list settles.
     return true;
   }
 

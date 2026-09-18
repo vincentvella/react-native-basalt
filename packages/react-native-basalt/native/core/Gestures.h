@@ -41,8 +41,9 @@
 // When a handler activates it cancels every other handler tracking the same
 // pointer, unless the two were declared simultaneous. `waitFor` holds a handler
 // at BEGAN until the handler it waits for has failed. That is the useful half
-// of RNGH's conflict resolution; what is missing is documented in
-// plan/37-gesture-handler.md.
+// of RNGH's conflict resolution; what is missing is listed in
+// plan/backlog/expo.md, which is the file that changes when it stops being
+// missing. plan/37-gesture-handler.md is how the port was arrived at.
 
 #pragma once
 

@@ -477,9 +477,10 @@ bool Win32ScrollViewManager::dispatchCommand(Tag tag,
   }
 
   if (name == "flashScrollIndicators") {
-    // Nothing to flash: this platform draws no scroll indicators at all. A
-    // command that is claimed and does nothing beats one that falls through and
-    // is logged as unimplemented every time a list settles.
+    // Nothing to flash: the indicator is always on screen while there is one to
+    // draw -- see updateIndicators above. Claimed and ignored rather than left
+    // to fall through, which would log an unimplemented command every time a
+    // list settles.
     return true;
   }
 

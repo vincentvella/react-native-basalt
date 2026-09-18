@@ -512,7 +512,10 @@ bool AppKitScrollViewManager::dispatchCommand(Tag tag,
   }
 
   if (name == "flashScrollIndicators") {
-    // There are no indicators to flash yet; see plan/25-macos-scrollview.md.
+    // Nothing to flash: the indicator is always on screen while there is one to
+    // draw -- see updateIndicators above. Claimed and ignored rather than left
+    // to fall through, which would log an unimplemented command every time a
+    // list settles.
     return true;
   }
 
