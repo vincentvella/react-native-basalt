@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "TitleBarRegions.h"
+
 #include <cstdint>
 
 namespace basalt::win32 {
@@ -15,10 +17,15 @@ namespace basalt::win32 {
 class RnWin32View;
 
 // What <TitleBar.DragRegion> and <TitleBar.NoDragRegion> set as a view's
-// nativeID. Electron's `app-region: drag | no-drag`, spelled in the one prop a
-// plain View already carries all the way to the host.
-inline constexpr const char *kTitleBarDragRegionId = "basalt-titlebar-drag";
-inline constexpr const char *kTitleBarNoDragRegionId = "basalt-titlebar-no-drag";
+// nativeID, under this namespace's own names so that everything already
+// written against them keeps compiling.
+//
+// The values come from core/TitleBarRegions.h rather than being spelled again
+// here: GTK reads the same two strings, and src/TitleBar.tsx writes them, so a
+// literal in this file would be the third copy of something that only works
+// when all of them agree.
+inline constexpr const char *kTitleBarDragRegionId = basalt::kTitleBarDragRegionId;
+inline constexpr const char *kTitleBarNoDragRegionId = basalt::kTitleBarNoDragRegionId;
 
 // Whether a point, in the root's coordinates, drags the window.
 //
