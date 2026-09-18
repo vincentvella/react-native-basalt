@@ -2142,6 +2142,65 @@ def test_context_menu(bundle: Path) -> None:
         )
 
 
+def test_animated_scroll(bundle: Path) -> None:
+    """`scrollTo({animated: true})` moves rather than jumps.
+
+    Runs the second app in js/scroll.js, which scrolls to 530 with the flag set
+    and logs every offset `onScroll` reports.
+
+    Arriving at 530 proves nothing: an instant jump arrives too, which is what
+    every host did until now -- the flag was parsed and dropped. What says it
+    animated is the offsets *in between*, so that is what this asserts.
+
+    It also asserts arrival exactly, because a curve that approaches its target
+    asymptotically would look animated and leave a list one pixel short of where
+    the app asked for. See core/ScrollAnimation.h for why that is evaluated
+    rather than approached.
+    """
+    app = bundle_app(bundle.parent, "scroll")
+
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "4000"
+    for name in ("BASALT_TEST_TAP", "BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE",
+                 "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL",
+                 "BASALT_TEST_MENU", "BASALT_TEST_CLOSE_WINDOW"):
+        env.pop(name, None)
+
+    result = subprocess.run(
+        [str(HOST), str(app), "BasaltScrollAnimated"],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+    )
+    _remember_output(result.stderr)
+    check_output(result.stderr, result.returncode)
+    logged = result.stdout + result.stderr
+
+    if "scroll: animating to 530" not in logged:
+        raise Failure(f"the app never asked for an animated scroll.\n{tail_text(logged)}")
+
+    offsets = [
+        float(line.split("scrolled to ", 1)[1].strip())
+        for line in logged.splitlines()
+        if "scrolled to " in line
+    ]
+    if not offsets:
+        raise Failure(f"no scroll offsets were reported at all.\n{tail_text(logged)}")
+
+    if offsets[-1] != 530:
+        raise Failure(
+            f"an animated scroll to 530 finished at {offsets[-1]}. The curve is "
+            "evaluated at its end rather than approached, so it should arrive at "
+            "the number the app asked for."
+        )
+
+    between = [y for y in offsets if 0 < y < 530]
+    if not between:
+        raise Failure(
+            "the scroll arrived at 530 without passing through anything, which "
+            "is a jump rather than an animation -- the `animated` flag being "
+            f"parsed and dropped is exactly how this used to behave.\n{offsets}"
+        )
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2660,6 +2719,7 @@ SCENARIOS = [
      test_controls),
     ("the native file dialogs answer with a path, or with a cancel",
      test_file_dialogs),
+    ("scrollTo({animated: true}) moves rather than jumps", test_animated_scroll),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("a window says how big it may be, and what this desktop can do about it",

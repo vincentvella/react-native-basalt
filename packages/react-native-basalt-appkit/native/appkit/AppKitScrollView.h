@@ -34,6 +34,8 @@
 
 #import "RnAppKitView.h"
 
+#include "ScrollAnimation.h"
+
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
 #include <react/renderer/core/EventEmitter.h>
 #include <react/renderer/mounting/ShadowView.h>
@@ -117,9 +119,25 @@ class AppKitScrollViewManager {
     // is: a momentum end that was never begun would leave JavaScript believing
     // a scroll it never heard start has finished.
     bool coasting{false};
+
+    // An animated `scrollTo`. AppKit does its own deceleration, so unlike GTK
+    // there is no fling stepper here to borrow -- this brings its own display
+    // link, created when a curve starts and invalidated when it ends.
+    ScrollAnimation animation;
+    id displayLink{nil};
+    double animationLastSeconds{0};
   };
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
+  void scrollTowards(Entry &entry, double x, double y, bool animated);
+  void stopAnimation(Entry &entry);
+
+ public:
+  // Called from the display link's target, which is an Objective-C object and
+  // cannot reach a private member.
+  void advanceAnimation(facebook::react::Tag tag, double seconds);
+
+ private:
   void emitScrollEvent(Entry &entry, const char *which);
   void writeStateOffset(const Entry &entry);
 

@@ -81,3 +81,56 @@ function App() {
 }
 
 AppRegistry.registerComponent('BasaltScroll', () => App);
+
+/**
+ * The same list, scrolled with `animated: true`.
+ *
+ * Its own screen rather than a second button, because the two assert opposite
+ * things: the app above must arrive at once, and this one must not. A screen
+ * that did both would have two answers to "where is it now".
+ *
+ * What is worth watching is the offsets in between. Arriving at 530 proves
+ * nothing -- an instant jump does that too -- so the demo logs every offset it
+ * is told about, and the interesting assertion is that some of them are neither
+ * 0 nor 530.
+ */
+function Animated() {
+  const scroller = React.useRef(null);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log('scroll: animating to 530');
+      scroller.current?.scrollTo({y: 530, animated: true});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <View style={styles.page}>
+      <ScrollView
+        ref={scroller}
+        style={styles.scroller}
+        scrollEventThrottle={16}
+        onScroll={event => {
+          const {y} = event.nativeEvent.contentOffset;
+          console.log(`scrolled to ${Math.round(y)}`);
+        }}>
+        {Array.from({length: ROWS}, (_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.row,
+              {
+                width: 80 + index * 24,
+                backgroundColor: index % 2 === 0 ? '#4d8cf2' : '#59cc8c',
+              },
+            ]}
+          />
+        ))}
+        <View style={styles.marker} />
+      </ScrollView>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltScrollAnimated', () => Animated);

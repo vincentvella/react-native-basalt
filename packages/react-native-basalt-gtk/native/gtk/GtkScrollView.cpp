@@ -111,9 +111,10 @@ void GtkScrollViewManager::remove(Tag tag) {
   // pointer to it, and gtk_widget_add_controller means the widget, not this,
   // owns the controller's lifetime.
   Entry &entry = it->second;
-  // The tick callback holds the same pointer the controller does, and outlives
+  // The tick callbacks hold the same pointer the controller does, and outlive
   // neither. Stopped without an event: the emitter is going away with the view.
   stopMomentum(entry, false);
+  stopAnimation(entry);
   if (entry.controller != nullptr && entry.view != nullptr && RN_IS_VIEW(entry.view)) {
     gtk_widget_remove_controller(GTK_WIDGET(entry.view), entry.controller);
   }
@@ -132,6 +133,9 @@ gboolean GtkScrollViewManager::onScroll(GtkEventControllerScroll *controller,
   if (!entry->scrollEnabled) {
     return GDK_EVENT_PROPAGATE;
   }
+  // A wheel arrives without a `scroll-begin`, so the cancellation there does not
+  // cover it.
+  entry->owner->stopAnimation(*entry);
 
   // A wheel reports discrete notches, a touchpad reports pixels. Treating the
   // first as pixels makes the wheel move the content by one pixel a click.
@@ -192,8 +196,11 @@ void GtkScrollViewManager::onScrollBegin(GtkEventControllerScroll * /*controller
     return;
   }
   // A new gesture takes the list off whatever it was coasting towards, which is
-  // what putting a finger on a moving list does everywhere else.
+  // what putting a finger on a moving list does everywhere else -- and off an
+  // animated `scrollTo` too, which is the same expectation: the person moving
+  // the list wins over the app moving it.
   entry->owner->stopMomentum(*entry, true);
+  entry->owner->stopAnimation(*entry);
   entry->dragging = true;
   entry->owner->emitScrollEvent(*entry, "beginDrag");
 }
@@ -283,6 +290,61 @@ bool GtkScrollViewManager::advanceFling(Tag tag, double seconds) {
   }
   emitScrollEvent(entry, "momentumEnd");
   return false;
+}
+
+gboolean GtkScrollViewManager::onAnimationTick(GtkWidget * /*widget*/,
+                                               GdkFrameClock *clock,
+                                               gpointer userData) {
+  auto *entry = static_cast<Entry *>(userData);
+  // The frame clock's time, for the same reason the fling uses it: it is the
+  // time the frame is *for*, so a late callback does not shorten the curve.
+  const gint64 now = gdk_frame_clock_get_frame_time(clock);
+  const double seconds = static_cast<double>(now - entry->animationLastMicros) / 1e6;
+  entry->animationLastMicros = now;
+
+  return entry->owner->advanceAnimation(entry->tag, seconds) ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
+void GtkScrollViewManager::scrollTowards(Entry &entry, double x, double y, bool animated) {
+  stopAnimation(entry);
+  if (!animated || !entry.animation.start(entry.offsetX, entry.offsetY, x, y)) {
+    // Not animated, or already there. Either way the offset is the answer and
+    // there is no curve to run.
+    applyOffset(entry, x, y, true);
+    return;
+  }
+  entry.animationLastMicros = g_get_monotonic_time();
+  entry.animationTickId =
+      gtk_widget_add_tick_callback(GTK_WIDGET(entry.view), onAnimationTick, &entry, nullptr);
+}
+
+bool GtkScrollViewManager::advanceAnimation(Tag tag, double seconds) {
+  const auto it = entries_.find(tag);
+  if (it == entries_.end()) {
+    return false;
+  }
+  Entry &entry = it->second;
+  if (!entry.animation.isRunning()) {
+    return false;
+  }
+
+  double x = entry.offsetX;
+  double y = entry.offsetY;
+  const bool running = entry.animation.advance(seconds, x, y);
+  applyOffset(entry, x, y, true);
+
+  if (!running) {
+    entry.animationTickId = 0;
+  }
+  return running;
+}
+
+void GtkScrollViewManager::stopAnimation(Entry &entry) {
+  entry.animation.stop();
+  if (entry.animationTickId != 0) {
+    gtk_widget_remove_tick_callback(GTK_WIDGET(entry.view), entry.animationTickId);
+    entry.animationTickId = 0;
+  }
 }
 
 gboolean GtkScrollViewManager::onMomentumTick(GtkWidget * /*widget*/,
@@ -431,20 +493,20 @@ bool GtkScrollViewManager::dispatchCommand(Tag tag, const std::string &name, con
     stopMomentum(entry, true);
   }
 
-  if (name == "scrollTo") {
-    // [x, y, animated]. Animation is not implemented; the offset is applied at
-    // once, which is what `animated: false` asks for anyway.
-    if (args.isArray() && args.size() >= 2) {
-      applyOffset(entry, args[0].asDouble(), args[1].asDouble(), true);
-    }
+  // [x, y, animated] for scrollTo, [animated] for scrollToEnd.
+  if (name == "scrollTo" && args.isArray() && args.size() >= 2) {
+    scrollTowards(entry,
+                  args[0].asDouble(),
+                  args[1].asDouble(),
+                  args.size() >= 3 && args[2].asBool());
     return true;
   }
 
   if (name == "scrollToEnd") {
-    applyOffset(entry,
-                entry.contentSize.width - entry.containerSize.width,
-                entry.contentSize.height - entry.containerSize.height,
-                true);
+    scrollTowards(entry,
+                  entry.contentSize.width - entry.containerSize.width,
+                  entry.contentSize.height - entry.containerSize.height,
+                  args.isArray() && args.size() >= 1 && args[0].asBool());
     return true;
   }
 

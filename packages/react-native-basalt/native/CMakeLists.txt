@@ -49,6 +49,7 @@ set(BASALT_TEST_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 # asked about, because it differs by machine.
 set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_identity.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_animation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window_close.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window_limits.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_appearance.cpp
@@ -167,6 +168,8 @@ if(DEFINED RN_DIR)
     ${basalt_package_core_sources}
     # What the app calls itself, which a generic host binary cannot know.
     core/AppIdentity.cpp
+    # An animated scrollTo, which is a curve rather than a jump.
+    core/ScrollAnimation.cpp
     # `Appearance`, and the portable half of light-vs-dark.
     core/AppearanceModule.cpp
     # Blob, File and FileReader -- portable in full.

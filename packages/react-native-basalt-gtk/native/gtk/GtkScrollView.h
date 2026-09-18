@@ -29,6 +29,7 @@
 #pragma once
 
 #include "RnView.h"
+#include "ScrollAnimation.h"
 #include "ScrollMomentum.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
@@ -136,6 +137,11 @@ class GtkScrollViewManager {
     // model, until it falls below a pixel a frame or hits an edge.
     ScrollMomentum momentum;
     guint momentumTickId{0};
+    // An animated `scrollTo`, which shares the frame clock with the fling above
+    // and never runs at the same time as one: each stops the other.
+    ScrollAnimation animation;
+    guint animationTickId{0};
+    gint64 animationLastMicros{0};
     gint64 momentumLastMicros{0};
     // React Native's decelerationRate prop, read off the ScrollView's props so
     // an app that asks for a fast fling gets one.
@@ -153,6 +159,10 @@ class GtkScrollViewManager {
                            double velocityY,
                            gpointer userData);
   static gboolean onMomentumTick(GtkWidget *widget, GdkFrameClock *clock, gpointer userData);
+  static gboolean onAnimationTick(GtkWidget *widget, GdkFrameClock *clock, gpointer userData);
+  void scrollTowards(Entry &entry, double x, double y, bool animated);
+  bool advanceAnimation(facebook::react::Tag tag, double seconds);
+  void stopAnimation(Entry &entry);
 
   // Ends a fling, with or without telling JavaScript. `emitEnd` is false only
   // when the ScrollView itself is going away, where the emitter is about to

@@ -42,6 +42,13 @@ should.
 - **WHEN** an app opens a modal
 - **THEN** it covers the surface and closes on request
 
+#### Scenario: A programmatic scroll can be animated
+
+- **WHEN** an app calls `scrollTo` with `animated: true`
+- **THEN** the offset moves through intermediate positions rather than jumping
+- **AND** it finishes at exactly the offset asked for
+- **AND** a gesture during the animation cancels it
+
 #### Scenario: Pulling a scroll view refreshes it
 
 - **WHEN** the person pulls a scroll view carrying a refresh control

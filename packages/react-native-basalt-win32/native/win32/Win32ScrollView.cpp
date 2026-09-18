@@ -1,5 +1,8 @@
 #include "Win32ScrollView.h"
 
+#include <unordered_map>
+#include <utility>
+
 #include "PlatformServices.h"
 
 #include <react/renderer/components/scrollview/ScrollEvent.h>
@@ -103,6 +106,14 @@ void Win32ScrollViewManager::remove(Tag tag) {
   // The view is about to be deleted, so the entry must go with it: an idle
   // timer still in flight looks the tag up again and finds nothing, which is
   // the whole reason it is keyed by tag rather than holding the Entry.
+  //
+  // An animation timer is not idle, though, and the map it registered in
+  // outlives the entry -- so it is killed here rather than left to expire
+  // against a tag that no longer resolves.
+  const auto it = entries_.find(tag);
+  if (it != entries_.end()) {
+    stopAnimation(it->second);
+  }
   entries_.erase(tag);
 }
 
@@ -140,6 +151,8 @@ bool Win32ScrollViewManager::scrollEntry(Entry &entry, double dx, double dy) {
   if (!entry.scrollEnabled) {
     return false;
   }
+  // The person moving the list wins over the app moving it.
+  stopAnimation(entry);
 
   if (!entry.dragging) {
     entry.dragging = true;
@@ -186,6 +199,90 @@ void Win32ScrollViewManager::endWheelDrag(Tag tag, std::uint64_t generation) {
 // ---------------------------------------------------------------------------
 // Offset, events and state
 // ---------------------------------------------------------------------------
+
+namespace {
+
+// Which manager and view a timer is animating. A TIMERPROC carries no state, so
+// the id is the key -- and the map is the reason `stopAnimation` must run before
+// an entry goes, exactly as the display link does on AppKit.
+std::unordered_map<UINT_PTR, std::pair<Win32ScrollViewManager *, facebook::react::Tag>> &
+animations() {
+  static std::unordered_map<UINT_PTR, std::pair<Win32ScrollViewManager *, facebook::react::Tag>>
+      value;
+  return value;
+}
+
+} // namespace
+
+void CALLBACK Win32ScrollViewManager::onAnimationTimer(HWND /*hwnd*/,
+                                                       UINT /*message*/,
+                                                       UINT_PTR id,
+                                                       DWORD now) {
+  const auto it = animations().find(id);
+  if (it == animations().end()) {
+    KillTimer(nullptr, id);
+    return;
+  }
+  Win32ScrollViewManager *manager = it->second.first;
+  const facebook::react::Tag tag = it->second.second;
+  manager->advanceAnimation(tag, static_cast<double>(now) / 1000.0);
+}
+
+void Win32ScrollViewManager::scrollTowards(Entry &entry, double x, double y, bool animated) {
+  stopAnimation(entry);
+  if (!animated || !entry.animation.start(entry.offsetX, entry.offsetY, x, y)) {
+    applyOffset(entry, x, y, true);
+    return;
+  }
+  // Sixteen milliseconds: this host's choreographer runs on a timer of the same
+  // period, and matching it keeps a scroll and an animation stepping together
+  // rather than beating against each other.
+  entry.animationTimer = SetTimer(nullptr, 0, 16, onAnimationTimer);
+  if (entry.animationTimer == 0) {
+    entry.animation.stop();
+    applyOffset(entry, x, y, true);
+    return;
+  }
+  entry.animationLastMillis = 0;
+  animations()[entry.animationTimer] = {this, entry.tag};
+}
+
+void Win32ScrollViewManager::stopAnimation(Entry &entry) {
+  entry.animation.stop();
+  if (entry.animationTimer != 0) {
+    KillTimer(nullptr, entry.animationTimer);
+    animations().erase(entry.animationTimer);
+    entry.animationTimer = 0;
+  }
+}
+
+void Win32ScrollViewManager::advanceAnimation(facebook::react::Tag tag, double nowSeconds) {
+  const auto it = entries_.find(tag);
+  if (it == entries_.end()) {
+    return;
+  }
+  Entry &entry = it->second;
+  if (!entry.animation.isRunning()) {
+    stopAnimation(entry);
+    return;
+  }
+
+  // The tick carries the system time rather than a delta, so the first frame
+  // has nothing to measure against and advances by one period.
+  const auto nowMillis = static_cast<unsigned long long>(nowSeconds * 1000.0);
+  const double seconds = entry.animationLastMillis == 0
+      ? 0.016
+      : static_cast<double>(nowMillis - entry.animationLastMillis) / 1000.0;
+  entry.animationLastMillis = nowMillis;
+
+  double x = entry.offsetX;
+  double y = entry.offsetY;
+  const bool running = entry.animation.advance(seconds, x, y);
+  applyOffset(entry, x, y, true);
+  if (!running) {
+    stopAnimation(entry);
+  }
+}
 
 void Win32ScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
   const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
@@ -294,20 +391,20 @@ bool Win32ScrollViewManager::dispatchCommand(Tag tag,
   }
   Entry &entry = it->second;
 
-  if (name == "scrollTo") {
-    // [x, y, animated]. Animation is not implemented; the offset is applied at
-    // once, which is what `animated: false` asks for anyway.
-    if (args.isArray() && args.size() >= 2) {
-      applyOffset(entry, args[0].asDouble(), args[1].asDouble(), true);
-    }
+  // [x, y, animated] for scrollTo, [animated] for scrollToEnd.
+  if (name == "scrollTo" && args.isArray() && args.size() >= 2) {
+    scrollTowards(entry,
+                  args[0].asDouble(),
+                  args[1].asDouble(),
+                  args.size() >= 3 && args[2].asBool());
     return true;
   }
 
   if (name == "scrollToEnd") {
-    applyOffset(entry,
-                entry.contentSize.width - entry.containerSize.width,
-                entry.contentSize.height - entry.containerSize.height,
-                true);
+    scrollTowards(entry,
+                  entry.contentSize.width - entry.containerSize.width,
+                  entry.contentSize.height - entry.containerSize.height,
+                  args.isArray() && args.size() >= 1 && args[0].asBool());
     return true;
   }
 

@@ -59,6 +59,7 @@
 
 #pragma once
 
+#include "ScrollAnimation.h"
 #include "RnWin32View.h"
 
 #include <react/renderer/components/scrollview/ScrollViewShadowNode.h>
@@ -133,6 +134,14 @@ class Win32ScrollViewManager {
     win32::RnWin32View *view{nullptr};
     facebook::react::Tag tag{0};
 
+    // An animated `scrollTo`. Windows models no fling -- a wheel supplies no
+    // velocity -- but an animated scroll is given its target, so the argument
+    // that rules out momentum does not rule this out. Driven by a thread timer,
+    // which needs no window: the scroll manager has a tag, not an HWND.
+    ScrollAnimation animation;
+    UINT_PTR animationTimer{0};
+    unsigned long long animationLastMillis{0};
+
     std::shared_ptr<const facebook::react::ScrollViewShadowNode::ConcreteState> state;
 
     facebook::react::Size contentSize{};
@@ -158,6 +167,13 @@ class Win32ScrollViewManager {
   void endWheelDrag(facebook::react::Tag tag, std::uint64_t generation);
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
+  void scrollTowards(Entry &entry, double x, double y, bool animated);
+  void stopAnimation(Entry &entry);
+  void advanceAnimation(facebook::react::Tag tag, double seconds);
+
+  // The timer procedure cannot carry a pointer, so it looks the animation up by
+  // timer id. Static because `SetTimer` calls a plain function.
+  static void CALLBACK onAnimationTimer(HWND hwnd, UINT message, UINT_PTR id, DWORD now);
   void emitScrollEvent(Entry &entry, const char *which);
   void writeStateOffset(const Entry &entry);
 

@@ -2,17 +2,14 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
-**Open (9):**
+**Open (6):**
 
 1. A controlled field's value is applied by heuristic rather than from state
-2. No multiline
-3. onKeyPress and onSelectionChange are never emitted
-4. No selection prop, so a controlled selection is impossible
-5. No shared focus registry: TextInput
-6. blur grabs focus for the window rather than dropping it, because GTK models fo
-7. placeholderTextColor, selectionColor and cursorColor are parsed and ignored
-8. src/overrides/TextInput
-9. autoCapitalize, autoCorrect, spellCheck, keyboardType, returnKeyType, clearBut
+2. No shared focus registry: TextInput
+3. blur grabs focus for the window rather than dropping it, because GTK models fo
+4. placeholderTextColor, selectionColor and cursorColor are parsed and ignored **
+5. src/overrides/TextInput
+6. autoCapitalize, autoCorrect, spellCheck, keyboardType, returnKeyType, clearBut
 
 - ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
   in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
@@ -32,20 +29,28 @@ Part of the [backlog](../backlog.md). Not scheduled.
   **state** rather than the prop, and writes the typed text into that state, so
   applying it back is a no-op and no heuristic is needed. That means a platform
   writing `TextInputState`, which none of these three do.
-- No `multiline`. `RCTMultilineTextInputView` is not registered, and the C++
-  side would need a `GtkTextView` peer rather than a `GtkText`.
-- `onKeyPress` and `onSelectionChange` are never emitted. Both are cheap -- a
-  `GtkEventControllerKey` and GtkText's `notify::cursor-position` -- and both
-  were left out to keep the first version small.
-- No `selection` prop, so a controlled selection is impossible.
+- ~~**No `multiline`.**~~ ~~**`onKeyPress` and `onSelectionChange` are never
+  emitted.**~~ ~~**No `selection` prop.**~~ All three are done on GTK and
+  AppKit, and were done some phases ago -- these entries described the state
+  when the section was written and were never revisited. Found by checking the
+  section against the code rather than reading it.
+
+  **What is actually missing is Windows.** `Win32TextInput.cpp` emits `onChange`,
+  `onFocus`, `onBlur`, `onEndEditing` and `onSubmitEditing`, and does not emit
+  `onKeyPress` or `onSelectionChange`. It has no multiline either: a
+  `ES_MULTILINE` EDIT is the peer it would need. So the gap is parity on one
+  host rather than a feature on three, which is a different and much smaller
+  piece of work than this said.
 - No shared focus registry: `TextInput.State.currentlyFocusedInput()` does not
   exist, and nothing else can ask what has focus. React Native's own
   `TextInputState` module talks to a TurboModule this platform does not have.
 - `blur` grabs focus for the window rather than dropping it, because GTK models
   focus as moving, not as absent. The `onBlur` event is still correct.
 - `placeholderTextColor`, `selectionColor` and `cursorColor` are parsed and
-  ignored. GtkText takes those from CSS, not from a `PangoAttrList`, and this
-  platform has no per-widget CSS provider.
+  ignored **on GTK and Windows**. GtkText takes those from CSS, not from a
+  `PangoAttrList`, and this platform has no per-widget CSS provider. AppKit
+  honours the placeholder colour, so this is two hosts of three rather than all
+  of them.
 - `src/overrides/TextInput.js` is a fork of React Native's component, and the only fork
   in the tree. Every prop upstream adds is a prop it will not have.
 - `autoCapitalize`, `autoCorrect`, `spellCheck`, `keyboardType`,

@@ -1,5 +1,7 @@
 #import "AppKitScrollView.h"
 
+#import <QuartzCore/QuartzCore.h>
+
 #include <react/renderer/components/scrollview/ScrollEvent.h>
 #include <react/renderer/components/scrollview/ScrollViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
@@ -18,6 +20,33 @@ static constexpr double kWheelStepPixels = 53.0;
 // The bridge between AppKit's protocol and the C++ manager, for the same reason
 // the touch dispatcher has one: a C++ object cannot conform to an Objective-C
 // protocol, and the views hold their handler weakly.
+// The display link's target for an animated `scrollTo`. One per animating
+// scroll view rather than one for all of them: the link belongs to the view it
+// animates, which is what keeps it on that view's display and stops it when the
+// view goes.
+@interface RnAppKitScrollAnimationTarget : NSObject
+@property(nonatomic, assign) basalt::AppKitScrollViewManager *manager;
+@property(nonatomic, assign) facebook::react::Tag tag;
+@property(nonatomic, assign) CFTimeInterval last;
+- (void)step:(CADisplayLink *)sender;
+@end
+
+@implementation RnAppKitScrollAnimationTarget
+
+- (void)step:(CADisplayLink *)sender {
+  if (_manager == nullptr) {
+    return;
+  }
+  // The frame's own timestamp, for the same reason GTK uses the frame clock's:
+  // a callback that runs late must not shorten the curve.
+  const CFTimeInterval now = sender.targetTimestamp;
+  const double seconds = _last == 0 ? 0 : now - _last;
+  _last = now;
+  _manager->advanceAnimation(_tag, seconds);
+}
+
+@end
+
 @interface RnAppKitScrollTarget : NSObject <RnAppKitScrollHandler>
 @property(nonatomic, assign) basalt::AppKitScrollViewManager *manager;
 @end
@@ -154,8 +183,13 @@ void AppKitScrollViewManager::remove(Tag tag) {
     return;
   }
   // The view's reference to the target is weak and the target dispatches by
-  // tag, so dropping the entry is enough: a wheel arriving afterwards finds no
-  // entry and is passed up the responder chain instead.
+  // tag, so dropping the entry is enough for the wheel: one arriving afterwards
+  // finds no entry and is passed up the responder chain instead.
+  //
+  // A display link is not like that. It is retained by the run loop and holds a
+  // tag it would go on dispatching, so it has to be invalidated here rather than
+  // dropped -- the same lesson as the touch dispatcher's controllers.
+  stopAnimation(it->second);
   entries_.erase(it);
 }
 
@@ -178,6 +212,9 @@ bool AppKitScrollViewManager::scrollBy(Tag tag,
   if (!entry.scrollEnabled) {
     return false;
   }
+  // The person moving the list wins over the app moving it, which is what a
+  // wheel or a two-finger drag during an animated `scrollTo` means.
+  stopAnimation(entry);
 
   if (began && !entry.dragging) {
     entry.dragging = true;
@@ -216,6 +253,60 @@ bool AppKitScrollViewManager::scrollBy(Tag tag,
 // ---------------------------------------------------------------------------
 // Offset, events and state
 // ---------------------------------------------------------------------------
+
+void AppKitScrollViewManager::scrollTowards(Entry &entry, double x, double y, bool animated) {
+  stopAnimation(entry);
+  if (!animated || !entry.animation.start(entry.offsetX, entry.offsetY, x, y)) {
+    // Not animated, or already there. Either way the offset is the answer.
+    applyOffset(entry, x, y, true);
+    return;
+  }
+
+  if (@available(macOS 14.0, *)) {
+    RnAppKitScrollAnimationTarget *target = [[RnAppKitScrollAnimationTarget alloc] init];
+    target.manager = this;
+    target.tag = entry.tag;
+    target.last = 0;
+    CADisplayLink *link = [entry.view displayLinkWithTarget:target
+                                                   selector:@selector(step:)];
+    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    entry.displayLink = link;
+    entry.animationLastSeconds = 0;
+  } else {
+    // Same trade the animation choreographer makes below 14: no frame source
+    // worth carrying, so the scroll arrives rather than moves.
+    entry.animation.stop();
+    applyOffset(entry, x, y, true);
+  }
+}
+
+void AppKitScrollViewManager::stopAnimation(Entry &entry) {
+  entry.animation.stop();
+  if (entry.displayLink != nil) {
+    [(CADisplayLink *)entry.displayLink invalidate];
+    entry.displayLink = nil;
+  }
+}
+
+void AppKitScrollViewManager::advanceAnimation(facebook::react::Tag tag, double seconds) {
+  const auto it = entries_.find(tag);
+  if (it == entries_.end()) {
+    return;
+  }
+  Entry &entry = it->second;
+  if (!entry.animation.isRunning()) {
+    stopAnimation(entry);
+    return;
+  }
+
+  double x = entry.offsetX;
+  double y = entry.offsetY;
+  const bool running = entry.animation.advance(seconds, x, y);
+  applyOffset(entry, x, y, true);
+  if (!running) {
+    stopAnimation(entry);
+  }
+}
 
 void AppKitScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
   const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
@@ -329,20 +420,20 @@ bool AppKitScrollViewManager::dispatchCommand(Tag tag,
   }
   Entry &entry = it->second;
 
-  if (name == "scrollTo") {
-    // [x, y, animated]. Animation is not implemented; the offset is applied at
-    // once, which is what `animated: false` asks for anyway.
-    if (args.isArray() && args.size() >= 2) {
-      applyOffset(entry, args[0].asDouble(), args[1].asDouble(), true);
-    }
+  // [x, y, animated] for scrollTo, [animated] for scrollToEnd.
+  if (name == "scrollTo" && args.isArray() && args.size() >= 2) {
+    scrollTowards(entry,
+                  args[0].asDouble(),
+                  args[1].asDouble(),
+                  args.size() >= 3 && args[2].asBool());
     return true;
   }
 
   if (name == "scrollToEnd") {
-    applyOffset(entry,
-                entry.contentSize.width - entry.containerSize.width,
-                entry.contentSize.height - entry.containerSize.height,
-                true);
+    scrollTowards(entry,
+                  entry.contentSize.width - entry.containerSize.width,
+                  entry.contentSize.height - entry.containerSize.height,
+                  args.isArray() && args.size() >= 1 && args[0].asBool());
     return true;
   }
 
