@@ -217,10 +217,18 @@ jobs:
       - name: Unit tests
         run: ./build/basalt_gtk_tests
 
+      - name: Build the JavaScript packages
+        # react-native-basalt is TypeScript and `main` points into its dist/,
+        # so nothing below can require it until this has run. It is also the
+        # type check: `noEmitOnError` is set, so a type that has stopped
+        # describing the code fails here rather than misleading a reader.
+        run: ./scripts/build_ts.sh
+
       - name: CLI tests
         # `run-linux`, `run-macos` and `run-windows` are one function with three
         # names, so this checks all three wherever it runs -- which is why the
-        # Windows job runs it too. Needs nothing built.
+        # Windows job runs it too. Plus `init`, which is the one command that
+        # writes into somebody else's repository.
         run: node --test scripts/test_cli.js
 
       - name: Platform JavaScript tests
@@ -539,6 +547,14 @@ jobs:
         run: |
           ./build/basalt_win32_tests.exe
           if ($LASTEXITCODE -ne 0) { throw "unit tests failed" }
+
+      - name: Build the JavaScript packages
+        # As on Linux, and for the same reason: the tests below require the
+        # built output. Also the type check -- and worth running on both, since
+        # a path separator is the kind of thing that types will not catch and
+        # only one of the two runners can.
+        shell: bash
+        run: ./scripts/build_ts.sh
 
       - name: CLI tests
         # The same three commands the Linux job checks. Here for the half that

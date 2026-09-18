@@ -134,6 +134,7 @@ done
 if command -v node >/dev/null 2>&1; then
   # `run-linux`, `run-macos` and `run-windows` are one function with three
   # names, so this checks all three wherever it runs.
+  step "javascript build" "$root/scripts/build_ts.sh"
   step "cli" node --test scripts/test_cli.js
   # react-native-basalt's JavaScript that needs no React Native to run.
   step "platform javascript" node --test scripts/test_platform_js.js

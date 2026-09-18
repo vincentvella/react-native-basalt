@@ -662,3 +662,123 @@ test('a transitive dependency does not contribute native code on its own', () =>
   );
   assert.deepEqual(desktop.capabilityPackages(root), []);
 });
+
+// --------------------------------------------------------------------------
+// `init`
+// --------------------------------------------------------------------------
+//
+// The command that puts this package into somebody else's app, which is the
+// one place a mistake lands in a repository that is not ours. Run against a
+// real temporary directory rather than a mocked filesystem: what is being
+// tested is what it writes.
+
+const init = require(
+  path.join(REPO, 'packages/react-native-basalt/dist/cli/init.js'),
+).init;
+
+function scratchApp(contents) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-init-'));
+  for (const [name, body] of Object.entries(contents)) {
+    fs.writeFileSync(path.join(dir, name), body);
+  }
+  return dir;
+}
+
+const EXPO_APP = {
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    version: '1.0.0',
+    dependencies: {expo: '^54.0.0', 'react-native': '0.87.1'},
+  }),
+  'metro.config.js':
+    "const {getDefaultConfig} = require('expo/metro-config');\n\n" +
+    'const config = getDefaultConfig(__dirname);\n\n' +
+    'module.exports = config;\n',
+};
+
+function manifestOf(dir) {
+  return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+}
+
+test('init configures an app that has none', () => {
+  const dir = scratchApp(EXPO_APP);
+  const result = init(dir);
+  assert.equal(result.ok, true);
+
+  const manifest = manifestOf(dir);
+  assert.ok(manifest.dependencies['react-native-basalt'] != null);
+  assert.ok(manifest.devDependencies['@react-native/metro-config'] != null);
+  assert.ok(manifest.devDependencies['@react-native-community/cli'] != null);
+  for (const platform of ['linux', 'macos', 'windows']) {
+    assert.equal(manifest.scripts[platform], `react-native run-${platform}`);
+  }
+
+  const metro = fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8');
+  assert.match(metro, /withDesktopPlatforms/);
+  assert.match(metro, /module\.exports = withDesktopPlatforms\(config\);/);
+  // What was already in the file is still in it, and so is its last newline:
+  // a command that reformats a file it was asked to edit one line of is a
+  // command people stop trusting.
+  assert.match(metro, /expo\/metro-config/);
+  assert.ok(metro.endsWith('\n'));
+});
+
+test('init pins itself to a real version, from either layout', () => {
+  const dir = scratchApp(EXPO_APP);
+  init(dir);
+  // Not '*'. It reads its own package.json by walking up, because this file
+  // runs from dist/cli once built and cli/ in a checkout, and any fixed number
+  // of `..` is wrong in one of the two.
+  assert.match(manifestOf(dir).dependencies['react-native-basalt'], /^\^\d/);
+});
+
+test('init changes nothing the second time', () => {
+  const dir = scratchApp(EXPO_APP);
+  init(dir);
+  const after = fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8');
+  const manifest = JSON.stringify(manifestOf(dir));
+
+  const again = init(dir);
+  assert.equal(again.ok, true);
+  assert.ok(again.steps.every(([, step]) => step.state === 'done'));
+  assert.equal(fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8'), after);
+  assert.equal(JSON.stringify(manifestOf(dir)), manifest);
+});
+
+test('init refuses a directory that is not an app, and writes nothing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-init-'));
+  const result = init(dir);
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no package\.json/);
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('init refuses an app that is not a React Native one', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({name: 'x', version: '1.0.0', dependencies: {lodash: '*'}}),
+  });
+  const result = init(dir);
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /neither react-native nor expo/);
+  // Untouched, rather than half-configured.
+  assert.equal(manifestOf(dir).devDependencies, undefined);
+});
+
+test('init reports a metro config it cannot safely edit', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({
+      name: 'x',
+      version: '1.0.0',
+      dependencies: {'react-native': '0.87.1'},
+    }),
+    'metro.config.ts': 'module.exports = {};\n',
+  });
+  const result = init(dir);
+  assert.equal(result.ok, true);
+  const [name, step] = result.steps.find(([label]) => label === 'metro config');
+  assert.equal(name, 'metro config');
+  assert.equal(step.state, 'blocked');
+  assert.match(step.message, /metro\.config\.ts/);
+  // And it did not rewrite the TypeScript config it just said it could not edit.
+  assert.equal(fs.readFileSync(path.join(dir, 'metro.config.ts'), 'utf8'), 'module.exports = {};\n');
+});

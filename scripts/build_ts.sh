@@ -61,7 +61,9 @@ cat > "$PATHS_FILE" <<JSON
       "react-native": ["$RN_DIR/packages/react-native/types_DEPRECATED/index.d.ts"],
       "react": ["$RN_DIR/node_modules/@types/react"],
       "react/*": ["$RN_DIR/node_modules/@types/react/*"]
-    }
+    },
+    "typeRoots": ["$RN_DIR/node_modules/@types"],
+    "types": ["node"]
   }
 }
 JSON

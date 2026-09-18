@@ -460,7 +460,19 @@ emits no assets.
 macOS**, and produces the same view tree on each. Expo 57, React Native 0.86.3,
 both stock from npm, on a platform that forks neither.
 
-The whole change to the app is three lines of `metro.config.js`:
+One command makes the change:
+
+```
+npx react-native-basalt init
+```
+
+It adds this package and the two dev dependencies an app needs to bundle
+(`@react-native/metro-config` and `@react-native-community/cli`), wraps the
+app's Metro config, and adds a script per desktop. Running it again reports
+what is already right and writes nothing; run somewhere that is not an app, it
+says what it expected to find and leaves the directory alone.
+
+The whole change it makes to the config is three lines:
 
 ```js
 const {getDefaultConfig} = require('expo/metro-config');
@@ -810,13 +822,7 @@ In the order it is likely to be done. An entry with a proposal behind it names
 it; the rest are not designed yet. The per-area detail is `docs/BACKLOG.md`; how
 the thing is built is `docs/ARCHITECTURE.md`.
 
-1. **`npx react-native-basalt init`.** Adding a desktop to an Expo app works
-   and is still manual: `@react-native/metro-config` and
-   `@react-native-community/cli` as dev dependencies, `withDesktopPlatforms` in
-   `metro.config.js`, and a script per desktop. One command should do all of
-   it, tested against a fresh `create-expo-app` the way `release.yml`'s install
-   job is. Proposed, as `openspec/changes/add-init-command`.
-2. **Fast Refresh end to end on Windows.** It works there -- observed, on a
+1. **Fast Refresh end to end on Windows.** It works there -- observed, on a
    development run through `run-windows`, which is what phase 43 was for. What
    it is not is *tested*, anywhere, on any platform: `integration_test.py`
    skips the scenario on Windows because `scripts/metro.sh` is a shell script,
@@ -826,14 +832,14 @@ the thing is built is `docs/ARCHITECTURE.md`.
    then a runner whose file watching works -- `docs/BACKLOG.md` has what is
    left to try on the second. Proposed, as
    `openspec/changes/test-fast-refresh-on-windows`.
-3. **A first release run.** `release.yml` has never run: its macOS job, Linux
+2. **A first release run.** `release.yml` has never run: its macOS job, Linux
    and Windows built from nothing, and the Expo install job are all unproven on
    hosted runners. Deliberately not yet. Windows belongs in the install job
    before it does.
-4. **A faster first `--build`.** It compiles Hermes and React Native's C++
+3. **A faster first `--build`.** It compiles Hermes and React Native's C++
    from source, twenty to thirty minutes. Prebuilt Hermes per platform and
    React Native version is what would change that for someone trying it out.
-5. **Publishing.** Versions, an npm account, the publish step in
+4. **Publishing.** Versions, an npm account, the publish step in
    `release.yml`, and an install guide.
 
 Known, and waiting on upstream rather than on this list: on React Native 0.86,

@@ -5,7 +5,7 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 **Open (5):**
 
 1. Nobody else can use this yet
-2. Adding a desktop to an Expo app is manual
+2. ~~Adding a desktop to an Expo app is manual~~ -- done, `npx react-native-basalt init`
 3. Porting a first third-party native module end to end
 4. Packaging: Arch PKGBUILD, Flatpak
 5. The package ships no types, and an Expo app is TypeScript by default
@@ -47,13 +47,22 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   See `openspec/changes/split-optional-capabilities-into-packages`, whose first
   move -- notifications -- is done. And a first `--build` that compiles Hermes
   and React Native's C++ from source, which is the part a user will notice.
-- **Adding a desktop to an Expo app is manual.** Two dev dependencies --
-  `@react-native/metro-config`, which React Native's `start` command requires
-  whatever the app's Metro config says, and `@react-native-community/cli`,
-  which is what provides `run-windows` -- plus `withDesktopPlatforms` in
-  `metro.config.js` and a script per desktop. `npx react-native-basalt init`
-  should do all of it, tested against a fresh `create-expo-app` as the release
-  job's install is. Next up; see the README.
+- ~~**Adding a desktop to an Expo app is manual.**~~ Done:
+  `npx react-native-basalt init` adds this package and the two dev dependencies
+  an app needs -- `@react-native/metro-config`, which React Native's `start`
+  requires whatever the app's Metro config says, and
+  `@react-native-community/cli`, which provides `run-windows` -- wraps the
+  Metro config, and adds a script per desktop.
+
+  Idempotent, and it refuses rather than half-configuring: run twice it reports
+  what is already right and writes nothing, and run somewhere it cannot
+  identify as an app it says what it expected and leaves the directory alone. A
+  `metro.config.ts` it cannot safely edit is reported rather than overwritten.
+
+  What is left is the verification the change asked for and this did not do:
+  running it against a fresh `create-expo-app`, the way `release.yml`'s install
+  job installs the packed packages, and building the result. The unit tests
+  cover what it writes; nothing yet covers that what it writes is sufficient.
 - **Porting a first third-party native module end to end**, to learn what the
   porting story actually costs. This is the largest unknown in the project: the
   TurboModule seam is proven, by `src/LinuxPlatformConstants.cpp`, but no
