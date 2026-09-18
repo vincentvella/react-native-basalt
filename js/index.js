@@ -109,6 +109,17 @@ function App() {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onSubmitEditing={() => setName(name.toUpperCase())}
+          // Logged rather than rendered: both are about *when* they arrive, and
+          // a rendered value only says what the last one was. onKeyPress in
+          // particular has to be one event per key -- a field that reported the
+          // whole string each time would look identical in the tree.
+          onKeyPress={event => {
+            console.log(`key: ${event.nativeEvent.key}`);
+          }}
+          onSelectionChange={event => {
+            const {start, end} = event.nativeEvent.selection;
+            console.log(`selection: ${start}-${end}`);
+          }}
           placeholder="type a name, then press Enter"
           accessibilityLabel="Name field"
         />

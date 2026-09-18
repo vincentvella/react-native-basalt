@@ -2,14 +2,15 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
-**Open (6):**
+**Open (7):**
 
 1. A controlled field's value is applied by heuristic rather than from state
-2. No shared focus registry: TextInput
-3. blur grabs focus for the window rather than dropping it, because GTK models fo
-4. placeholderTextColor, selectionColor and cursorColor are parsed and ignored **
-5. src/overrides/TextInput
-6. autoCapitalize, autoCorrect, spellCheck, keyboardType, returnKeyType, clearBut
+2. The synthetic typing instruments cannot observe either event on GTK
+3. No shared focus registry: TextInput
+4. blur grabs focus for the window rather than dropping it, because GTK models fo
+5. placeholderTextColor, selectionColor and cursorColor are parsed and ignored **
+6. src/overrides/TextInput
+7. autoCapitalize, autoCorrect, spellCheck, keyboardType, returnKeyType, clearBut
 
 - ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
   in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
@@ -35,12 +36,28 @@ Part of the [backlog](../backlog.md). Not scheduled.
   when the section was written and were never revisited. Found by checking the
   section against the code rather than reading it.
 
-  **What is actually missing is Windows.** `Win32TextInput.cpp` emits `onChange`,
-  `onFocus`, `onBlur`, `onEndEditing` and `onSubmitEditing`, and does not emit
-  `onKeyPress` or `onSelectionChange`. It has no multiline either: a
-  `ES_MULTILINE` EDIT is the peer it would need. So the gap is parity on one
-  host rather than a feature on three, which is a different and much smaller
-  piece of work than this said.
+  **Windows was the gap and now emits both.** `onKeyPress` comes off WM_CHAR,
+  with 'Enter' and 'Backspace' by name and unprintable keys sending nothing --
+  the same contract the other two follow. `onSelectionChange` has no
+  notification to hang on, because EN_SELCHANGE belongs to RichEdit and a plain
+  EDIT says nothing, so the caret is read after any message that could have
+  moved it and compared with the last reported value.
+
+  Still missing on Windows: **multiline**, which wants an `ES_MULTILINE` EDIT
+  as the peer.
+
+- **The synthetic typing instruments cannot observe either event on GTK**, and
+  that is worth knowing before anyone tries to test them. `BASALT_TEST_TYPE`
+  inserts through `gtk_editable_insert_text` on GTK and through the field editor
+  on AppKit -- both deliberately, because a synthesised key needs a seat an
+  automated run does not have. So no key is ever sent on those two, and on GTK
+  `notify::cursor-position` does not fire for a programmatic insert either:
+  verified by instrumenting the handler, which is connected to a real GtkText
+  with no warning and simply never runs.
+
+  AppKit's field-editor insert *does* move the caret observably, and Windows
+  sends real WM_CHARs, so between them the end-to-end suite covers both events
+  -- just never on the same host.
 - No shared focus registry: `TextInput.State.currentlyFocusedInput()` does not
   exist, and nothing else can ask what has focus. React Native's own
   `TextInputState` module talks to a TurboModule this platform does not have.

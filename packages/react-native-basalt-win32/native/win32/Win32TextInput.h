@@ -150,6 +150,11 @@ class Win32TextInputManager {
     // True while a prop is being pushed into the control, so the EN_CHANGE it
     // provokes is not reported back as the user typing.
     bool applying{false};
+    // The selection last reported to JavaScript. A plain EDIT has no
+    // notification for the caret moving -- EN_SELCHANGE belongs to RichEdit --
+    // so the selection is read after anything that could have moved it and
+    // compared with this. See reportSelectionIfChanged.
+    facebook::react::AttributedString::Range lastReportedSelection{};
 
     std::string lastReportedText;
 
@@ -210,6 +215,9 @@ class Win32TextInputManager {
 
   void reportChange(Entry &entry);
   facebook::react::TextInputEventEmitter::Metrics metricsFor(const Entry &entry) const;
+  // Reads the caret and emits onSelectionChange if it moved. Called after any
+  // message that could have moved it, because Windows will not say.
+  void reportSelectionIfChanged(Entry &entry);
   std::shared_ptr<const facebook::react::TextInputEventEmitter> emitterFor(
       facebook::react::Tag tag) const;
 

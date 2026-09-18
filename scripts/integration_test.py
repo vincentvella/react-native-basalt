@@ -852,6 +852,61 @@ def test_text_input(bundle: Path) -> None:
     if value != "Ada":
         raise Failure(f"the field holds {value!r}, not the text that was typed")
 
+    # The caret moved, and JavaScript was told. Asserted on every host because
+    # every instrument moves the caret however it inserts the text.
+    #
+    # Windows is why this is asserted at all: a plain EDIT has no notification
+    # for the caret moving -- EN_SELCHANGE belongs to RichEdit -- so there the
+    # selection is read after anything that could have moved it, and this says
+    # that reading happens.
+    selections = [
+        line.split("selection: ", 1)[1].strip()
+        for line in LAST_HOST_OUTPUT.splitlines()
+        if "selection: " in line
+    ]
+    if PLATFORM == "linux":
+        # GTK's instrument inserts through `gtk_editable_insert_text`, and
+        # `notify::cursor-position` does not fire for that -- verified by
+        # instrumenting the handler, which is connected to a real GtkText with
+        # no warning and simply never runs. So the caret moves and nothing says
+        # so, and there is nothing here to assert rather than something broken.
+        print(
+            "        (GTK's typing instrument inserts text directly, and the "
+            "caret notification does not fire for that)"
+        )
+    elif "3-3" not in selections:
+        raise Failure(
+            f"after typing three characters the caret should be reported at 3-3; "
+            f"the selections reported were {selections}."
+        )
+
+    # One key event per key, which is the half a tree dump cannot show: a field
+    # reporting the whole string each time would look identical in it. React
+    # Native's contract is the typed character, with 'Enter' and 'Backspace' by
+    # name.
+    #
+    # Only where the instrument sends keys. GTK inserts through
+    # `gtk_editable_insert_text` and AppKit through the field editor -- both
+    # deliberately, because a synthesised key needs a seat this run does not
+    # have -- so on those two there is no key to report and nothing to assert.
+    # Windows sends real WM_CHARs, which makes it the only host that can check
+    # this and the only one that could have got it wrong.
+    keys = [
+        line.split("key: ", 1)[1].strip()
+        for line in LAST_HOST_OUTPUT.splitlines()
+        if "key: " in line
+    ]
+    if PLATFORM != "windows":
+        print(
+            "        (this host types by inserting text rather than by sending "
+            "keys, so onKeyPress has nothing to report)"
+        )
+    elif not is_subsequence(["A", "d", "a"], keys):
+        raise Failure(
+            f"typing 'Ada' reported the keys {keys}, which is not one event per "
+            "key carrying the character typed."
+        )
+
     # The echo label is rendered from React state, so it only says this if
     # onChangeText fired. Without it the widget could hold the right text
     # purely because GtkText kept it, with JavaScript none the wiser.

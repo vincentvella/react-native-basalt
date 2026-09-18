@@ -8,6 +8,7 @@
 #include <commctrl.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <cmath>
 
 // Visual styles, which an EDIT needs for two things: the cue banner that backs
@@ -606,17 +607,73 @@ TextInputEventEmitter::Metrics Win32TextInputManager::metricsFor(const Entry &en
 // The subclass
 // ---------------------------------------------------------------------------
 
+void Win32TextInputManager::reportSelectionIfChanged(Entry &entry) {
+  if (entry.control == nullptr) {
+    return;
+  }
+  // Not while a prop is being pushed in. Applying `text` moves the caret, and
+  // reporting that as the person selecting something would make a controlled
+  // field fight its own render -- the same guard both other hosts have.
+  if (entry.applying) {
+    return;
+  }
+
+  // The caret first, on its own. `metricsFor` copies the field's whole text,
+  // and this runs after every mouse move -- so the cheap question is asked
+  // first and the expensive one only when the answer has changed.
+  DWORD start = 0;
+  DWORD end = 0;
+  SendMessage(entry.control,
+              EM_GETSEL,
+              reinterpret_cast<WPARAM>(&start),
+              reinterpret_cast<LPARAM>(&end));
+  const auto location = static_cast<int>(start);
+  const auto length = static_cast<int>(end - start);
+  if (location == entry.lastReportedSelection.location &&
+      length == entry.lastReportedSelection.length) {
+    return;
+  }
+  entry.lastReportedSelection = AttributedString::Range{location, length};
+
+  if (const auto emitter = emitterFor(entry.tag)) {
+    emitter->onSelectionChange(metricsFor(entry));
+  }
+}
+
 LRESULT CALLBACK Win32TextInputManager::editProc(
     HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) {
   auto *entry = reinterpret_cast<Entry *>(data);
 
   if (message == WM_CHAR && entry != nullptr && entry->owner != nullptr) {
+    // React Native's contract, the same one both other hosts follow: 'Enter'
+    // and 'Backspace' by name, the typed character otherwise -- including ' '
+    // for space -- and nothing at all for a key that produces no character.
+    // WM_CHAR is already the character, so Escape and Tab fall out as
+    // unprintable rather than needing to be named.
+    const auto typed = static_cast<wchar_t>(wparam);
+    std::string key;
+    if (typed == L'\r' || typed == L'\n') {
+      key = "Enter";
+    } else if (typed == L'\b') {
+      key = "Backspace";
+    } else if (std::iswprint(static_cast<wint_t>(typed))) {
+      key = narrow(std::wstring(1, typed));
+    }
+    if (!key.empty()) {
+      if (const auto emitter = entry->owner->emitterFor(entry->tag)) {
+        TextInputEventEmitter::KeyPressMetrics metrics{};
+        metrics.text = key;
+        metrics.eventCount = entry->eventCount;
+        emitter->onKeyPress(metrics);
+      }
+    }
+
     // A single-line EDIT has nowhere to put a newline, so it beeps at one. That
     // beep is the sound of an unhandled Enter, and Enter is what React Native
     // calls submitEditing -- so it is caught here and swallowed. Escape and Tab
     // beep for the same reason: neither has a meaning inside a field, and
     // nothing on this platform implements a tab order for the second to reach.
-    const auto character = static_cast<wchar_t>(wparam);
+    const auto character = typed;
     if (character == L'\r' || character == L'\n') {
       if (const auto emitter = entry->owner->emitterFor(entry->tag)) {
         emitter->onSubmitEditing(entry->owner->metricsFor(*entry));
@@ -632,7 +689,45 @@ LRESULT CALLBACK Win32TextInputManager::editProc(
     RemoveWindowSubclass(hwnd, editProc, id);
   }
 
-  return DefSubclassProc(hwnd, message, wparam, lparam);
+  const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
+
+  // Windows does not report the caret moving: EN_SELCHANGE is RichEdit's, and a
+  // plain EDIT says nothing. So the selection is read after anything that could
+  // have moved it -- which is why this runs *after* DefSubclassProc, once the
+  // control has done the moving.
+  if (entry != nullptr && entry->owner != nullptr) {
+    switch (message) {
+      // Its own case rather than part of the list below: `wparam` here is a
+      // button mask, and everywhere else in this switch it is something else
+      // entirely -- a character for WM_CHAR, a virtual key for WM_KEYDOWN. A
+      // fallthrough would test a character against MK_LBUTTON, which passes for
+      // odd code points and fails for even ones.
+      case WM_MOUSEMOVE:
+        // A hover cannot move the caret, and this runs on every mouse move over
+        // the field.
+        if ((wparam & MK_LBUTTON) != 0) {
+          entry->owner->reportSelectionIfChanged(*entry);
+        }
+        break;
+      case WM_CHAR:
+      case WM_KEYDOWN:
+      case WM_KEYUP:
+      case WM_LBUTTONDOWN:
+      case WM_LBUTTONUP:
+      case WM_SETFOCUS:
+      case WM_CUT:
+      case WM_PASTE:
+      case WM_CLEAR:
+      case WM_UNDO:
+      case EM_SETSEL:
+        entry->owner->reportSelectionIfChanged(*entry);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
