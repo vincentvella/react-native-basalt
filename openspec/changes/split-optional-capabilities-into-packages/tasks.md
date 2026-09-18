@@ -11,9 +11,12 @@
 ## 2. Generalise discovery
 
 - [x] Define the manifest key and the CMake entry point it names
-- [ ] Make `optionalNativeModules` scan dependencies for it
-- [ ] Keep the Expo, worklets and Reanimated special cases, and say why
+- [x] Make `optionalNativeModules` scan dependencies for it
+- [x] Keep the Expo, worklets and Reanimated special cases, and say why
 - [ ] Fail loudly, naming the package, when a contributed build fails
+      (a missing declared entry point is already refused by name, in
+      `capabilityPackages`; a package whose native code fails to *compile*
+      still produces only the compiler's own error, which names a path)
 
 ## 3. Apply it
 
