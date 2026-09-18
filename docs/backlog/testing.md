@@ -196,12 +196,22 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   a `jsi::Runtime`. So what a value ends up as stays the end-to-end suite's
   to check; which event fired, and in what order, is now this one's.
 
-  What is left to cover with it: `onKeyPress` before `onChange`, which is the
-  ordering this entry named. It needs a focused field in a real window on both
-  hosts -- AppKit's key monitor only sees a key going to a first responder,
-  GTK's focus controller the same -- and calling the handlers directly in the
-  order the test expects would assert nothing but itself. Worth doing with a
-  window, not worth faking.
+  **`onKeyPress` before `onChange` is the one case this entry named that is
+  still the end-to-end suite's**, and the window it needed turned out to be
+  half enough. AppKit tests can make a real window, focus the field and post a
+  key through `NSApp` -- which is what invokes a local event monitor, and so
+  what makes the monitor the thing under test rather than a direct call to
+  `handleKeyDown`. Three tests came out of that: focus reported, a key press
+  reported, and nothing reported for a key that types nothing.
+
+  What cannot follow is the edit. `NSApp` routes a key to the *key* window,
+  and a window belonging to an inactive process cannot become one --
+  `makeKeyWindow` leaves `isKeyWindow` false -- so the field editor never sees
+  the keystroke and no `onChange` follows it. Sending the event a second time
+  straight to the window does perform the edit, and then the ordering is the
+  test's arrangement rather than AppKit's, which is not worth calling a test.
+  GTK is unexamined; its focus controller needs a realised window, which that
+  suite has never needed.
 
 - **The hover scenario cannot assert its order on GTK-over-quartz**, and is
   skipped there with a note rather than loosened. A real cursor sitting over the

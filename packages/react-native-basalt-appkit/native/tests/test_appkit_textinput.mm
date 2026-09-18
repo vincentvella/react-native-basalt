@@ -613,3 +613,136 @@ TEST(textinput_mounting_alone_reports_nothing) {
     manager.destroySurfaceRoot(kSurfaceId);
   }
 }
+
+// --- Focus and keys, through a real window ----------------------------------
+//
+// These need a window, which the rest of this file does not: focus is
+// AppKit's to give, and the manager watches keys with a local NSEvent monitor
+// rather than through the delegate -- deliberately, so that it sees the key
+// on its way to the responder chain, before the edit and therefore before
+// onChange.
+//
+// The window is never ordered front, like the ones in
+// test_appkit_titlebar.mm, and that is also the limit of what can be pinned
+// here. NSApp routes a key to the *key* window, and a window belonging to a
+// process that is not active cannot become key -- `makeKeyWindow` on one
+// leaves `isKeyWindow` false. So the monitor can be driven and the edit it
+// precedes cannot, and onKeyPress-before-onChange stays the end-to-end
+// suite's to check rather than being arranged here and called a test.
+//
+// Payload values are out of reach for the same reason everywhere else: which
+// key it was lives in a jsi::Object. What is checked is that a key press is
+// reported, and for which keys it is not.
+
+namespace {
+
+// A field that is first responder in a window nobody can see.
+NSWindow *windowAround(basalt::AppKitMountingManager &manager, NSView *field) {
+  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 300)
+                                                 styleMask:NSWindowStyleMaskTitled
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+  [window.contentView addSubview:manager.getSurfaceRoot(kSurfaceId)];
+  [window makeFirstResponder:field];
+  return window;
+}
+
+// One key, through NSApp -- which is what invokes a local event monitor.
+// Posted and pulled rather than handed straight to sendEvent: so that it
+// travels the queue a real keystroke travels.
+void pressKey(NSWindow *window, unsigned short keyCode, NSString *characters) {
+  NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                  location:NSZeroPoint
+                             modifierFlags:0
+                                 timestamp:0
+                              windowNumber:window.windowNumber
+                                   context:nil
+                                characters:characters
+               charactersIgnoringModifiers:characters
+                                 isARepeat:NO
+                                   keyCode:keyCode];
+  [NSApp postEvent:key atStart:YES];
+  NSEvent *pulled = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                       untilDate:[NSDate distantPast]
+                                          inMode:NSDefaultRunLoopMode
+                                         dequeue:YES];
+  if (pulled != nil) {
+    [NSApp sendEvent:pulled];
+  }
+}
+
+} // namespace
+
+// Focus is AppKit's to give and React's to hear about. Nothing checked that
+// it was passed on.
+TEST(textinput_focus_reaches_the_emitter) {
+  @autoreleasepool {
+    [NSApplication sharedApplication];
+
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager,
+                                    83,
+                                    folly::dynamic::object("text", ""),
+                                    recorder.emitter<TextInputEventEmitter>());
+
+    NSWindow *window = windowAround(manager, fieldOf(view));
+    EXPECT(window.firstResponder != window);
+
+    const auto seen = recorder.seen();
+    EXPECT_EQ(seen.size(), 1u);
+    EXPECT_EQ(seen.empty() ? std::string{} : seen[0], std::string{"topFocus"});
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+TEST(textinput_reports_a_key_press_from_the_event_queue) {
+  @autoreleasepool {
+    [NSApplication sharedApplication];
+
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager,
+                                    84,
+                                    folly::dynamic::object("text", ""),
+                                    recorder.emitter<TextInputEventEmitter>());
+
+    NSWindow *window = windowAround(manager, fieldOf(view));
+    recorder.clear();  // The focus above, which the test before this one owns.
+
+    pressKey(window, 0, @"a");
+
+    const auto seen = recorder.seen();
+    EXPECT_EQ(seen.size(), 1u);
+    EXPECT_EQ(seen.empty() ? std::string{} : seen[0], std::string{"topKeyPress"});
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// A key that types nothing reports nothing, which is what iOS does. The
+// arrows and the function keys live in the Unicode private use area, and the
+// manager filters on that -- a filter nothing exercised.
+TEST(textinput_says_nothing_about_a_key_that_types_nothing) {
+  @autoreleasepool {
+    [NSApplication sharedApplication];
+
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager,
+                                    85,
+                                    folly::dynamic::object("text", ""),
+                                    recorder.emitter<TextInputEventEmitter>());
+
+    NSWindow *window = windowAround(manager, fieldOf(view));
+    recorder.clear();
+
+    // Left arrow: keyCode 123, and NSLeftArrowFunctionKey as its character.
+    pressKey(window, 123, [NSString stringWithFormat:@"%C", (unichar)NSLeftArrowFunctionKey]);
+
+    EXPECT(recorder.seen().empty());
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
