@@ -20,7 +20,7 @@
  *   </TitleBar.DragRegion>
  *
  * Requests stack like <StatusBar>'s: the most recently mounted wins, key by key,
- * and unmounting one restores what was beneath it. See titleBarState.js.
+ * and unmounting one restores what was beneath it. See titleBarState.ts.
  *
  * On a host with no title bar module -- today, anything but Windows -- every
  * call is ignored and the metrics are all zero, so the same code runs
@@ -30,11 +30,44 @@
  */
 
 import * as React from 'react';
+import type {TurboModule, ViewProps} from 'react-native';
 import {DeviceEventEmitter, TurboModuleRegistry, View, processColor} from 'react-native';
 
 import {createTitleBarStack, sameRequest} from './titleBarState';
+import type {TitleBarColor, TitleBarOptions, TitleBarRequest, TitleBarStyle} from './titleBarState';
 
-const NativeWindow = TurboModuleRegistry.get('BasaltWindow');
+export type {TitleBarOptions, TitleBarStyle} from './titleBarState';
+
+/**
+ * What the host's `BasaltWindow` module offers, as far as this file uses it.
+ *
+ * Declared here rather than imported: there is no generated spec for it, and a
+ * turbo module this platform may not have at all is better described by the
+ * calls that are made on it than by a type that claims more.
+ */
+type NativeWindowModule = TurboModule & {
+  setTitle(title: string | null): void;
+  setTitleBarColors(
+    background: number | null,
+    text: number | null,
+    border: number | null,
+  ): void;
+  setTitleBarStyle(style: TitleBarStyle): void;
+  getTitleBarMetrics(): Partial<TitleBarMetrics> | null;
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+  startWindowDrag(): void;
+};
+
+/** How much of the window a hidden title bar's caption takes, in layout units. */
+export type TitleBarMetrics = {
+  height: number;
+  buttonsWidth: number;
+  style: TitleBarStyle;
+};
+
+const NativeWindow = TurboModuleRegistry.get<NativeWindowModule>('BasaltWindow');
 
 const METRICS_EVENT = 'basaltTitleBarMetricsChanged';
 
@@ -43,15 +76,19 @@ const METRICS_EVENT = 'basaltTitleBarMetricsChanged';
 const DRAG_REGION_ID = 'basalt-titlebar-drag';
 const NO_DRAG_REGION_ID = 'basalt-titlebar-no-drag';
 
-const NO_METRICS = Object.freeze({height: 0, buttonsWidth: 0, style: 'native'});
+const NO_METRICS: TitleBarMetrics = Object.freeze({
+  height: 0,
+  buttonsWidth: 0,
+  style: 'native',
+});
 
 const stack = createTitleBarStack();
-let applied = null;
+let applied: TitleBarRequest | null = null;
 
 // processColor turns any React Native colour into the 0xAARRGGBB number the
 // host reads. Null, and anything it cannot process, asks for the system's
 // colour back.
-function colorFor(value) {
+function colorFor(value: TitleBarColor | undefined): number | null {
   if (value == null) {
     return null;
   }
@@ -59,7 +96,7 @@ function colorFor(value) {
   return typeof processed === 'number' ? processed : null;
 }
 
-function normalizeMetrics(value) {
+function normalizeMetrics(value: Partial<TitleBarMetrics> | null | undefined): TitleBarMetrics {
   if (value == null) {
     return NO_METRICS;
   }
@@ -70,7 +107,7 @@ function normalizeMetrics(value) {
   };
 }
 
-function applyStack() {
+function applyStack(): void {
   if (NativeWindow == null) {
     return;
   }
@@ -103,9 +140,9 @@ function applyStack() {
   }
 }
 
-export function useTitleBar(options) {
+export function useTitleBar(options?: TitleBarOptions | null): void {
   const {title, style, backgroundColor, textColor, borderColor} = options ?? {};
-  const idRef = React.useRef(null);
+  const idRef = React.useRef<number | null>(null);
 
   // Mount and unmount. Layout effects, so a hidden title bar is in place before
   // the first frame is painted rather than one frame after it.
@@ -132,23 +169,23 @@ export function useTitleBar(options) {
   }, [title, style, backgroundColor, textColor, borderColor]);
 }
 
-export function TitleBar(props) {
+export function TitleBar(props: TitleBarOptions): null {
   useTitleBar(props);
   return null;
 }
 
-function DragRegion(props) {
+function DragRegion(props: ViewProps): React.ReactElement {
   return React.createElement(View, {...props, nativeID: DRAG_REGION_ID});
 }
 
-function NoDragRegion(props) {
+function NoDragRegion(props: ViewProps): React.ReactElement {
   return React.createElement(View, {...props, nativeID: NO_DRAG_REGION_ID});
 }
 
 TitleBar.DragRegion = DragRegion;
 TitleBar.NoDragRegion = NoDragRegion;
 
-function readMetrics() {
+function readMetrics(): TitleBarMetrics {
   if (NativeWindow == null) {
     return NO_METRICS;
   }
@@ -194,15 +231,16 @@ export const Window = {
 // the width of the buttons in the top right corner, both in layout units. All
 // zero while the title bar is native. Updates when the style changes, the
 // window moves to a display with a different DPI, or it is maximised.
-export function useTitleBarMetrics() {
+export function useTitleBarMetrics(): TitleBarMetrics {
   const [metrics, setMetrics] = React.useState(readMetrics);
 
   React.useEffect(() => {
     if (NativeWindow == null) {
       return undefined;
     }
-    const subscription = DeviceEventEmitter.addListener(METRICS_EVENT, next =>
-      setMetrics(normalizeMetrics(next)),
+    const subscription = DeviceEventEmitter.addListener(
+      METRICS_EVENT,
+      (next: Partial<TitleBarMetrics> | null) => setMetrics(normalizeMetrics(next)),
     );
     // Anything that changed between the first render and subscribing.
     setMetrics(readMetrics());

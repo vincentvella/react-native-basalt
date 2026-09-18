@@ -13,9 +13,19 @@ const assert = require('node:assert');
 const path = require('node:path');
 const {test} = require('node:test');
 
-const {createTitleBarStack, sameRequest} = require(
-  path.join(__dirname, '..', 'packages/react-native-basalt/src/titleBarState.js'),
+// The built output, not the source: this is TypeScript now, and `main` points
+// into `dist/`. Run scripts/build_ts.sh first -- which is what the failure
+// below says, because "cannot find module" on a path that plainly exists in the
+// repository is the most confusing way to learn it.
+const built = path.join(
+  __dirname,
+  '..',
+  'packages/react-native-basalt/dist/src/titleBarState.js',
 );
+if (!require('node:fs').existsSync(built)) {
+  throw new Error(`${built} does not exist. Run scripts/build_ts.sh first.`);
+}
+const {createTitleBarStack, sameRequest} = require(built);
 
 test('the most recently mounted title bar request wins, key by key', () => {
   const stack = createTitleBarStack();
