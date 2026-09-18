@@ -14,11 +14,65 @@
  * @format
  */
 
-'use strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {createRequire} from 'node:module';
 
-const fs = require('fs');
-const path = require('path');
-const {createRequire} = require('module');
+/**
+ * One asset, as Metro's `Server.getAssets` reports it. `scales` and `files` are
+ * parallel: one file per scale.
+ */
+export type MetroAsset = {
+  name: string;
+  type: string;
+  httpServerLocation: string;
+  scales: number[];
+  files: string[];
+};
+
+export type BundleOptions = {
+  projectRoot: string;
+  entryFile: string;
+  bundleOutput: string;
+  assetsDest?: string;
+  platform?: string;
+  dev?: boolean;
+  minify?: boolean;
+  configPath?: string;
+};
+
+export type BundleResult = {
+  assets: number;
+  files: number;
+  assetsDest: string;
+  expoConfig: boolean;
+};
+
+/**
+ * Metro, as far as this file calls it.
+ *
+ * Metro ships no types for `metro/private/*`, which is how its own
+ * package.json exposes the internals React Native's CLI uses. Describing the
+ * three calls made here is narrower, and more honest, than pretending to know
+ * the rest.
+ */
+type MetroModule = {
+  loadConfig(options: {cwd: string; config?: string}): Promise<unknown>;
+  runBuild(
+    config: unknown,
+    options: {entry: string; out: string; platform: string; dev: boolean; minify: boolean},
+  ): Promise<unknown>;
+};
+
+type MetroServer = {
+  getAssets(options: Record<string, unknown>): Promise<MetroAsset[]>;
+  end(): void;
+};
+
+type MetroServerClass = {
+  new (config: unknown): MetroServer;
+  DEFAULT_BUNDLE_OPTIONS: Record<string, unknown>;
+};
 
 /**
  * Metro, and the pieces of it that have no public export.
@@ -28,7 +82,7 @@ const {createRequire} = require('module');
  * from the project rather than from here, so an app gets the Metro it installed
  * and not a second copy.
  */
-function loadMetro(projectRoot) {
+function loadMetro(projectRoot: string): {metro: MetroModule; Server: MetroServerClass} {
   const resolvers = [createRequire(path.join(projectRoot, 'package.json'))];
 
   // Then from React Native's own location. An installed app has Metro hoisted
@@ -67,13 +121,13 @@ function loadMetro(projectRoot) {
  * `../` replacement is React Native's: an asset can sit outside the project
  * root, and its path must not escape the assets directory.
  */
-function destinationFor(asset, scale) {
+export function destinationFor(asset: MetroAsset, scale: number): string {
   const suffix = scale === 1 ? '' : `@${scale}x`;
   const name = `${asset.name}${suffix}.${asset.type}`;
   return path.join(asset.httpServerLocation.replace(/^\//, '').replace(/\.\.\//g, '_'), name);
 }
 
-async function copyAssets(assets, assetsDest) {
+async function copyAssets(assets: MetroAsset[], assetsDest: string): Promise<number> {
   let copied = 0;
   for (const asset of assets) {
     // `scales` and `files` are parallel arrays: one file per scale.
@@ -108,10 +162,21 @@ async function copyAssets(assets, assetsDest) {
  * Returns false when the project is not an Expo app, which is not a failure:
  * `expo/config` is simply not there to resolve.
  */
-async function writeExpoAppConfig(projectRoot, bundleOutput) {
-  let getConfig;
+export async function writeExpoAppConfig(
+  projectRoot: string,
+  bundleOutput: string,
+): Promise<boolean> {
+  // Expo's own options, as expo/config declares them; `skipSDKVersionRequirement`
+  // is the one that lets this read a config for an SDK this tool does not pin.
+  type GetConfig = (
+    root: string,
+    options: {isPublicConfig?: boolean; skipSDKVersionRequirement?: boolean},
+  ) => {exp: unknown};
+
+  let getConfig: GetConfig;
   try {
-    getConfig = createRequire(path.join(projectRoot, 'package.json'))('expo/config').getConfig;
+    getConfig = createRequire(path.join(projectRoot, 'package.json'))('expo/config')
+      .getConfig as GetConfig;
   } catch {
     return false;
   }
@@ -134,7 +199,7 @@ async function writeExpoAppConfig(projectRoot, bundleOutput) {
  * resolves an asset relative to the script's own location, so anywhere else is
  * wrong unless the script is somewhere else too.
  */
-async function bundleWithAssets({
+export async function bundleWithAssets({
   projectRoot,
   entryFile,
   bundleOutput,
@@ -143,7 +208,7 @@ async function bundleWithAssets({
   dev = false,
   minify = !dev,
   configPath,
-}) {
+}: BundleOptions): Promise<BundleResult> {
   const {metro, Server} = loadMetro(projectRoot);
 
   const config = await metro.loadConfig({cwd: projectRoot, config: configPath});
@@ -178,5 +243,3 @@ async function bundleWithAssets({
     server.end();
   }
 }
-
-module.exports = {bundleWithAssets, destinationFor, writeExpoAppConfig};

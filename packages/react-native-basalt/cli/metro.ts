@@ -9,12 +9,26 @@
  * @format
  */
 
-'use strict';
+import type {ChildProcess} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import * as fs from 'node:fs';
+import * as net from 'node:net';
+import * as path from 'node:path';
 
-const {spawn} = require('child_process');
-const fs = require('fs');
-const net = require('net');
-const path = require('path');
+/**
+ * What React Native's CLI hands a command. Only the two fields this file uses:
+ * the rest of the context is large, changes between versions, and typing what
+ * is not read would be claiming more than is known.
+ */
+export type MetroContext = {
+  root: string;
+  reactNativePath: string;
+};
+
+export type StartedMetro = {
+  child: ChildProcess;
+  logPath: string;
+};
 
 /**
  * Whether something is already listening.
@@ -23,10 +37,10 @@ const path = require('path');
  * anything else is a problem the developer has to see, and starting a second
  * Metro on top of it would hide it.
  */
-function isPortTaken(port, host = 'localhost') {
-  return new Promise(resolve => {
+export function isPortTaken(port: number, host = 'localhost'): Promise<boolean> {
+  return new Promise<boolean>(resolve => {
     const socket = net.connect({port, host});
-    const done = taken => {
+    const done = (taken: boolean): void => {
       socket.destroy();
       resolve(taken);
     };
@@ -37,7 +51,7 @@ function isPortTaken(port, host = 'localhost') {
   });
 }
 
-async function waitForPort(port, timeoutMs) {
+export async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await isPortTaken(port)) {
@@ -62,7 +76,7 @@ async function waitForPort(port, timeoutMs) {
  * is printed, and `--no-packager` with a packager of your own is the answer if
  * you want it on screen.
  */
-async function startMetro(context, port) {
+export async function startMetro(context: MetroContext, port: number): Promise<StartedMetro> {
   const cli = path.join(context.reactNativePath, 'cli.js');
 
   const logDir = path.join(context.root, '.basalt');
@@ -84,11 +98,16 @@ async function startMetro(context, port) {
   // log". So the wait races the child's exit, and an exit before the port
   // opens is reported with the end of the log, which is where Metro says what
   // went wrong.
-  const exited = new Promise(resolve => {
+  type Exit = {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+    error?: Error;
+  };
+  const exited = new Promise<Exit>(resolve => {
     child.once('exit', (code, signal) => resolve({code, signal}));
-    child.once('error', error => resolve({error}));
+    child.once('error', (error: Error) => resolve({error}));
   });
-  const outcome = await Promise.race([
+  const outcome = await Promise.race<{listening?: boolean; exit?: Exit}>([
     waitForPort(port, 90000).then(listening => ({listening})),
     exited.then(exit => ({exit})),
   ]);
@@ -110,7 +129,7 @@ async function startMetro(context, port) {
  * The last lines of a file, without terminal colour codes, for an error
  * message. Empty when it cannot be read: the message is still worth showing.
  */
-function tail(file, lines) {
+function tail(file: string, lines: number): string {
   try {
     return fs
       .readFileSync(file, 'utf8')
@@ -123,5 +142,3 @@ function tail(file, lines) {
     return '';
   }
 }
-
-module.exports = {isPortTaken, waitForPort, startMetro};

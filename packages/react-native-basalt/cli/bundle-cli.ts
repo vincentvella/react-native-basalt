@@ -9,21 +9,29 @@
  * @format
  */
 
-'use strict';
+import * as path from 'node:path';
 
-const path = require('path');
+import {bundleWithAssets} from './bundleWithAssets';
+import type {BundleOptions} from './bundleWithAssets';
 
-const {bundleWithAssets} = require('./bundleWithAssets');
+/** Everything `parse` can produce: the bundler's options plus the help flag. */
+type CliOptions = Partial<BundleOptions> & {
+  projectRoot: string;
+  entryFile: string;
+  platform: string;
+  dev: boolean;
+  help?: boolean;
+};
 
-function parse(argv) {
-  const options = {
+function parse(argv: string[]): CliOptions {
+  const options: CliOptions = {
     projectRoot: process.cwd(),
     entryFile: 'index.js',
     platform: 'linux',
     dev: false,
   };
   for (let i = 0; i < argv.length; i++) {
-    const next = () => argv[++i];
+    const next = (): string => argv[++i] as string;
     switch (argv[i]) {
       case '--project-root': options.projectRoot = path.resolve(next()); break;
       case '--entry-file': options.entryFile = next(); break;
@@ -55,7 +63,7 @@ basalt-bundle --bundle-output <path> [options]
   --minify true|false     default: the opposite of --dev
 `;
 
-async function main() {
+async function main(): Promise<void> {
   const options = parse(process.argv.slice(2));
   if (options.help || options.bundleOutput == null) {
     console.log(USAGE.trim());
@@ -63,16 +71,19 @@ async function main() {
     return;
   }
 
-  const result = await bundleWithAssets(options);
+  // Narrowed by the guard above: `bundleOutput` is what makes the options a
+  // complete request rather than a partial one.
+  const request = options as BundleOptions;
+  const result = await bundleWithAssets(request);
   console.log(
-    `wrote ${path.relative(options.projectRoot, options.bundleOutput)} ` +
+    `wrote ${path.relative(request.projectRoot, request.bundleOutput)} ` +
       `and ${result.files} asset file${result.files === 1 ? '' : 's'} ` +
       `from ${result.assets} asset${result.assets === 1 ? '' : 's'}` +
       (result.expoConfig ? ', with app.config.json' : ''),
   );
 }
 
-main().catch(error => {
+main().catch((error: Error) => {
   console.error(`error: ${error.message}`);
   process.exitCode = 1;
 });
