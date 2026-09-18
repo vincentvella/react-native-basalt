@@ -81,19 +81,8 @@ PLATFORM = "linux"
 HOST = REPO / "build" / "basalt_gtk"
 MODULE = "BasaltDemo"
 
-# Coordinates are in surface-root points, and depend on the demo's layout. They
-# are computed from js/index.js rather than measured from a screenshot: the
-# button row sits at the bottom of a 900x700 window, inside 24pt of padding.
-WINDOW = (900, 700)
-BUTTON_Y = 650
-# Three buttons share the 852pt content row with 12pt gaps, so each is 272 wide.
-SCROLL_TO_TOP = (160, BUTTON_Y)
-# Deliberately on the label's glyphs rather than the button's background, so
-# this also proves a touch on a child bubbles to the Pressable that handles it.
-SCROLL_TO_END_LABEL = (444, BUTTON_Y)
-FOCUS_THE_FIELD = (728, BUTTON_Y)
-# The middle of the text field itself, for a tap that focuses it directly.
-TEXT_FIELD = (184, 207)
+# Where the demo's buttons are is asked of the running app rather than worked
+# out from js/index.js. See `tap_point` below for why.
 
 # js/hover.js, which the hover scenario runs instead of the demo: a card at
 # y=24..244 holding two 140pt boxes, at x=44..184 and x=204..344. The third
@@ -383,6 +372,87 @@ def scroller_size(tree: str) -> tuple:
     raise Failure("no view reported itself as a list; is the ScrollView mounted?")
 
 
+# --------------------------------------------------------------------------
+# Where to tap
+#
+# These coordinates used to be constants worked out from js/index.js -- "the
+# button row sits at the bottom of a 900x700 window, inside 24pt of padding,
+# three buttons across 852pt with 12pt gaps, so each is 272 wide". Correct
+# arithmetic, and it says nothing about where the button actually went: a
+# restyle moves the thing and the taps keep landing on empty background, where
+# the scenario fails with "scrollToEnd left the offset at 0" and sends whoever
+# reads it looking at the scroll code.
+#
+# So the app is asked instead. One extra run per bundle, with no taps, whose
+# tree is then searched for the label -- which is also how a person would find
+# the button, and survives anything but renaming it.
+#
+# It measures per host, which matters more than it sounds: the three shapers
+# disagree about how wide "scroll to end" is, so the centre of that label is a
+# few points apart on each desktop. The old constants were one set of numbers
+# for all three.
+
+_MEASURED: dict = {}
+
+
+def measured_tree(bundle: Path) -> str:
+    """The tree this bundle mounts when nothing is tapped, measured once."""
+    key = (str(bundle), PLATFORM, MODULE)
+    if key not in _MEASURED:
+        # Long enough to mount and lay out, and no longer: nothing is being
+        # driven, so there is nothing to wait for after the first frame.
+        _MEASURED[key] = run_host(bundle, run_ms=2500)
+    return _MEASURED[key]
+
+
+def _views(tree: str):
+    """Every view in the dump, with its frame in surface-root points.
+
+    Frames in the dump are relative to the parent, and depth is two spaces of
+    indentation, so the absolute position is the sum down the path. Transforms
+    and scroll offsets are not applied -- a tap target inside a rotated or
+    scrolled view would need them, and nothing here taps one.
+    """
+    origins = {-1: (0.0, 0.0)}
+    for line in tree.splitlines():
+        body = line.lstrip(" ")
+        if not body.startswith("view "):
+            continue
+        match = re.search(
+            r"frame=\(([-0-9.]+),([-0-9.]+) ([0-9.]+)x([0-9.]+)\)", body)
+        if match is None:
+            continue
+        depth = (len(line) - len(body)) // 2
+        x, y, width, height = (float(group) for group in match.groups())
+        parent_x, parent_y = origins.get(depth - 1, (0.0, 0.0))
+        origin = (parent_x + x, parent_y + y)
+        origins[depth] = origin
+        yield body, origin, (width, height)
+
+
+def _centre(bundle: Path, matches, what: str) -> tuple:
+    for body, (x, y), (width, height) in _views(measured_tree(bundle)):
+        if matches(body):
+            return (round(x + width / 2), round(y + height / 2))
+    raise Failure(f"no {what} in the widget tree; has the demo been restyled?")
+
+
+def tap_point(bundle: Path, label: str) -> tuple:
+    """The centre of the <Text> reading `label`, in surface-root points.
+
+    The label rather than the button around it, deliberately: a tap that lands
+    on the glyphs and still works proves a touch on a child bubbled to the
+    Pressable that handles it.
+    """
+    return _centre(bundle, lambda body: f'text="{label}"' in body, f"label {label!r}")
+
+
+def taps_for(bundle: Path, *labels: str) -> str:
+    """`BASALT_TEST_TAP`'s semicolon-separated form, for these labels in order."""
+    points = [tap_point(bundle, label) for label in labels]
+    return ";".join(f"{x},{y}" for x, y in points)
+
+
 def offset_label(tree: str) -> float:
     """The number the demo renders next to 'contentOffset.y'."""
     for line in tree.splitlines():
@@ -462,7 +532,7 @@ def test_scroll_to_end(bundle: Path) -> None:
     # The tap lands on the button's *label*, so a pass also means a touch on a
     # child bubbled to the Pressable that handles it. Under real input it also
     # means the X server and GDK delivered the event.
-    tree = run_host(bundle, taps=f"{SCROLL_TO_END_LABEL[0]},{SCROLL_TO_END_LABEL[1]}", run_ms=5000)
+    tree = run_host(bundle, taps=taps_for(bundle, "scroll to end"), run_ms=5000)
 
     offset = scroll_offset(tree)
     if offset <= 0:
@@ -491,11 +561,8 @@ def test_scroll_to_end(bundle: Path) -> None:
 
 
 def test_scroll_round_trip(bundle: Path) -> None:
-    taps = (
-        f"{SCROLL_TO_END_LABEL[0]},{SCROLL_TO_END_LABEL[1]};"
-        f"{SCROLL_TO_TOP[0]},{SCROLL_TO_TOP[1]}"
-    )
-    tree = run_host(bundle, taps=taps, run_ms=6000)
+    tree = run_host(
+        bundle, taps=taps_for(bundle, "scroll to end", "scroll to top"), run_ms=6000)
 
     if scroll_offset(tree) != 0.0:
         raise Failure("scrollTo({y: 0}) did not return to the top")
@@ -898,7 +965,7 @@ def test_text_input(bundle: Path) -> None:
     # onChange reached JavaScript and the new value came back down.
     tree = run_host(
         bundle,
-        taps=f"{FOCUS_THE_FIELD[0]},{FOCUS_THE_FIELD[1]}",
+        taps=taps_for(bundle, "focus the field"),
         typing="Ada",
         run_ms=9000,
     )

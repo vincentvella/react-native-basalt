@@ -2,19 +2,18 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (11):**
+**Open (10):**
 
 1. No rendering assertions on GTK
 2. Nothing exercises the JS thread and the main thread concurrently
-3. The end-to-end scenarios hard-code tap coordinates from the demo's layout
-4. CI builds and tests Linux and Windows on every push
-5. The Fast Refresh scenario is skipped in CI
-6. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
-7. Nothing tests tap-to-focus
-8. A `<TextInput>`'s wrapper is still an element of its own on Windows
-9. No unit test can observe an event
-10. The hover scenario cannot assert its order on GTK-over-quartz
-11. One flaky end-to-end scenario
+3. CI builds and tests Linux and Windows on every push
+4. The Fast Refresh scenario is skipped in CI
+5. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
+6. Nothing tests tap-to-focus
+7. A `<TextInput>`'s wrapper is still an element of its own on Windows
+8. No unit test can observe an event
+9. The hover scenario cannot assert its order on GTK-over-quartz
+10. One flaky end-to-end scenario
 
 - **No rendering assertions on GTK.** The widget tree says a view has a colour
   and a frame, not that the right pixels reached the screen. This is not
@@ -35,8 +34,18 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   What is left is GTK, which needs a display server and a `GdkTexture`
   read-back, and is the one host where nothing checks the pixels.
 - Nothing exercises the JS thread and the main thread concurrently.
-- The end-to-end scenarios hard-code tap coordinates from the demo's layout.
-  Finding a button by its label in the dumped tree would survive a restyle.
+- ~~The end-to-end scenarios hard-code tap coordinates from the demo's
+  layout.~~ They find the button by its label now, in a tree measured from one
+  extra run of the host per bundle. The three demo scenarios that tapped
+  survive a restyle: reversing the button row leaves them passing, where the
+  old constants sent the second tap of "scroll away and back" into *focus the
+  field* and left the list at 1623.
+
+  It also measures per host, which the constants could not: the three shapers
+  disagree about how wide "scroll to end" is, so the centre of that label is a
+  few points apart on each desktop. What is still hard-coded is the other
+  apps' coordinates -- `js/hover.js`'s boxes, the devtools taps, the menu
+  taps -- which are boxes rather than labels and have no text to find.
 - CI builds and tests Linux and Windows on every push. macOS is built only by
   `release.yml`, which has not run yet, and otherwise by whoever is developing
   on a Mac.
