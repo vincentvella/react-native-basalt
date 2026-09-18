@@ -201,6 +201,11 @@ class RnWin32View {
   // that changed only layout must not restart a load, or an <Image> flickers
   // whenever its parent resizes.
   void setImage(std::shared_ptr<RnWin32Image> image, RnImageFit fit);
+
+  // `tintColor`: recolours the image keeping its alpha. Separate from the image
+  // because the tint arrives from the props and the image from a loader, and
+  // either can land first.
+  void setImageTint(bool hasTint, const float components[4]);
   const std::shared_ptr<RnWin32Image> &image() const { return image_; }
   RnImageFit imageFit() const { return imageFit_; }
 
@@ -371,6 +376,8 @@ class RnWin32View {
   std::shared_ptr<RnWin32TextLayout> textLayout_;
   std::shared_ptr<RnWin32Image> image_;
   RnImageFit imageFit_ = RnImageFit::Cover;
+  bool hasImageTint_ = false;
+  float imageTint_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   RnAccessibleInfo accessible_;
   bool hasTransform_ = false;
   // The 2D affine part, in the order Direct2D's Matrix3x2F stores it:

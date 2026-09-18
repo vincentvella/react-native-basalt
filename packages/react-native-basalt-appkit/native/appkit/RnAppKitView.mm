@@ -183,6 +183,7 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   NSString *_roleName;
   RnTextLayout *_textLayout;
   CGImageRef _image;
+  NSColor *_imageTint;
   RnAppKitImageFit _imageFit;
   BOOL _hasBackgroundColor;
   CGFloat _backgroundComponents[4];
@@ -435,6 +436,14 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   return "cover";
 }
 
+- (void)setRnImageTint:(NSColor *)tint {
+  if (_imageTint == tint || [_imageTint isEqual:tint]) {
+    return;
+  }
+  _imageTint = tint;
+  [self setNeedsDisplay:YES];
+}
+
 - (void)setRnImage:(CGImageRef)image fit:(RnAppKitImageFit)fit {
   if (_image == image && _imageFit == fit) {
     return;
@@ -534,13 +543,20 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     // rather than a coordinate system.
     CGContextTranslateCTM(context, 0, size.height);
     CGContextScaleCTM(context, 1, -1);
-    CGContextDrawImage(
-        context,
-        NSMakeRect(destination.origin.x,
-                   size.height - destination.origin.y - destination.size.height,
-                   destination.size.width,
-                   destination.size.height),
-        _image);
+    const NSRect drawn = NSMakeRect(destination.origin.x,
+                                    size.height - destination.origin.y - destination.size.height,
+                                    destination.size.width,
+                                    destination.size.height);
+    if (_imageTint != nil) {
+      // The image becomes a stencil and the colour is what is drawn. Clipping
+      // to the mask uses the image's alpha, which is what `tintColor` means:
+      // recolour the silhouette rather than blend with the pixels.
+      CGContextClipToMask(context, drawn, _image);
+      CGContextSetFillColorWithColor(context, _imageTint.CGColor);
+      CGContextFillRect(context, drawn);
+    } else {
+      CGContextDrawImage(context, drawn, _image);
+    }
     CGContextRestoreGState(context);
   }
 
@@ -966,6 +982,18 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     // identical in every other line of this dump and different on screen.
     [out appendFormat:@" texture=%zux%zu", CGImageGetWidth(_image), CGImageGetHeight(_image)];
     [out appendFormat:@" fit=%s", RnAppKitImageFitName(_imageFit)];
+    // Printed for the same reason the fit is: a tinted image and an untinted
+    // one are identical in every other line of this dump and different on
+    // screen. Formatted exactly as GTK formats a colour, so the cross-host diff
+    // can compare them.
+    if (_imageTint != nil) {
+      NSColor *rgb = [_imageTint colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: _imageTint;
+      [out appendFormat:@" tint=#%02x%02x%02x%02x",
+                        (unsigned)(rgb.redComponent * 255.0 + 0.5),
+                        (unsigned)(rgb.greenComponent * 255.0 + 0.5),
+                        (unsigned)(rgb.blueComponent * 255.0 + 0.5),
+                        (unsigned)(rgb.alphaComponent * 255.0 + 0.5)];
+    }
   }
   if (_textLayout != nil) {
     NSString *text = _textLayout.attributedString.string;

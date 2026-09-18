@@ -138,6 +138,13 @@ typedef enum {
 // the texture and GtkMountingManager chooses the fit.
 void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit);
 
+// `tintColor`: recolours the image, keeping its alpha. An icon drawn as a
+// silhouette is the usual reason -- one asset, any colour.
+//
+// Separate from the texture because it arrives from the props and the texture
+// arrives from a loader callback, and either can land first.
+void rn_view_set_image_tint(RnView *self, gboolean has_tint, const GdkRGBA *tint);
+
 // Called on the GTK main thread when this widget's own allocation changes.
 //
 // The host attaches one to a surface root to drive

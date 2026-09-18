@@ -374,6 +374,16 @@ void Win32MountingManager::applyImage(RnWin32View *view, const ShadowView &shado
   const std::string uri =
       props->sources.empty() ? std::string{} : props->sources.front().uri;
 
+  // `tintColor`, applied before the load rather than in its callback: the tint
+  // is a prop and the image is a loader's answer, and either can arrive first.
+  if (props->tintColor) {
+    const auto components = facebook::react::colorComponentsFromColor(*props->tintColor);
+    const float rgba[4] = {components.red, components.green, components.blue, components.alpha};
+    view->setImageTint(true, rgba);
+  } else {
+    view->setImageTint(false, nullptr);
+  }
+
   // A mutation that changed only layout must not restart the load, or an
   // <Image> flickers whenever its parent resizes. The fit is applied every time
   // regardless, because changing it is cheap and does not touch the pixels.

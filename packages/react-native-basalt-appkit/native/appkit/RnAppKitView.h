@@ -171,6 +171,13 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // fit.
 - (void)setRnImage:(nullable CGImageRef)image fit:(RnAppKitImageFit)fit;
 
+// `tintColor`: recolours the image, keeping its alpha, so one silhouette asset
+// can be drawn in any colour. Pass nil to clear.
+//
+// Separate from the image because the tint arrives from the props and the image
+// from a loader, and either can land first.
+- (void)setRnImageTint:(nullable NSColor *)tint;
+
 // The paragraph this view draws, or nil for a view that draws none.
 //
 // A view either paints a layer or draws text; nothing here does both, because

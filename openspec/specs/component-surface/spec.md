@@ -21,6 +21,12 @@ Nothing in React Native SHALL be forked to achieve this: components come from
 - **WHEN** an app renders the core components
 - **THEN** each is mounted with the frame Yoga computed
 
+#### Scenario: An image can be recoloured
+
+- **WHEN** an app sets `tintColor` on an `<Image>`
+- **THEN** the image is drawn in that colour, keeping its own alpha
+- **AND** every desktop reports the same colour for it
+
 #### Scenario: The three desktops agree
 
 - **WHEN** the same app is rendered on two hosts

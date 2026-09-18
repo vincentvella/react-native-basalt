@@ -309,6 +309,7 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
   // Qualified: Carbon's headers put a CGImageSource in scope, and an
   // unqualified ImageSource resolves to that one.
   facebook::react::ImageSource source{};
+  facebook::react::SharedColor tint{};
 
   if (isExpoImage) {
     const auto props = std::dynamic_pointer_cast<const facebook::react::ExpoImageProps>(shadowView.props);
@@ -319,6 +320,7 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
     if (!props->sources.empty()) {
       source = props->sources.front();
     }
+    tint = props->tintColor;
   } else {
     const auto props = std::dynamic_pointer_cast<const ImageProps>(shadowView.props);
     if (props == nullptr) {
@@ -328,10 +330,29 @@ void AppKitMountingManager::applyImage(RnAppKitView *view, const ShadowView &sha
     if (!props->sources.empty()) {
       source = props->sources.front();
     }
+    // React Native's is optional where expo-image's is a plain SharedColor;
+    // both spell "no tint" as a falsy SharedColor once unwrapped.
+    if (props->tintColor) {
+      tint = *props->tintColor;
+    }
   }
 
   const std::string uri = source.uri;
   const Tag tag = shadowView.tag;
+
+  // Applied before the load rather than in its callback: the tint is a prop and
+  // the image is a loader's answer, and either can arrive first.
+  if (RnAppKitView *tinted = viewForTag(tag); tinted != nil) {
+    if (tint) {
+      const ColorComponents components = colorComponentsFromColor(tint);
+      [tinted setRnImageTint:[NSColor colorWithSRGBRed:components.red
+                                                 green:components.green
+                                                  blue:components.blue
+                                                 alpha:components.alpha]];
+    } else {
+      [tinted setRnImageTint:nil];
+    }
+  }
 
   // A mutation that changed only layout must not restart the load, or an
   // <Image> would flicker every time its parent resized. Re-requesting the same

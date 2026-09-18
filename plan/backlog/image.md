@@ -6,7 +6,7 @@ Part of the [backlog](../backlog.md). Not scheduled.
 
 1. Nothing evicts the texture cache
 2. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
-3. blurRadius, tintColor, overlayColor, fadeDuration and progressiveRenderingEnab
+3. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
 4. Assets are never fetched over the network, so a dev server's assets do not wor
 5. Nothing caches a downloaded asset, which is right for a local file and will no
 6. onProgress and onPartialLoad are never emitted
@@ -16,7 +16,19 @@ Part of the [backlog](../backlog.md). Not scheduled.
   remote images grows without bound.
 - `resizeMode: 'repeat'` falls back to `center`; a repeating draw needs a
   pattern node rather than one texture append.
-- `blurRadius`, `tintColor`, `overlayColor`, `fadeDuration` and
+- ~~**`tintColor` is ignored.**~~ Done on all three, and on expo-image's
+  `tintColor` too. The image becomes a stencil and the colour is what is drawn,
+  which is what the prop means: recolour the silhouette rather than blend with
+  the pixels. Each toolkit spells that differently -- a GskMaskNode in alpha
+  mode on GTK, `CGContextClipToMask` on AppKit, `FillOpacityMask` on Direct2D,
+  which needs aliased antialiasing and refuses the call without it.
+
+  The tree dump reports `tint=#rrggbbaa`, in one format on all three, which is
+  what makes a paint property assertable on hosts that have no rendering
+  assertions: cross-host parity now compares the tint the way it compares the
+  fit.
+
+- `blurRadius`, `overlayColor`, `fadeDuration` and
   `progressiveRenderingEnabled` are ignored.
 - ~~A `require()`d image drew nothing.~~ It laid out at the right size and had
   no pixels, and the reason was neither the loader nor the mounting manager:

@@ -150,7 +150,8 @@ RnWin32Image::~RnWin32Image() {
 void RnWin32Image::draw(ID2D1RenderTarget *target,
                         float boxWidth,
                         float boxHeight,
-                        RnImageFit fit) const {
+                        RnImageFit fit,
+                        const D2D1_COLOR_F *tint) const {
   if (target == nullptr || bitmap_ == nullptr || boxWidth <= 0.0f || boxHeight <= 0.0f) {
     return;
   }
@@ -209,7 +210,25 @@ void RnWin32Image::draw(ID2D1RenderTarget *target,
     const ScopedGeometryClip clip(needsClip ? target : nullptr,
                                   D2D1::RectF(0.0f, 0.0f, boxWidth, boxHeight),
                                   0.0f);
-    target->DrawBitmap(deviceBitmap_, destination);
+    if (tint != nullptr) {
+      // The bitmap becomes an opacity mask and the brush is what is painted.
+      // Direct2D requires aliased antialiasing for a mask whose content is
+      // graphics rather than text, and refuses the call otherwise -- so the
+      // mode is changed for the one draw and put back.
+      Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+      if (SUCCEEDED(target->CreateSolidColorBrush(*tint, brush.GetAddressOf()))) {
+        const D2D1_ANTIALIAS_MODE previous = target->GetAntialiasMode();
+        target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+        target->FillOpacityMask(deviceBitmap_,
+                                brush.Get(),
+                                D2D1_OPACITY_MASK_CONTENT_GRAPHICS,
+                                &destination,
+                                nullptr);
+        target->SetAntialiasMode(previous);
+      }
+    } else {
+      target->DrawBitmap(deviceBitmap_, destination);
+    }
   }
 }
 

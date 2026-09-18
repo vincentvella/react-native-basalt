@@ -170,6 +170,8 @@ struct _RnView {
 
   GdkTexture *texture;
   RnImageFit texture_fit;
+  gboolean has_image_tint;
+  GdkRGBA image_tint;
   char *role_name;
 
   gboolean clips_children;
@@ -337,7 +339,21 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
       clip.size.height = viewHeight;
       gtk_snapshot_push_clip(snapshot, &clip);
     }
-    gtk_snapshot_append_texture(snapshot, self->texture, &destination);
+    if (self->has_image_tint) {
+      // The image becomes a stencil and the colour is what is actually drawn.
+      // GskMaskNode records the mask first and the source second, which is why
+      // the texture is appended before the colour and there are two pops.
+      //
+      // Alpha rather than luminance: `tintColor` recolours a silhouette, so
+      // what matters is where the image is opaque, not how bright it is.
+      gtk_snapshot_push_mask(snapshot, GSK_MASK_MODE_ALPHA);
+      gtk_snapshot_append_texture(snapshot, self->texture, &destination);
+      gtk_snapshot_pop(snapshot);
+      gtk_snapshot_append_color(snapshot, &self->image_tint, &destination);
+      gtk_snapshot_pop(snapshot);
+    } else {
+      gtk_snapshot_append_texture(snapshot, self->texture, &destination);
+    }
     if (needs_clip) {
       gtk_snapshot_pop(snapshot);
     }
@@ -823,6 +839,21 @@ static const char *rn_image_fit_name(RnImageFit fit) {
   return "cover";
 }
 
+void rn_view_set_image_tint(RnView *self, gboolean has_tint, const GdkRGBA *tint) {
+  if (!RN_IS_VIEW(self)) {
+    return;
+  }
+  const gboolean changed = self->has_image_tint != has_tint ||
+      (has_tint && tint != nullptr && !gdk_rgba_equal(&self->image_tint, tint));
+  self->has_image_tint = has_tint;
+  if (has_tint && tint != nullptr) {
+    self->image_tint = *tint;
+  }
+  if (changed) {
+    gtk_widget_queue_draw(GTK_WIDGET(self));
+  }
+}
+
 void rn_view_set_texture(RnView *self, GdkTexture *texture, RnImageFit fit) {
   g_return_if_fail(RN_IS_VIEW(self));
 
@@ -1104,6 +1135,17 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
                            gdk_texture_get_width(self->texture),
                            gdk_texture_get_height(self->texture),
                            rn_image_fit_name(self->texture_fit));
+    // Printed for the same reason the fit is: a tinted image and an untinted
+    // one are identical in every other line of this dump and different on
+    // screen, and this is the only thing a test without pixels can read.
+    if (self->has_image_tint) {
+      g_string_append_printf(out,
+                             " tint=#%02x%02x%02x%02x",
+                             static_cast<unsigned>(self->image_tint.red * 255.0 + 0.5),
+                             static_cast<unsigned>(self->image_tint.green * 255.0 + 0.5),
+                             static_cast<unsigned>(self->image_tint.blue * 255.0 + 0.5),
+                             static_cast<unsigned>(self->image_tint.alpha * 255.0 + 0.5));
+    }
   }
   if (self->text_layout != nullptr) {
     const char *text = pango_layout_get_text(self->text_layout);

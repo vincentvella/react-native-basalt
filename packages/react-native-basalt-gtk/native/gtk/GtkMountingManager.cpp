@@ -371,6 +371,8 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
 
   RnImageFit fit = RN_IMAGE_FIT_COVER;
   facebook::react::ImageSource source{};
+  // `tintColor` on React Native's <Image>, and the same prop on expo-image.
+  facebook::react::SharedColor tint{};
 
   if (isExpoImage) {
     const auto props = std::dynamic_pointer_cast<const facebook::react::ExpoImageProps>(shadowView.props);
@@ -378,6 +380,7 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
       return;
     }
     fit = toImageFit(props->contentFit);
+    tint = props->tintColor;
     if (!props->sources.empty()) {
       source = props->sources.front();
     }
@@ -387,8 +390,26 @@ void GtkMountingManager::applyImage(RnView *view, const ShadowView &shadowView) 
       return;
     }
     fit = toImageFit(props->resizeMode);
+    // React Native's is optional where expo-image's is a plain SharedColor;
+    // both spell "no tint" as a falsy SharedColor once unwrapped.
+    if (props->tintColor) {
+      tint = *props->tintColor;
+    }
     if (!props->sources.empty()) {
       source = props->sources.front();
+    }
+  }
+
+  // Applied before the load rather than in its callback: the tint is a prop and
+  // the texture is a loader's answer, and either can arrive first. Setting it
+  // here means a re-render that only changes the colour repaints without
+  // touching the image.
+  if (RnView *tinted = viewForTag(shadowView.tag); tinted != nullptr) {
+    if (tint) {
+      const GdkRGBA rgba = toRgba(colorComponentsFromColor(tint));
+      rn_view_set_image_tint(tinted, TRUE, &rgba);
+    } else {
+      rn_view_set_image_tint(tinted, FALSE, nullptr);
     }
   }
 

@@ -55,6 +55,22 @@ function App() {
         <Image source={FILE} resizeMode="center" style={styles.cell} />
       </View>
       <Image source={{uri: INLINE}} resizeMode="stretch" style={styles.wide} />
+
+      {/*
+        tintColor: the image becomes a silhouette and the colour is what is
+        drawn. One asset, any colour, which is how icons are done -- and the
+        pair is deliberate, because a tinted image and an untinted one are
+        identical in a tree dump apart from this prop.
+      */}
+      <View style={styles.row}>
+        <Image source={FILE} resizeMode="contain" style={styles.cell} />
+        <Image
+          source={FILE}
+          resizeMode="contain"
+          style={styles.cell}
+          tintColor="#ff00aa"
+        />
+      </View>
       <Image
         source={MISSING}
         style={styles.cell}

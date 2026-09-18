@@ -232,6 +232,18 @@ void RnWin32View::setTextLayout(std::shared_ptr<RnWin32TextLayout> layout) {
   textLayout_ = std::move(layout);
 }
 
+void RnWin32View::setImageTint(bool hasTint, const float components[4]) {
+  // No repaint request here, for the same reason `setImage` makes none: this
+  // host invalidates once per mounted transaction rather than per view. See
+  // requestRepaint in main_win32.cpp.
+  hasImageTint_ = hasTint;
+  if (hasTint && components != nullptr) {
+    for (int i = 0; i < 4; i++) {
+      imageTint_[i] = components[i];
+    }
+  }
+}
+
 void RnWin32View::setImage(std::shared_ptr<RnWin32Image> image, RnImageFit fit) {
   image_ = std::move(image);
   imageFit_ = fit;
@@ -373,7 +385,12 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
     // on one view, but the order still has to be decided somewhere, and it is
     // cheaper to match than to argue about later.
     if (image_ != nullptr) {
-      image_->draw(target, frame_.width, frame_.height, imageFit_);
+      const D2D1_COLOR_F tint = D2D1::ColorF(imageTint_[0], imageTint_[1], imageTint_[2], imageTint_[3]);
+      image_->draw(target,
+                   frame_.width,
+                   frame_.height,
+                   imageFit_,
+                   hasImageTint_ ? &tint : nullptr);
     }
 
     // Text sits above the background and below any children, which is the
@@ -820,6 +837,16 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
     // every other field of this dump and different on screen.
     appendFormat(out, " texture=%ux%u", image_->width(), image_->height());
     appendFormat(out, " fit=%s", imageFitName(imageFit_));
+    // Printed for the same reason the fit is, and in the same format the other
+    // two hosts use, so the cross-host diff can compare them.
+    if (hasImageTint_) {
+      appendFormat(out,
+                   " tint=#%02x%02x%02x%02x",
+                   static_cast<unsigned>(imageTint_[0] * 255.0f + 0.5f),
+                   static_cast<unsigned>(imageTint_[1] * 255.0f + 0.5f),
+                   static_cast<unsigned>(imageTint_[2] * 255.0f + 0.5f),
+                   static_cast<unsigned>(imageTint_[3] * 255.0f + 0.5f));
+    }
   }
 
   if (textLayout_ != nullptr) {

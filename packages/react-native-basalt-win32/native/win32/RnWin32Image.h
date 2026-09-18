@@ -55,7 +55,13 @@ class RnWin32Image {
 
   // Draws into a box `boxWidth` by `boxHeight` at the target's current origin,
   // scaled and positioned by `fit`.
-  void draw(ID2D1RenderTarget *target, float boxWidth, float boxHeight, RnImageFit fit) const;
+  // `tint`, when given, recolours the image keeping its alpha -- one silhouette
+  // asset drawn in any colour, which is what `tintColor` is for.
+  void draw(ID2D1RenderTarget *target,
+            float boxWidth,
+            float boxHeight,
+            RnImageFit fit,
+            const D2D1_COLOR_F *tint = nullptr) const;
 
  private:
   RnWin32Image() = default;
