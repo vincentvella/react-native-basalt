@@ -30,6 +30,7 @@
 
 #include "RnView.h"
 #include "ScrollAnimation.h"
+#include "ScrollBounds.h"
 #include "ScrollIndicator.h"
 #include "ScrollSnap.h"
 #include "ScrollMomentum.h"
@@ -132,7 +133,11 @@ class GtkScrollViewManager {
 
     facebook::react::Size contentSize{};
     facebook::react::Size containerSize{};
+    // `contentInset` changes how far the view scrolls;
+    // `scrollIndicatorInsets` changes only where the bar is drawn. See
+    // core/ScrollBounds.h.
     facebook::react::EdgeInsets contentInset{};
+    facebook::react::EdgeInsets indicatorInset{};
 
     bool scrollEnabled{true};
     // `showsVerticalScrollIndicator` / `showsHorizontalScrollIndicator`. Both

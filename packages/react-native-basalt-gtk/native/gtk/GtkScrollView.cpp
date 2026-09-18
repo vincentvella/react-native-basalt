@@ -24,9 +24,13 @@ using facebook::react::Tag;
 
 namespace {
 
-double clampOffset(double value, double content, double container) {
-  const double maximum = std::max(0.0, content - container);
-  return std::clamp(value, 0.0, maximum);
+// One axis of the two inset props, in the order core/ScrollBounds.h wants them.
+ScrollAxisInsets verticalInsets(const facebook::react::EdgeInsets &insets) {
+  return {insets.top, insets.bottom};
+}
+
+ScrollAxisInsets horizontalInsets(const facebook::react::EdgeInsets &insets) {
+  return {insets.left, insets.right};
 }
 
 } // namespace
@@ -57,6 +61,7 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
     entry.showsVerticalIndicator = props->showsVerticalScrollIndicator;
     entry.showsHorizontalIndicator = props->showsHorizontalScrollIndicator;
     entry.contentInset = props->contentInset;
+    entry.indicatorInset = props->scrollIndicatorInsets;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
     // React Native resolves 'normal' and 'fast' to numbers before this sees
     // them; zero is what an app that never set the prop leaves behind, and
@@ -101,8 +106,14 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
   }
 
   // Re-clamp: the content may have shrunk under a scrolled offset.
-  const double x = clampOffset(entry.offsetX, entry.contentSize.width, entry.containerSize.width);
-  const double y = clampOffset(entry.offsetY, entry.contentSize.height, entry.containerSize.height);
+  const double x = clampScrollOffset(entry.offsetX,
+                                     entry.containerSize.width,
+                                     entry.contentSize.width,
+                                     horizontalInsets(entry.contentInset));
+  const double y = clampScrollOffset(entry.offsetY,
+                                     entry.containerSize.height,
+                                     entry.contentSize.height,
+                                     verticalInsets(entry.contentInset));
   entry.offsetX = x;
   entry.offsetY = y;
   rn_view_set_scroll_offset(view, x, y);
@@ -434,8 +445,14 @@ void GtkScrollViewManager::stopMomentum(Entry &entry, bool emitEnd) {
 // ---------------------------------------------------------------------------
 
 void GtkScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
-  const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
-  const double clampedY = clampOffset(y, entry.contentSize.height, entry.containerSize.height);
+  const double clampedX = clampScrollOffset(x,
+                                            entry.containerSize.width,
+                                            entry.contentSize.width,
+                                            horizontalInsets(entry.contentInset));
+  const double clampedY = clampScrollOffset(y,
+                                            entry.containerSize.height,
+                                            entry.contentSize.height,
+                                            verticalInsets(entry.contentInset));
 
   if (clampedX == entry.offsetX && clampedY == entry.offsetY) {
     return;
@@ -479,14 +496,20 @@ void GtkScrollViewManager::updateIndicators(const Entry &entry) {
     return;
   }
 
-  const ScrollIndicator vertical =
-      entry.showsVerticalIndicator
-          ? scrollIndicatorFor(entry.containerSize.height, entry.contentSize.height, entry.offsetY)
-          : ScrollIndicator{};
+  const ScrollIndicator vertical = entry.showsVerticalIndicator
+                                       ? scrollIndicatorFor(entry.containerSize.height,
+                                                            entry.contentSize.height,
+                                                            entry.offsetY,
+                                                            verticalInsets(entry.contentInset),
+                                                            verticalInsets(entry.indicatorInset))
+                                       : ScrollIndicator{};
   const ScrollIndicator horizontal =
-      entry.showsHorizontalIndicator
-          ? scrollIndicatorFor(entry.containerSize.width, entry.contentSize.width, entry.offsetX)
-          : ScrollIndicator{};
+      entry.showsHorizontalIndicator ? scrollIndicatorFor(entry.containerSize.width,
+                                                          entry.contentSize.width,
+                                                          entry.offsetX,
+                                                          horizontalInsets(entry.contentInset),
+                                                          horizontalInsets(entry.indicatorInset))
+                                     : ScrollIndicator{};
 
   rn_view_set_scroll_indicators(
       entry.view, vertical.offset, vertical.length, horizontal.offset, horizontal.length);

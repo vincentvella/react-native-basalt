@@ -2358,6 +2358,67 @@ def test_scrollbar_can_be_turned_off(bundle: Path) -> None:
         )
 
 
+def test_content_inset(bundle: Path) -> None:
+    """`contentInset` changes how far a list scrolls, and
+    `scrollIndicatorInsets` changes only where its bar is drawn.
+
+    Runs the fourth app in js/scroll.js, which sets a 60pt top content inset
+    and a 30pt top indicator inset, then scrolls to -60.
+
+    The offset is the whole of the first half: a platform that reads the prop
+    and ignores it -- which all three did until now -- clamps -60 to 0, so the
+    number is the difference between applied and merely parsed.
+
+    The second half is the indicator, which is why the two insets are
+    different numbers. The bar's track starts at the standard inset *plus*
+    the indicator inset, and a host that applied `contentInset` to both would
+    put it 60 down instead of 30.
+    """
+    app = bundle_app(bundle.parent, "scroll")
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env = dict(os.environ)
+        env["BASALT_DUMP_TREE"] = str(dump)
+        env["BASALT_QUIT_AFTER_MS"] = "3000"
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE",
+                     "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL",
+                     "BASALT_TEST_MENU", "BASALT_TEST_CLOSE_WINDOW"):
+            env.pop(name, None)
+
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltScrollInset"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        tree = dump.read_text() if dump.exists() else ""
+
+    if not tree:
+        raise Failure("the host dumped no tree")
+
+    offset = scroll_offset(tree)
+    if offset > -59.0:
+        raise Failure(
+            f"scrollTo({{y: -60}}) with a 60pt contentInset rested at {offset}. "
+            "Zero means the inset was parsed and not applied, which is what "
+            "every host did before this."
+        )
+
+    # The bar sits below its own inset, not the content one.
+    bar = scrollbar(tree, "v")
+    if bar is None:
+        raise Failure("the inset list drew no scrollbar")
+    bar_offset, _ = bar
+    expected = SCROLLBAR_INSET + 30.0
+    if abs(bar_offset - expected) > 1.0:
+        raise Failure(
+            f"the bar starts at {bar_offset}, not {expected}. "
+            "60 would mean scrollIndicatorInsets was ignored and contentInset "
+            "used for both."
+        )
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2879,6 +2940,8 @@ SCENARIOS = [
     ("scrollTo({animated: true}) moves rather than jumps", test_animated_scroll),
     ("showsVerticalScrollIndicator={false} takes the bar and not the scrolling",
      test_scrollbar_can_be_turned_off),
+    ("contentInset changes the range, and scrollIndicatorInsets only the bar",
+     test_content_inset),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("a window says how big it may be, and what this desktop can do about it",

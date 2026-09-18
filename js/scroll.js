@@ -168,3 +168,48 @@ function Bare() {
 }
 
 AppRegistry.registerComponent('BasaltScrollBare', () => Bare);
+
+/**
+ * The same list with `contentInset` and `scrollIndicatorInsets`.
+ *
+ * Its own screen because what the two props change is a *range*, and a range
+ * is only visible by going to the end of it. `scrollTo({y: -60})` is the whole
+ * test: without a top `contentInset` that clamps to 0, and with one it arrives
+ * at -60 -- which is a list pulled down to show what a header is covering.
+ *
+ * The indicator insets are deliberately different numbers from the content
+ * ones, because the two do different jobs and a host that applied one to both
+ * would pass a test that used the same value twice.
+ */
+function Inset() {
+  const scroller = React.useRef(null);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      // Past the top, into the inset. A platform that ignores contentInset
+      // clamps this to zero.
+      scroller.current?.scrollTo({y: -60, animated: false});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <View style={styles.page}>
+      <ScrollView
+        ref={scroller}
+        style={styles.scroller}
+        contentInset={{top: 60, bottom: 20}}
+        scrollIndicatorInsets={{top: 30, bottom: 10}}
+        scrollEventThrottle={16}
+        onScroll={event => {
+          const {y} = event.nativeEvent.contentOffset;
+          console.log(`scrolled to ${Math.round(y)}`);
+        }}>
+        {rows()}
+        <View style={styles.marker} />
+      </ScrollView>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltScrollInset', () => Inset);

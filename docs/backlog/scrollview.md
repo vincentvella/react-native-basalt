@@ -2,13 +2,12 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (5):**
+**Open (4):**
 
 1. Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11
 2. contentBoundingRect
 3. disableViewCulling is never set, which will matter once AT-SPI lands
-4. contentInset and scrollIndicatorInsets are reported and never applied
-5. No zoom
+4. No zoom
 
 - Trackpad (pixel-unit) scrolling is unverified; the wheel path is, on X11.
 - ~~No momentum.~~ See the Input section. What is left is Windows, which has no
@@ -64,10 +63,22 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   position and cannot be used to change it. `flashScrollIndicators` is
   correspondingly still a no-op -- the bar is always on screen, so there is
   nothing to flash.
-- **`contentInset` and `scrollIndicatorInsets` are reported and never applied**,
-  on all three. They are read from props and passed through in the scroll event,
-  and nothing positions against them -- so a list that asks to be inset from the
-  top scrolls as though it had not.
+- ~~**`contentInset` and `scrollIndicatorInsets` are reported and never
+  applied.**~~ Done on all three, in `core/ScrollBounds.h`.
+
+  An inset is not padding: it makes the *range* bigger and leaves the content
+  the size it is, so the range now runs from `-leading` to
+  `content - container + trailing`. With no insets those are the same numbers
+  as before, which is why nothing changed for anybody who never set one.
+
+  The two props do different jobs and are kept apart for that reason:
+  `contentInset` changes how far the view scrolls, and therefore what fraction
+  of the way through any offset is; `scrollIndicatorInsets` shortens the track
+  the thumb runs in and nothing else. A host that applied one to both would
+  pass a test that used the same number twice, so the scenario uses 60 and 30.
+
+  It also removed three copies of `clampOffset`, one per host, none of which
+  read the insets.
 - **No zoom.** `zoomScale` is reported as 1 and nothing changes it.
   Pinch-to-zoom has no implementation on any of the three, and a desktop has no
   obvious gesture for it.

@@ -64,6 +64,28 @@ direction the gesture was flicked.
 - **AND** it does not coast past it
 - **AND** it never settles outside the content
 
+### Requirement: An inset changes the range, not the content
+
+The system SHALL apply `contentInset` by extending how far a scroll view may be
+scrolled -- before its content as well as past it -- rather than by resizing or
+repositioning the content, which is what an inset means and is not what padding
+means.
+
+The system SHALL apply `scrollIndicatorInsets` to the indicator's track alone,
+leaving the range unchanged, so that a header overlaying a list can move the
+bar without moving the list.
+
+#### Scenario: A leading inset can be scrolled into
+
+- **WHEN** a scroll view with a top `contentInset` is scrolled above its content
+- **THEN** it rests inside the inset rather than clamping at the content's top
+
+#### Scenario: An indicator inset moves only the bar
+
+- **WHEN** a scroll view sets `scrollIndicatorInsets` and not `contentInset`
+- **THEN** the indicator's track starts and ends inside those insets
+- **AND** how far the view scrolls is unchanged
+
 ### Requirement: A scroll view shows where you are in it
 
 The system SHALL draw an overlay scroll indicator whose geometry is decided once

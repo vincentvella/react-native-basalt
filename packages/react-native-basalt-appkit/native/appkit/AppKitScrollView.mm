@@ -107,9 +107,13 @@ using facebook::react::Tag;
 
 namespace {
 
-double clampOffset(double value, double content, double container) {
-  const double maximum = std::max(0.0, content - container);
-  return std::clamp(value, 0.0, maximum);
+// One axis of the two inset props, in the order core/ScrollBounds.h wants them.
+ScrollAxisInsets verticalInsets(const facebook::react::EdgeInsets &insets) {
+  return {insets.top, insets.bottom};
+}
+
+ScrollAxisInsets horizontalInsets(const facebook::react::EdgeInsets &insets) {
+  return {insets.left, insets.right};
 }
 
 double nowSeconds() {
@@ -153,6 +157,7 @@ void AppKitScrollViewManager::update(RnAppKitView *view, const ShadowView &shado
     entry.showsVerticalIndicator = props->showsVerticalScrollIndicator;
     entry.showsHorizontalIndicator = props->showsHorizontalScrollIndicator;
     entry.contentInset = props->contentInset;
+    entry.indicatorInset = props->scrollIndicatorInsets;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
 
     entry.snap.paging = props->pagingEnabled;
@@ -191,8 +196,14 @@ void AppKitScrollViewManager::update(RnAppKitView *view, const ShadowView &shado
   }
 
   // Re-clamp: the content may have shrunk under a scrolled offset.
-  const double x = clampOffset(entry.offsetX, entry.contentSize.width, entry.containerSize.width);
-  const double y = clampOffset(entry.offsetY, entry.contentSize.height, entry.containerSize.height);
+  const double x = clampScrollOffset(entry.offsetX,
+                                     entry.containerSize.width,
+                                     entry.contentSize.width,
+                                     horizontalInsets(entry.contentInset));
+  const double y = clampScrollOffset(entry.offsetY,
+                                     entry.containerSize.height,
+                                     entry.contentSize.height,
+                                     verticalInsets(entry.contentInset));
   entry.offsetX = x;
   entry.offsetY = y;
   [view setRnScrollOffsetX:x y:y];
@@ -368,11 +379,19 @@ void AppKitScrollViewManager::updateIndicators(const Entry &entry) {
 
   const ScrollIndicator vertical =
       entry.showsVerticalIndicator
-          ? scrollIndicatorFor(entry.containerSize.height, entry.contentSize.height, entry.offsetY)
+          ? scrollIndicatorFor(entry.containerSize.height,
+                               entry.contentSize.height,
+                               entry.offsetY,
+                               verticalInsets(entry.contentInset),
+                               verticalInsets(entry.indicatorInset))
           : ScrollIndicator{};
   const ScrollIndicator horizontal =
       entry.showsHorizontalIndicator
-          ? scrollIndicatorFor(entry.containerSize.width, entry.contentSize.width, entry.offsetX)
+          ? scrollIndicatorFor(entry.containerSize.width,
+                               entry.contentSize.width,
+                               entry.offsetX,
+                               horizontalInsets(entry.contentInset),
+                               horizontalInsets(entry.indicatorInset))
           : ScrollIndicator{};
 
   [entry.view setRnScrollIndicatorVerticalOffset:vertical.offset
@@ -382,8 +401,14 @@ void AppKitScrollViewManager::updateIndicators(const Entry &entry) {
 }
 
 void AppKitScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
-  const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
-  const double clampedY = clampOffset(y, entry.contentSize.height, entry.containerSize.height);
+  const double clampedX = clampScrollOffset(x,
+                                            entry.containerSize.width,
+                                            entry.contentSize.width,
+                                            horizontalInsets(entry.contentInset));
+  const double clampedY = clampScrollOffset(y,
+                                            entry.containerSize.height,
+                                            entry.contentSize.height,
+                                            verticalInsets(entry.contentInset));
 
   if (clampedX == entry.offsetX && clampedY == entry.offsetY) {
     return;

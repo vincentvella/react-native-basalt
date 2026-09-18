@@ -26,6 +26,8 @@
 
 #pragma once
 
+#include "ScrollBounds.h"
+
 namespace basalt {
 
 // Drawing constants, here rather than in three hosts so they cannot drift.
@@ -47,12 +49,21 @@ struct ScrollIndicator {
 
 // Where the thumb goes for one axis.
 //
-// `scrollOffset` may be outside the content -- an elastic overscroll goes
+// `scrollOffset` may be outside the range -- an elastic overscroll goes
 // negative at the top -- and the result is clamped rather than refused, because
 // a thumb that vanished at the limits would flicker at exactly the moment
 // somebody is looking at it.
+//
+// Two sets of insets, and they do different jobs. `content` is the app's
+// `contentInset`: it changes how far the view scrolls, so it changes what
+// fraction of the way through any given offset is. `indicator` is
+// `scrollIndicatorInsets`: it shortens the track the thumb runs in and nothing
+// else, which is what a header overlaying the top of a list wants -- the bar
+// should start below it.
 ScrollIndicator scrollIndicatorFor(double containerLength,
                                    double contentLength,
-                                   double scrollOffset);
+                                   double scrollOffset,
+                                   ScrollAxisInsets content = {},
+                                   ScrollAxisInsets indicator = {});
 
 } // namespace basalt
