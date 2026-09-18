@@ -15,12 +15,14 @@
 // way, which is also how the GTK suite builds them.
 
 #include "TestHarness.h"
+#include "EventRecorder.h"
 
 #import "AppKitMountingManager.h"
 #import "AppKitTextPeer.h"
 #import "RnAppKitView.h"
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
+#include <react/renderer/components/textinput/TextInputEventEmitter.h>
 #include <react/renderer/core/PropsParserContext.h>
 #include <react/renderer/core/RawProps.h>
 #include <react/renderer/core/RawPropsParser.h>
@@ -38,6 +40,7 @@ using facebook::react::ShadowViewMutation;
 using facebook::react::ShadowViewMutationList;
 using facebook::react::SurfaceId;
 using facebook::react::Tag;
+using facebook::react::TextInputEventEmitter;
 using facebook::react::TextInputProps;
 using facebook::react::TransactionTelemetry;
 
@@ -59,7 +62,9 @@ const RawPropsParser &textInputParser() {
   return parser;
 }
 
-ShadowView makeTextInput(Tag tag, folly::dynamic props) {
+ShadowView makeTextInput(Tag tag,
+                         folly::dynamic props,
+                         facebook::react::SharedEventEmitter emitter = nullptr) {
   static const auto contextContainer = std::make_shared<const ContextContainer>();
   PropsParserContext context{kSurfaceId, *contextContainer};
 
@@ -76,6 +81,9 @@ ShadowView makeTextInput(Tag tag, folly::dynamic props) {
   view.tag = tag;
   view.props = parsed;
   view.layoutMetrics = metrics;
+  // Null for most tests, which is what a hand-built shadow view carries and
+  // why nothing here could see an event until EventRecorder.h.
+  view.eventEmitter = std::move(emitter);
   return view;
 }
 
@@ -85,14 +93,17 @@ void apply(basalt::AppKitMountingManager &manager, ShadowViewMutationList &&muta
 }
 
 // Mounts one TextInput under the surface root and hands back its view.
-RnAppKitView *mountField(basalt::AppKitMountingManager &manager, Tag tag, folly::dynamic props) {
+RnAppKitView *mountField(basalt::AppKitMountingManager &manager,
+                         Tag tag,
+                         folly::dynamic props,
+                         facebook::react::SharedEventEmitter emitter = nullptr) {
   RnAppKitView *root = manager.createSurfaceRoot(kSurfaceId);
   [root setRnFrameX:0 y:0 width:400 height:300];
 
   ShadowViewMutationList mutations;
-  mutations.push_back(ShadowViewMutation::CreateMutation(makeTextInput(tag, props)));
+  mutations.push_back(ShadowViewMutation::CreateMutation(makeTextInput(tag, props, emitter)));
   mutations.push_back(
-      ShadowViewMutation::InsertMutation(kSurfaceId, makeTextInput(tag, props), 0));
+      ShadowViewMutation::InsertMutation(kSurfaceId, makeTextInput(tag, props, emitter), 0));
   apply(manager, std::move(mutations));
 
   return manager.viewForTag(tag);
@@ -116,6 +127,15 @@ void typeInto(NSView *field, NSString *text) {
   [((NSTextField *)field).delegate
       controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
                                                          object:field]];
+}
+
+// What AppKit posts when editing ends -- the field losing focus, or the user
+// pressing Tab. Single line only, for the same reason typeInto is.
+void endEditing(NSView *field) {
+  [((NSTextField *)field).delegate
+      controlTextDidEndEditing:[NSNotification
+                                   notificationWithName:NSControlTextDidEndEditingNotification
+                                                 object:field]];
 }
 
 // One Update mutation for a field, which is what every re-render produces.
@@ -520,6 +540,75 @@ TEST(textinput_commands_survive_an_unknown_tag) {
     manager.applyCommand(9999, "focus", folly::dynamic::array());
     manager.applyCommand(70, "somethingElse", folly::dynamic::array());
     manager.applyCommand(70, "blur", folly::dynamic::array());
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// --- What React actually hears ---------------------------------------------
+//
+// Everything above pins the field's own state. These pin the events, which
+// nothing below the end-to-end suite could see until EventRecorder.h -- see
+// that header for why a stub emitter cannot do this and a real dispatcher can.
+
+TEST(textinput_change_reaches_the_emitter) {
+  @autoreleasepool {
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager,
+                                    80,
+                                    folly::dynamic::object("text", ""),
+                                    recorder.emitter<TextInputEventEmitter>());
+
+    typeInto(fieldOf(view), @"a");
+
+    const auto seen = recorder.seen();
+    EXPECT_EQ(seen.size(), 1u);
+    EXPECT_EQ(seen.empty() ? std::string{} : seen[0], std::string{"topChange"});
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// A genuine ordering assertion, and the first one in either suite: one call
+// site emits two events, and React Native's contract is blur before
+// endEditing. Nothing checked that they both fired, never mind in which
+// order.
+TEST(textinput_blur_reports_blur_before_end_editing) {
+  @autoreleasepool {
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    RnAppKitView *view = mountField(manager,
+                                    81,
+                                    folly::dynamic::object("text", "hello"),
+                                    recorder.emitter<TextInputEventEmitter>());
+
+    endEditing(fieldOf(view));
+
+    const auto seen = recorder.seen();
+    EXPECT_EQ(seen.size(), 2u);
+    if (seen.size() == 2) {
+      EXPECT_EQ(seen[0], std::string{"topBlur"});
+      EXPECT_EQ(seen[1], std::string{"topEndEditing"});
+    }
+
+    manager.destroySurfaceRoot(kSurfaceId);
+  }
+}
+
+// A field nobody typed into reports nothing. Worth pinning because the
+// recorder would be just as quiet if it were wired up wrong, and every
+// assertion above rests on it hearing what it should.
+TEST(textinput_mounting_alone_reports_nothing) {
+  @autoreleasepool {
+    basalt::testing::EventRecorder recorder;
+    basalt::AppKitMountingManager manager;
+    mountField(manager,
+               82,
+               folly::dynamic::object("text", "hello"),
+               recorder.emitter<TextInputEventEmitter>());
+
+    EXPECT(recorder.seen().empty());
 
     manager.destroySurfaceRoot(kSurfaceId);
   }

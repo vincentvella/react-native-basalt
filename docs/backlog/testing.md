@@ -2,7 +2,7 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (10):**
+**Open (9):**
 
 1. No rendering assertions on GTK
 2. Nothing exercises the JS thread and the main thread concurrently
@@ -11,9 +11,8 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 5. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
 6. Nothing tests tap-to-focus
 7. A `<TextInput>`'s wrapper is still an element of its own on Windows
-8. No unit test can observe an event
-9. The hover scenario cannot assert its order on GTK-over-quartz
-10. One flaky end-to-end scenario
+8. The hover scenario cannot assert its order on GTK-over-quartz
+9. One flaky end-to-end scenario
 
 - **No rendering assertions on GTK.** The widget tree says a view has a colour
   and a frame, not that the right pixels reached the screen. This is not
@@ -169,34 +168,40 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   nothing about this view and a third vocabulary would put the cross-host diff
   back where phase 53 found it.
 
-- **No unit test can observe an event.** Neither suite attaches an
-  `EventEmitter` to the shadow views it builds, and `test_appkit_textinput.mm`
-  says so in as many words: *"No emitter is attached to these hand-built shadow
-  views, so what this pins is that the round trip did not throw."* That is a
-  reasonable thing to pin and it is not coverage of the event.
+- ~~**No unit test can observe an event.**~~ Both suites can, through
+  `native/tests/EventRecorder.h`. Five tests use it so far: a change reaching
+  React on each host, blur before endEditing on AppKit, a prop that must not
+  report itself as typing on GTK, and on both a field that has only been
+  mounted staying silent -- which is there to catch a recorder wired up wrong,
+  since every other assertion rests on it hearing what it should.
 
-  So nothing about `onChange`, `onFocus`, `onBlur`, `onKeyPress`,
-  `onSelectionChange` or `onSubmitEditing` is tested anywhere below the
-  end-to-end suite. Three of the four `<TextInput>` features added in phases 51
-  and 52 rest on probe apps run by hand -- which is good evidence that they
-  worked once, on the machine they were written on, and no evidence at all
-  against a regression.
+  **The stub emitter this entry ruled out is still ruled out, and the way
+  round it was to stop stubbing.** `EventDispatcher` takes a listener --
+  `std::function<bool(const RawEvent &)>` -- and consults it at the top of
+  `dispatchEvent`, before the logger and before the queue; returning true says
+  the event was handled and stops the default dispatch, so nothing downstream
+  runs and no beat has to flush. A real emitter over a real dispatcher, and no
+  production code carrying a test hook, which is the trade this entry was
+  weighing.
 
-  A stub emitter handed back through `EmitterLookup` was the obvious fix and it
-  does not work, which is worth recording so it is not tried twice.
-  `TextInputEventEmitter` has no virtual methods at all -- the header contains
-  the word `virtual` zero times -- so there is nothing to override, and
-  constructing a *real* one reaches `EventDispatcher`, which needs an
-  `EventBeat`, which needs a `RuntimeScheduler` and so a JavaScript runtime.
-  That is the whole machinery the unit suites exist to avoid.
+  The one thing standing in the way was that `EventQueue`'s constructor calls
+  `setBeatCallback` immediately, so the beat cannot be null, and `EventBeat`
+  holds a `RuntimeScheduler &`. That reads like the whole JavaScript
+  machinery and is not: `RuntimeScheduler` takes a `RuntimeExecutor`, which is
+  a `std::function`, and a runtime appears only when something invokes it.
+  Nothing does.
 
-  What would work is a seam in the managers: route every emission through one
-  private `emit(tag, kind, metrics)` that calls the emitter by default and can
-  be pointed at a recorder in a test. Thirty-odd lines across the two managers,
-  and it is production code carrying a test hook -- a trade worth making
-  deliberately rather than by accident, which is why it is written here rather
-  than done. `onKeyPress` firing before `onChange` is the case that most wants
-  it, being an ordering guarantee nothing currently checks.
+  **What still cannot be asserted is payload values.** Every `TextInput` event
+  builds a `jsi::Object` through a `ValueFactory`, and reading one back needs
+  a `jsi::Runtime`. So what a value ends up as stays the end-to-end suite's
+  to check; which event fired, and in what order, is now this one's.
+
+  What is left to cover with it: `onKeyPress` before `onChange`, which is the
+  ordering this entry named. It needs a focused field in a real window on both
+  hosts -- AppKit's key monitor only sees a key going to a first responder,
+  GTK's focus controller the same -- and calling the handlers directly in the
+  order the test expects would assert nothing but itself. Worth doing with a
+  window, not worth faking.
 
 - **The hover scenario cannot assert its order on GTK-over-quartz**, and is
   skipped there with a note rather than loosened. A real cursor sitting over the

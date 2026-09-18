@@ -14,6 +14,7 @@
 // means these tests exercise the same parse the real thing does.
 
 #include "TestHarness.h"
+#include "EventRecorder.h"
 
 #include "GtkMountingManager.h"
 #include "GtkTextInput.h"
@@ -21,6 +22,7 @@
 #include "GtkTextPeer.h"
 
 #include <react/renderer/components/iostextinput/TextInputProps.h>
+#include <react/renderer/components/textinput/TextInputEventEmitter.h>
 #include <react/renderer/core/RawPropsParser.h>
 
 #include <folly/dynamic.h>
@@ -74,10 +76,18 @@ ShadowView makeTextInput(Tag tag, folly::dynamic raw, float inset = 0.0F) {
   return view;
 }
 
-// No event emitter: creating a real one needs an EventDispatcher and a runtime
-// scheduler, and everything asserted here is on the widget side of the loop.
+// No event emitter, which is right for everything asserted on the widget side
+// of the loop: the field's own state does not depend on anyone listening.
 basalt::GtkTextInputManager makeManager() {
   return basalt::GtkTextInputManager([](Tag) { return EventEmitter::Shared{}; });
+}
+
+// And one that is listened to. A real emitter over a real EventDispatcher --
+// see tests/EventRecorder.h for why that is possible without a JavaScript
+// runtime, which the comment here used to say it was not.
+basalt::GtkTextInputManager makeRecordedManager(const basalt::testing::EventRecorder &recorder) {
+  auto emitter = recorder.emitter<facebook::react::TextInputEventEmitter>();
+  return basalt::GtkTextInputManager([emitter](Tag) { return emitter; });
 }
 
 // Through the seam, because a multiline peer is not a GtkEditable and asking
@@ -536,6 +546,53 @@ TEST(textinput_drops_its_peer_when_the_field_is_removed) {
   // dangling pointer.
   EXPECT(rn_view_get_editable(view) == nullptr);
   EXPECT(!manager.dispatchCommand(10, "focus", folly::dynamic::array()));
+
+  g_object_unref(view);
+}
+
+// --- What React actually hears ---------------------------------------------
+//
+// Nothing below the end-to-end suite could see an event until
+// tests/EventRecorder.h, so every assertion above is about the widget and
+// none is about the loop. These two are about the loop.
+
+TEST(textinput_change_reaches_the_emitter) {
+  basalt::testing::EventRecorder recorder;
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeRecordedManager(recorder);
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "")));
+
+  // Mounting a field is not the user doing anything, so React hears nothing
+  // yet. Worth pinning: a recorder wired up wrong would be just as quiet.
+  EXPECT(recorder.seen().empty());
+
+  typeInto(view, "a", 0);
+
+  const auto seen = recorder.seen();
+  EXPECT_EQ(seen.size(), 1U);
+  EXPECT_EQ(seen.empty() ? std::string{} : seen[0], std::string("topChange"));
+
+  g_object_unref(view);
+}
+
+// A value pushed down as a prop is React talking to the field, not the field
+// talking back -- so it must not come back up as a change. That is the
+// controlled-value loop the top of this file describes, and the half of it
+// that could not be checked until an event could be observed at all: the
+// tests above could see that the text was right, not that the field stayed
+// quiet about it.
+TEST(textinput_a_prop_does_not_report_itself_as_a_change) {
+  basalt::testing::EventRecorder recorder;
+  RnView *view = rn_view_new(10);
+  g_object_ref_sink(view);
+  auto manager = makeRecordedManager(recorder);
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "")));
+
+  manager.update(view, makeTextInput(10, folly::dynamic::object("text", "from React")));
+
+  EXPECT_EQ(textOf(view), std::string("from React"));
+  EXPECT(recorder.seen().empty());
 
   g_object_unref(view);
 }

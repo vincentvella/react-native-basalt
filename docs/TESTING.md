@@ -97,6 +97,23 @@ only on Windows; CMake omits the target elsewhere.
 | `native/tests/test_win32_mounting.cpp` | The mutation walk, through the real Win32MountingManager. Deliberately the same nine questions asked of GTK and AppKit, in the same order with the same tags, so a divergence in the shared walk fails here rather than in an app. Built only when the build was pointed at a React Native. |
 | `native/tests/test_win32_imageloader.cpp` | The image loader. Decoding a file URI, the cache answering without going back to disk, the three ways a load can fail, and that a decoded image survives the loader that produced it. Built only when the build was pointed at a React Native, because the fetch is core/ImageBytes.cpp. |
 
+### Watching an event go past
+
+`native/tests/EventRecorder.h` is how a unit test sees that an event fired.
+Neither suite could: the managers ask `eventEmitterForTag` for an emitter and
+the hand-built shadow views carry none, so what the text-input tests pinned
+was, in their own words, "that the round trip did not throw".
+
+A stub emitter cannot fix that -- `TextInputEventEmitter` contains the word
+`virtual` zero times -- so the recorder builds the real thing and listens
+underneath it. `EventDispatcher` takes a `std::function<bool(const RawEvent
+&)>` and consults it before the logger and before the queue; returning true
+stops the default dispatch, so no `RuntimeScheduler` ever has to run.
+
+What it sees is the event's type and its position in the order. Payload
+values need a `jsi::Runtime` to read, so what a value ends up as stays the
+end-to-end suite's question.
+
 ## `build/basalt_gtk_tests` — the unit suite
 
 Everything reachable without a JavaScript runtime. No React, no Metro, no
@@ -109,7 +126,7 @@ Hermes: mutations are hand-built, the way `mount_harness_gtk` builds them.
 | `native/tests/test_text.cpp` | Pango measurement. Wrapping, `numberOfLines`, that a bigger font measures bigger, and two regression tests: that font sizes are absolute rather than points, and that the default ellipsize mode does not collapse a wrapping paragraph to one line. |
 | `native/tests/test_hittest.cpp` | Hit testing. Depth, sibling order, misses, and that it follows a scroll offset. |
 | `native/tests/test_image.cpp` | The image loader. Decoding, the cache answering synchronously, and the three ways a load can fail. |
-| `native/tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. |
+| `native/tests/test_textinput.cpp` | The controlled-value loop. That applying a prop is not reported back as typing, that the caret survives a prop arriving mid-word, that a command carrying a stale `eventCount` is dropped, and that the `GtkText` peer is allocated inside the content inset. Props are built through React Native's own `RawProps` parser, because the fields that matter are const and only reachable that way. Two tests watch the *events* rather than the widget, through `native/tests/EventRecorder.h`. |
 
 ## `build/basalt_appkit_tests` — the macOS suite
 
