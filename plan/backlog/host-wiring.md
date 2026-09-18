@@ -2,6 +2,16 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (7):**
+
+1. Scheduler::reportMount is never called
+2. IDevUIDelegate / LogBox: JS errors currently go to g_warning and nothing else,
+3. Dev support is tied to the dev server, so an offline `__DEV__` bundle cannot run
+4. TurboModules the demo's own JavaScript asked for and did not get, none fatal t
+5. src/LinuxNetworking
+6. The linux platform redirects nine React Native shims to their 
+7. Nothing checks that the shim list in metro-config
+
 - `Scheduler::reportMount` is never called. It only drives mount hooks (perf
   tooling, Fantom's test observation), so nothing renders wrongly without it,
   but a real host reports. Needs the mounting manager to hold a

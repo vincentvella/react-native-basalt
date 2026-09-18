@@ -2,6 +2,20 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (11):**
+
+1. expo-image's decorative props
+2. More Expo views
+3. A URL delivered to a *running* app
+4. The clipboard's image and URL types
+5. A frame source the animation systems can share
+6. `core/ReanimatedCompat.h` has never been compiled
+7. Reanimated's layout animations and shared element transitions
+8. `synchronouslyUpdateUIProps`
+9. The gestures a cursor cannot make
+10. The rest of RNGH's relation graph
+11. A visible error when the bundle throws
+
 Measured in phase 34 against a real dependency set, on both desktops.
 
 - **expo-image's decorative props**: placeholder, transition, blurhash, cache

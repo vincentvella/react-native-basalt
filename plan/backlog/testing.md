@@ -2,6 +2,21 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (12):**
+
+1. No rendering assertions on GTK or macOS
+2. Nothing exercises the JS thread and the main thread concurrently
+3. The end-to-end scenarios hard-code tap coordinates from the demo's layout
+4. CI builds and tests Linux and Windows on every push
+5. The Fast Refresh scenario is skipped in CI
+6. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
+7. CI has no rendering assertions, so it cannot catch what the cairo renderer did
+8. Nothing tests tap-to-focus
+9. A `<TextInput>`'s wrapper is still an element of its own on Windows
+10. No unit test can observe an event
+11. The hover scenario cannot assert its order on GTK-over-quartz
+12. One flaky end-to-end scenario
+
 - **No rendering assertions on GTK or macOS.** The widget tree says a view has a
   colour and a frame, not that the right pixels reached the screen. This is not
   theoretical -- GTK's cairo renderer mangled every transform in the demo and no

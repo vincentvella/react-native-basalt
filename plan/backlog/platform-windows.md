@@ -2,6 +2,17 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (8):**
+
+1. The Hermes patch is applied by hand and nothing reapplies it
+2. React Native's own warnings are not enforced on Windows
+3. `offsetPoint` is page coordinates on all three platforms
+4. `BASALT_SNAPSHOT` cannot see a `<TextInput>` on Windows
+5. A `<TextInput>` on Windows is always on top of everything
+6. The Windows choreographer is a 16ms timer
+7. `scripts/integration_test.py` skips Fast Refresh on Windows
+8. Nothing makes a red build hard to ignore
+
 Since phase 47 Windows is a peer rather than a port in progress. It mounts every
 component the other two desktops do -- `<View>`, `<Text>`, `<Image>`,
 `<ScrollView>` and `<TextInput>` -- and Hermes evaluates a bundle, Fabric diffs
@@ -161,6 +172,8 @@ and none of it is a missing half.
   archive cycle only GNU ld minds, and a header reaching `<cstdint>` through
   windows.h -- which is the argument for `scripts/check_includes.js` and for
   reading the log rather than the tick.
-  - **Nothing makes a red build hard to ignore.** No branch protection, no
-    required check, no notification anyone reads. Thirteen commits is what that
-    costs, and none of the work above changes it.
+
+- **Nothing makes a red build hard to ignore.** No branch protection, no
+  required check, no notification anyone reads. Thirteen commits of a silently
+  failing Linux job is what that cost once, and none of the work above changes
+  it.

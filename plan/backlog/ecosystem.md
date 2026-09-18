@@ -2,6 +2,13 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (4):**
+
+1. Nobody else can use this yet
+2. Adding a desktop to an Expo app is manual
+3. Porting a first third-party native module end to end
+4. Packaging: Arch PKGBUILD, Flatpak
+
 - **Nobody else can use this yet** -- because nothing is published, and no
   longer because installing would not work. A fresh `create-expo-app` (SDK 57,
   React Native 0.86.3) with the four packages installed from their tarballs

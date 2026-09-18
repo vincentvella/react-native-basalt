@@ -2,6 +2,21 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (12):**
+
+1. `http::Body::blob` is typed `std::optional<std::string>`
+2. The cxx `NetworkingModule` does not mention blobs at all
+3. `BaseViewConfig` registers `onPointerDown`, `onPointerUp` and `onPointerCancel` and does not declare them
+4. `ReactInstanceConfig` has no `platform` field
+5. GTK 4
+6. React Native's npm package omits `ReactCxxPlatform`
+7. The fetch needs a git tag matching the app's React Native
+8. Also worth reporting, separately and smaller: the package ships ReactCommon/re
+9. Report the HttpUtils
+10. `ReactCommon/cmake-utils/react-native-flags.cmake` hardcodes clang's command line
+11. Report that ReactCxxPlatform's PlatformConstantsModule hardcodes a React Nativ
+12. Consider upstreaming a Linux entry in getHostPlatform
+
 - **`http::Body::blob` is typed `std::optional<std::string>`** in
   ReactCxxPlatform, and `convertRequestBody` sends `{blobId, offset, size}` --
   an object. So a `Blob` request body throws "Value is an object, expected a

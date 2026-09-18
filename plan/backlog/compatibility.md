@@ -2,6 +2,15 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (6):**
+
+1. React Native 0.82 and older cannot reach a native module
+2. React Native 0
+3. Supporting React Native 0
+4. CI checks one React Native per run
+5. Expo starts but no Expo module works
+6. No @shopify/react-native-skia, which is not this platform's to fix, but is wor
+
 Found by bundling and running a real application; see `plan/10-first-real-app.md`.
 
 - **React Native 0.82 and older cannot reach a native module.** The host

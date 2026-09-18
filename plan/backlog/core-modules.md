@@ -2,6 +2,15 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (6):**
+
+1. React Native's JavaScript branches two ways and a third platform lands on iOS
+2. Notifications on macOS need a person
+3. Notification *delivery* back to the app
+4. Scheduling
+5. Packaging the host as an application
+6. A Metro error still has no red box
+
 ReactCxxPlatform supplies fourteen TurboModules: `Animated`, `AppState`,
 `DeviceInfo`, `DevLoadingView`, `DevSettings`, `ImageLoader`, `LogBox`,
 `ExceptionsManager`, `IntersectionObserver`, `MutationObserver`, `Networking`,

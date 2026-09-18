@@ -2,6 +2,14 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (5):**
+
+1. setIsJSResponder is a no-op
+2. Touch::offsetPoint carries page coordinates rather than coordinates relative t
+3. PanResponder works, verified with real pointer motion through an X server agai
+4. Multi-touch is not modelled: one pointer, identifier 0
+5. Wayland input is unverified
+
 - ~~No hover.~~ Done on all three hosts. `onPointerEnter`, `onPointerLeave`,
   `onPointerOver`, `onPointerOut` and `onPointerMove` fire, and `js/hover.js`
   plus a scenario in the end-to-end suite prove it. Worth recording what the

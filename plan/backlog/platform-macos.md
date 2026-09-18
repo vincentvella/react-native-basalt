@@ -2,6 +2,25 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (16):**
+
+1. Hit testing ignores `transform`
+2. No accessibility
+3. Justified text
+4. Fonts loaded at runtime are untested
+5. No `maxLength` on macOS
+6. No multiline `<TextInput>`
+7. No `keyboardType`, `autoCapitalize`, `autoCorrect` or `spellCheck`
+8. Nothing tested against a real screen reader
+9. No accessibility subroles
+10. `accessibilityValue`, `accessibilityLiveRegion` and `accessibilityLabelledBy`
+11. No animated images
+12. No scrollbars
+13. No scroll momentum or elasticity
+14. Nothing is reachable by Tab
+15. No gesture cancellation from the platform
+16. Within <View>: per-corner radii, borders, transform, z-index and pointer-event
+
 - **Hit testing ignores `transform`.** `RnAppKitHitTest` walks `child.frame` and
   never consults the layer transform, so a rotated view is clickable where it
   used to be and not where it is drawn. GTK does not have this bug, because it

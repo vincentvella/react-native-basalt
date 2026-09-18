@@ -2,6 +2,18 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (9):**
+
+1. A controlled field's value is applied by heuristic rather than from state
+2. No multiline
+3. onKeyPress and onSelectionChange are never emitted
+4. No selection prop, so a controlled selection is impossible
+5. No shared focus registry: TextInput
+6. blur grabs focus for the window rather than dropping it, because GTK models fo
+7. placeholderTextColor, selectionColor and cursorColor are parsed and ignored
+8. src/overrides/TextInput
+9. autoCapitalize, autoCorrect, spellCheck, keyboardType, returnKeyType, clearBut
+
 - ~~**An uncontrolled field loses what was typed into it.**~~ Found on Windows
   in phase 46 and fixed on all three in phase 47. React Native's `TextInput.js`
   sends `text={value ?? defaultValue}`, so an uncontrolled field with no default
@@ -14,10 +26,12 @@ Part of the [backlog](../backlog.md). Not scheduled.
   uncontrolled one's never does, and a prop older than the last keystroke is
   dropped without being forgotten. Nobody had noticed because `js/input.js`
   asserts on its *controlled* field.
-  - Still worth doing properly one day: iOS reads the shadow **state** rather
-    than the prop, and writes the typed text into that state, so applying it
-    back is a no-op and no heuristic is needed. That means a platform writing
-    `TextInputState`, which none of these three do.
+
+- **A controlled field's value is applied by heuristic rather than from state.**
+  The fix above works; the shape iOS uses is better. It reads the shadow
+  **state** rather than the prop, and writes the typed text into that state, so
+  applying it back is a no-op and no heuristic is needed. That means a platform
+  writing `TextInputState`, which none of these three do.
 - No `multiline`. `RCTMultilineTextInputView` is not registered, and the C++
   side would need a `GtkTextView` peer rather than a `GtkText`.
 - `onKeyPress` and `onSelectionChange` are never emitted. Both are cheap -- a

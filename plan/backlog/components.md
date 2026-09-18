@@ -2,6 +2,14 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (5):**
+
+1. `Modal` is an overlay, not a window
+2. A `<Switch>`'s colours are honoured on two hosts of three
+3. Nothing is keyboard-reachable that is not `accessible` or a control
+4. No dev menu item toggles Fast Refresh
+5. AT-SPI actions
+
 `View`, `Text`, `Image`, `ScrollView`, `TextInput`, `ActivityIndicator`,
 `Switch`, `Modal` and `RefreshControl` are done on all three hosts, and touch
 input, `PanResponder` and command routing with them. What is left:

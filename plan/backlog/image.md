@@ -2,6 +2,16 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
+**Open (7):**
+
+1. Nothing evicts the texture cache
+2. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
+3. blurRadius, tintColor, overlayColor, fadeDuration and progressiveRenderingEnab
+4. Assets are never fetched over the network, so a dev server's assets do not wor
+5. Nothing caches a downloaded asset, which is right for a local file and will no
+6. onProgress and onPartialLoad are never emitted
+7. IImageLoader itself is still unimplemented, so Image
+
 - Nothing evicts the texture cache. A long-lived app that scrolls through many
   remote images grows without bound.
 - `resizeMode: 'repeat'` falls back to `center`; a repeating draw needs a
