@@ -54,6 +54,8 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
 
   if (const auto props = std::dynamic_pointer_cast<const ScrollViewProps>(shadowView.props)) {
     entry.scrollEnabled = props->scrollEnabled;
+    entry.showsVerticalIndicator = props->showsVerticalScrollIndicator;
+    entry.showsHorizontalIndicator = props->showsHorizontalScrollIndicator;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
     // React Native resolves 'normal' and 'fast' to numbers before this sees
@@ -104,6 +106,9 @@ void GtkScrollViewManager::update(RnView *view, const ShadowView &shadowView) {
   entry.offsetX = x;
   entry.offsetY = y;
   rn_view_set_scroll_offset(view, x, y);
+  // Here as well as in applyOffset: a list that grew or a window that was
+  // resized changes the thumb without changing the offset at all.
+  updateIndicators(entry);
 
   if (inserted) {
     // GTK_EVENT_CONTROLLER_SCROLL_KINETIC asks GDK for one `decelerate` signal
@@ -439,6 +444,7 @@ void GtkScrollViewManager::applyOffset(Entry &entry, double x, double y, bool em
   entry.offsetY = clampedY;
 
   rn_view_set_scroll_offset(entry.view, clampedX, clampedY);
+  updateIndicators(entry);
 
   // Unthrottled, and separate from onScroll on purpose.
   // ScrollViewShadowNode::getContentOriginOffset reads this, and through it so
@@ -460,6 +466,30 @@ void GtkScrollViewManager::applyOffset(Entry &entry, double x, double y, bool em
   }
   entry.lastEmitMicros = now;
   emitScrollEvent(entry, "scroll");
+}
+
+// The overlay scrollbars. The geometry is core/ScrollIndicator.h's, so GTK,
+// AppKit and Win32 place the same thumb in the same place.
+//
+// Always drawn, rather than faded in while scrolling and out after: there is no
+// timer here and no animation, which is why `flashScrollIndicators` stays a
+// no-op -- there is nothing to flash something already on screen.
+void GtkScrollViewManager::updateIndicators(const Entry &entry) {
+  if (entry.view == nullptr) {
+    return;
+  }
+
+  const ScrollIndicator vertical =
+      entry.showsVerticalIndicator
+          ? scrollIndicatorFor(entry.containerSize.height, entry.contentSize.height, entry.offsetY)
+          : ScrollIndicator{};
+  const ScrollIndicator horizontal =
+      entry.showsHorizontalIndicator
+          ? scrollIndicatorFor(entry.containerSize.width, entry.contentSize.width, entry.offsetX)
+          : ScrollIndicator{};
+
+  rn_view_set_scroll_indicators(
+      entry.view, vertical.offset, vertical.length, horizontal.offset, horizontal.length);
 }
 
 void GtkScrollViewManager::emitScrollEvent(Entry &entry, const char *which) {

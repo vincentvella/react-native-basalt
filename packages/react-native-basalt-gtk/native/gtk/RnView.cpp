@@ -1,5 +1,7 @@
 #include "RnView.h"
 
+#include "ScrollIndicator.h"
+
 #include "ControlMetrics.h"
 #include "FocusRing.h"
 #include "GtkTextPeer.h"
@@ -170,6 +172,10 @@ struct _RnView {
 
   GdkTexture *texture;
   RnImageFit texture_fit;
+  double indicator_v_offset;
+  double indicator_v_length;
+  double indicator_h_offset;
+  double indicator_h_length;
   gboolean has_image_tint;
   GdkRGBA image_tint;
   char *role_name;
@@ -404,6 +410,41 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
 
   if (self->clips_children) {
     gtk_snapshot_pop(snapshot);
+  }
+
+  // The scrollbars: an overlay, so above the content and above any children,
+  // which is what "overlay indicator" means -- and below the border, the
+  // DevTools overlay and the focus ring, none of which belongs to the app.
+  if (self->indicator_v_length > 0.0 || self->indicator_h_length > 0.0) {
+    const float thickness = static_cast<float>(basalt::kScrollIndicatorThickness);
+    const float inset = static_cast<float>(basalt::kScrollIndicatorInset);
+    // Neutral and translucent, so it reads over light and dark content alike.
+    const GdkRGBA thumb{0.0F, 0.0F, 0.0F, 0.35F};
+
+    if (self->indicator_v_length > 0.0) {
+      const graphene_rect_t bar =
+          GRAPHENE_RECT_INIT(static_cast<float>(width) - thickness - inset,
+                             static_cast<float>(self->indicator_v_offset),
+                             thickness,
+                             static_cast<float>(self->indicator_v_length));
+      GskRoundedRect rounded;
+      gsk_rounded_rect_init_from_rect(&rounded, &bar, thickness / 2.0F);
+      gtk_snapshot_push_rounded_clip(snapshot, &rounded);
+      gtk_snapshot_append_color(snapshot, &thumb, &bar);
+      gtk_snapshot_pop(snapshot);
+    }
+    if (self->indicator_h_length > 0.0) {
+      const graphene_rect_t bar =
+          GRAPHENE_RECT_INIT(static_cast<float>(self->indicator_h_offset),
+                             static_cast<float>(height) - thickness - inset,
+                             static_cast<float>(self->indicator_h_length),
+                             thickness);
+      GskRoundedRect rounded;
+      gsk_rounded_rect_init_from_rect(&rounded, &bar, thickness / 2.0F);
+      gtk_snapshot_push_rounded_clip(snapshot, &rounded);
+      gtk_snapshot_append_color(snapshot, &thumb, &bar);
+      gtk_snapshot_pop(snapshot);
+    }
   }
 
   // Borders paint over the content, as they do on every other platform.
@@ -988,6 +1029,26 @@ void rn_view_set_clips_children(RnView *self, gboolean clips) {
   gtk_widget_queue_draw(GTK_WIDGET(self));
 }
 
+void rn_view_set_scroll_indicators(RnView *self,
+                                   double vertical_offset,
+                                   double vertical_length,
+                                   double horizontal_offset,
+                                   double horizontal_length) {
+  if (!RN_IS_VIEW(self)) {
+    return;
+  }
+  if (self->indicator_v_offset == vertical_offset && self->indicator_v_length == vertical_length &&
+      self->indicator_h_offset == horizontal_offset &&
+      self->indicator_h_length == horizontal_length) {
+    return;
+  }
+  self->indicator_v_offset = vertical_offset;
+  self->indicator_v_length = vertical_length;
+  self->indicator_h_offset = horizontal_offset;
+  self->indicator_h_length = horizontal_length;
+  gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
 void rn_view_set_scroll_offset(RnView *self, double offset_x, double offset_y) {
   g_return_if_fail(RN_IS_VIEW(self));
   if (self->scroll_x == offset_x && self->scroll_y == offset_y) {
@@ -1117,6 +1178,17 @@ static void rn_view_describe_into(RnView *self, GString *out, int depth) {
   }
   if (self->scroll_x != 0.0 || self->scroll_y != 0.0) {
     g_string_append_printf(out, " scroll=(%g,%g)", self->scroll_x, self->scroll_y);
+  }
+  // The overlay scrollbars, which are otherwise pure paint and so invisible to
+  // every test this project has. Printed only when there is one, so a view that
+  // does not scroll stays as short as it was.
+  if (self->indicator_v_length > 0.0) {
+    g_string_append_printf(
+        out, " scrollbar-v=(%g,%g)", self->indicator_v_offset, self->indicator_v_length);
+  }
+  if (self->indicator_h_length > 0.0) {
+    g_string_append_printf(
+        out, " scrollbar-h=(%g,%g)", self->indicator_h_offset, self->indicator_h_length);
   }
   // Printed only when it is not the default, like every other field here.
   // Worth printing at all because it is invisible: a view with

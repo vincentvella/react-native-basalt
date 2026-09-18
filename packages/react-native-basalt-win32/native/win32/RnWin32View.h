@@ -96,6 +96,15 @@ class RnWin32View {
   float scrollX() const { return scrollX_; }
   float scrollY() const { return scrollY_; }
 
+  // The overlay scrollbars, as core/ScrollIndicator.h decides them: an offset
+  // along the track and a length, per axis, with a length of zero meaning "do
+  // not draw one". Painted above the children and below everything that is not
+  // the app's own -- see `paintScrollIndicators`.
+  void setScrollIndicators(float verticalOffset,
+                           float verticalLength,
+                           float horizontalOffset,
+                           float horizontalLength);
+
   // --- Appearance ----------------------------------------------------------
 
   // Components are premultiplied-free 0..1, as React Native's colour components
@@ -347,6 +356,8 @@ class RnWin32View {
   void paintControl(ID2D1RenderTarget *target) const;
   // React DevTools' overlay, over everything including the children.
   void paintHighlights(ID2D1RenderTarget *target) const;
+  // The overlay scrollbars, in this view's own coordinates.
+  void paintScrollIndicators(ID2D1RenderTarget *target) const;
   void describeInto(std::string &out, int depth) const;
 
   int32_t tag_;
@@ -367,6 +378,10 @@ class RnWin32View {
   bool showsFocusRing_ = false;
   float scrollX_ = 0.0f;
   float scrollY_ = 0.0f;
+  float indicatorVerticalOffset_ = 0.0f;
+  float indicatorVerticalLength_ = 0.0f;
+  float indicatorHorizontalOffset_ = 0.0f;
+  float indicatorHorizontalLength_ = 0.0f;
 
   bool hidden_ = false;
   std::vector<Highlight> highlights_;

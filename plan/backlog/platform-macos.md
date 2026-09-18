@@ -2,7 +2,7 @@
 
 Part of the [backlog](../backlog.md). Not scheduled.
 
-**Open (16):**
+**Open (15):**
 
 1. Hit testing ignores `transform`
 2. No accessibility
@@ -15,11 +15,10 @@ Part of the [backlog](../backlog.md). Not scheduled.
 9. No accessibility subroles
 10. `accessibilityValue`, `accessibilityLiveRegion` and `accessibilityLabelledBy`
 11. No animated images
-12. No scrollbars
-13. No scroll momentum or elasticity
-14. Nothing is reachable by Tab
-15. No gesture cancellation from the platform
-16. Within <View>: per-corner radii, borders, transform, z-index and pointer-event
+12. No scroll momentum or elasticity
+13. Nothing is reachable by Tab
+14. No gesture cancellation from the platform
+15. Within <View>: per-corner radii, borders, transform, z-index and pointer-event
 
 - **Hit testing ignores `transform`.** `RnAppKitHitTest` walks `child.frame` and
   never consults the layer transform, so a rotated view is clickable where it
@@ -59,9 +58,11 @@ Part of the [backlog](../backlog.md). Not scheduled.
   `accessibilityLabelledBy`** are unimplemented on both platforms.
 - **No animated images.** The first frame of a GIF is drawn as a still, on both
   desktops.
-- **No scrollbars.** AppKit's are `NSScroller`, which comes with
-  `NSScrollView`, so an overlay indicator is real work rather than a property.
-  The GTK side gets them from its widget theme.
+- ~~**No scrollbars.**~~ Done, and on all three -- the claim that the GTK side
+  got them from its widget theme was never true: neither host drew one. See the
+  ScrollView section for the shape. AppKit's own are `NSScroller`, which comes
+  with `NSScrollView` and so was never available here, so the indicator is drawn
+  from `core/ScrollIndicator.h` like the other two.
 - **No scroll momentum or elasticity.** A trackpad flick stops dead, which is
   visibly un-Mac-like. `onMomentumScroll*` never fire, as on GTK.
 - **Nothing is reachable by Tab**, on either platform: no tab order is

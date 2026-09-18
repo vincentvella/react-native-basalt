@@ -339,6 +339,20 @@ typedef NS_ENUM(NSInteger, RnAppKitControlKind) {
 - (void)setRnScrollOffsetX:(CGFloat)x y:(CGFloat)y;
 - (NSPoint)rnScrollOffset;
 
+// The overlay scrollbars, as core/ScrollIndicator.h decides them: an offset
+// along the track and a length, per axis, with a length of zero meaning "do not
+// draw one".
+//
+// Drawn by a subview kept above every React child rather than in `drawRect:`,
+// because AppKit paints subviews over their superview and a ScrollView's whole
+// job is to have one covering it. That view is not an RnAppKitView, so it stays
+// out of the paint order, out of hit testing and out of `describeTree`'s
+// children -- the numbers are reported on the ScrollView's own line instead.
+- (void)setRnScrollIndicatorVerticalOffset:(CGFloat)verticalOffset
+                            verticalLength:(CGFloat)verticalLength
+                          horizontalOffset:(CGFloat)horizontalOffset
+                          horizontalLength:(CGFloat)horizontalLength;
+
 - (NSString *)describeTree;
 
 @end

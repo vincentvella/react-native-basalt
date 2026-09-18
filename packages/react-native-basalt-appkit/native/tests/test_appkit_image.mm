@@ -54,6 +54,13 @@ Ink inkOf(RnAppKitView *view, CGSize size) {
   CGColorSpaceRelease(space);
   CGContextSetRGBFillColor(context, 1, 1, 1, 1);
   CGContextFillRect(context, CGRectMake(0, 0, size.width, size.height));
+  // A CGBitmapContext counts y from the bottom and this view counts it from the
+  // top, and `graphicsContextWithCGContext:flipped:` only *declares* which way
+  // up a context is -- it applies no transform. Every case here happens to be
+  // vertically symmetric, so this changes no result; without it the next case
+  // that is not symmetric would be read upside down.
+  CGContextTranslateCTM(context, 0, size.height);
+  CGContextScaleCTM(context, 1, -1);
 
   NSGraphicsContext *previous = NSGraphicsContext.currentContext;
   NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:context

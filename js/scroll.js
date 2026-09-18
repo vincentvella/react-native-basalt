@@ -37,6 +37,25 @@ const styles = StyleSheet.create({
   marker: {height: 24, marginTop: 16, marginHorizontal: 16, backgroundColor: '#f27359'},
 });
 
+// The same list in every app here, so that what differs between them is only
+// the thing each one is about.
+function rows() {
+  return Array.from({length: ROWS}, (_, index) => (
+    <View
+      key={index}
+      style={[
+        styles.row,
+        {
+          // Width encodes the index, so which rows are on screen is readable
+          // from a screenshot and from the tree dump.
+          width: 80 + index * 24,
+          backgroundColor: index % 2 === 0 ? '#4d8cf2' : '#59cc8c',
+        },
+      ]}
+    />
+  ));
+}
+
 function App() {
   const scroller = React.useRef(null);
 
@@ -60,20 +79,7 @@ function App() {
           const {y} = event.nativeEvent.contentOffset;
           console.log(`scrolled to ${Math.round(y)}`);
         }}>
-        {Array.from({length: ROWS}, (_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.row,
-              {
-                // Width encodes the index, so which rows are on screen is
-                // readable from a screenshot and from the tree dump.
-                width: 80 + index * 24,
-                backgroundColor: index % 2 === 0 ? '#4d8cf2' : '#59cc8c',
-              },
-            ]}
-          />
-        ))}
+        {rows()}
         <View style={styles.marker} />
       </ScrollView>
     </View>
@@ -115,18 +121,7 @@ function Animated() {
           const {y} = event.nativeEvent.contentOffset;
           console.log(`scrolled to ${Math.round(y)}`);
         }}>
-        {Array.from({length: ROWS}, (_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.row,
-              {
-                width: 80 + index * 24,
-                backgroundColor: index % 2 === 0 ? '#4d8cf2' : '#59cc8c',
-              },
-            ]}
-          />
-        ))}
+        {rows()}
         <View style={styles.marker} />
       </ScrollView>
     </View>
@@ -134,3 +129,42 @@ function Animated() {
 }
 
 AppRegistry.registerComponent('BasaltScrollAnimated', () => Animated);
+
+/**
+ * The same list with `showsVerticalScrollIndicator={false}`.
+ *
+ * Its own screen because the prop's whole effect is an absence, and an absence
+ * can only be asserted against a screen that is otherwise identical to one
+ * where the scrollbar is there. The list still scrolls: what the prop turns off
+ * is the indicator, not the scrolling, and a host that confused the two would
+ * pass a test that only looked for the missing bar.
+ */
+function Bare() {
+  const scroller = React.useRef(null);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      scroller.current?.scrollTo({y: 530, animated: false});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <View style={styles.page}>
+      <ScrollView
+        ref={scroller}
+        style={styles.scroller}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={event => {
+          const {y} = event.nativeEvent.contentOffset;
+          console.log(`scrolled to ${Math.round(y)}`);
+        }}>
+        {rows()}
+        <View style={styles.marker} />
+      </ScrollView>
+    </View>
+  );
+}
+
+AppRegistry.registerComponent('BasaltScrollBare', () => Bare);

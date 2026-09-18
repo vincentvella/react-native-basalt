@@ -345,12 +345,42 @@ def expect_contains(tree: str, needle: str, why: str) -> None:
         raise Failure(f"{why}: expected to find {needle!r} in the widget tree")
 
 
+# core/ScrollIndicator.h's constants. Named here rather than repeated as
+# numbers, and deliberately not read from the C++ -- a test that took them from
+# the thing it is testing could not notice either one changing.
+SCROLLBAR_INSET = 2.0
+SCROLLBAR_MINIMUM = 24.0
+
+
 def scroll_offset(tree: str) -> float:
     """The vertical scroll offset of the only scrolling view in the tree."""
     matches = re.findall(r"scroll=\(([-0-9.]+),([-0-9.]+)\)", tree)
     if not matches:
         return 0.0
     return float(matches[0][1])
+
+
+def scrollbar(tree: str, axis: str) -> tuple:
+    """The overlay scrollbar's (offset, length) along `axis`, or None.
+
+    Absent from the dump when the content fits, which is the same thing as the
+    scrollbar not being drawn -- see core/ScrollIndicator.h.
+    """
+    match = re.search(rf"scrollbar-{axis}=\(([-0-9.]+),([-0-9.]+)\)", tree)
+    if match is None:
+        return None
+    return (float(match.group(1)), float(match.group(2)))
+
+
+def scroller_size(tree: str) -> tuple:
+    """The width and height of the view that reported itself as a list."""
+    for line in tree.splitlines():
+        if "role=list" not in line:
+            continue
+        match = re.search(r"frame=\([-0-9.]+,[-0-9.]+ ([0-9.]+)x([0-9.]+)\)", line)
+        if match:
+            return (float(match.group(1)), float(match.group(2)))
+    raise Failure("no view reported itself as a list; is the ScrollView mounted?")
 
 
 def offset_label(tree: str) -> float:
@@ -413,6 +443,20 @@ def test_initial_render(bundle: Path) -> None:
     if scroll_offset(tree) != 0.0:
         raise Failure("a freshly mounted ScrollView should be at the top")
 
+    # The overlay scrollbar. It is pure paint -- no widget, no child, nothing
+    # with a tag -- so the dump is the only place a test can see it at all.
+    bar = scrollbar(tree, "v")
+    if bar is None:
+        raise Failure("the ScrollView drew no scrollbar, though its content overflows")
+    bar_offset, bar_length = bar
+    _, height = scroller_size(tree)
+    if bar_offset != SCROLLBAR_INSET:
+        raise Failure(f"a scrollbar at the top belongs at the inset, not at {bar_offset}")
+    if not SCROLLBAR_MINIMUM <= bar_length < height:
+        raise Failure(
+            f"the thumb is {bar_length} long in a {height} track, which is not a fraction of it"
+        )
+
 
 def test_scroll_to_end(bundle: Path) -> None:
     # The tap lands on the button's *label*, so a pass also means a touch on a
@@ -430,6 +474,20 @@ def test_scroll_to_end(bundle: Path) -> None:
         raise Failure(f"onScroll never reached React; the label reads {label}")
     if abs(label - offset) > 2.0:
         raise Failure(f"the label ({label}) disagrees with the widget tree ({offset})")
+
+    # And the scrollbar went with it, all the way to the far end of its track.
+    bar = scrollbar(tree, "v")
+    if bar is None:
+        raise Failure("scrollToEnd left the ScrollView with no scrollbar at all")
+    bar_offset, bar_length = bar
+    if bar_offset <= SCROLLBAR_INSET:
+        raise Failure(f"the thumb stayed at {bar_offset} while the content scrolled to the end")
+    _, height = scroller_size(tree)
+    if abs((bar_offset + bar_length) - (height - SCROLLBAR_INSET)) > 1.0:
+        raise Failure(
+            f"the thumb ends at {bar_offset + bar_length} rather than at the end of "
+            f"the {height}-point track"
+        )
 
 
 def test_scroll_round_trip(bundle: Path) -> None:
@@ -2256,6 +2314,50 @@ def test_animated_scroll(bundle: Path) -> None:
         )
 
 
+def test_scrollbar_can_be_turned_off(bundle: Path) -> None:
+    """`showsVerticalScrollIndicator={false}` takes the bar away and leaves the
+    scrolling.
+
+    Runs the third app in js/scroll.js, which is the same list as the first one
+    with the prop set. The first app's scenarios above already assert that a
+    list that overflows grows a scrollbar, so what is left is the absence --
+    and that the absence is only the bar: a host that read the prop as
+    "scrollEnabled" would pass a test that looked no further.
+    """
+    app = bundle_app(bundle.parent, "scroll")
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env = dict(os.environ)
+        env["BASALT_DUMP_TREE"] = str(dump)
+        env["BASALT_QUIT_AFTER_MS"] = "3000"
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_SECONDARY_TAP", "BASALT_TEST_TYPE",
+                     "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS", "BASALT_TEST_SCROLL",
+                     "BASALT_TEST_MENU", "BASALT_TEST_CLOSE_WINDOW"):
+            env.pop(name, None)
+
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltScrollBare"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        tree = dump.read_text() if dump.exists() else ""
+
+    if not tree:
+        raise Failure("the host dumped no tree")
+    if "scrollbar-v=" in tree:
+        raise Failure(
+            "showsVerticalScrollIndicator={false} still drew a vertical scrollbar:\n"
+            + "\n".join(line for line in tree.splitlines() if "scrollbar-v=" in line)
+        )
+    # And it still scrolled, which is the half the prop must not touch.
+    if scroll_offset(tree) <= 0:
+        raise Failure(
+            "the list never scrolled, so the prop turned off more than the bar"
+        )
+
+
 def test_window_limits(bundle: Path) -> None:
     """How big the window may be, and the fact that it is not the same list
     everywhere.
@@ -2775,6 +2877,8 @@ SCENARIOS = [
     ("the native file dialogs answer with a path, or with a cancel",
      test_file_dialogs),
     ("scrollTo({animated: true}) moves rather than jumps", test_animated_scroll),
+    ("showsVerticalScrollIndicator={false} takes the bar and not the scrolling",
+     test_scrollbar_can_be_turned_off),
     ("a window reports its own size, and the state changes that are not resizes",
      test_window),
     ("a window says how big it may be, and what this desktop can do about it",

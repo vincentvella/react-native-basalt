@@ -150,6 +150,8 @@ void AppKitScrollViewManager::update(RnAppKitView *view, const ShadowView &shado
 
   if (const auto props = std::dynamic_pointer_cast<const ScrollViewProps>(shadowView.props)) {
     entry.scrollEnabled = props->scrollEnabled;
+    entry.showsVerticalIndicator = props->showsVerticalScrollIndicator;
+    entry.showsHorizontalIndicator = props->showsHorizontalScrollIndicator;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
 
@@ -194,6 +196,9 @@ void AppKitScrollViewManager::update(RnAppKitView *view, const ShadowView &shado
   entry.offsetX = x;
   entry.offsetY = y;
   [view setRnScrollOffsetX:x y:y];
+  // Here as well as in applyOffset: a list that grew or a window that was
+  // resized changes the thumb without changing the offset at all.
+  updateIndicators(entry);
 }
 
 void AppKitScrollViewManager::remove(Tag tag) {
@@ -350,6 +355,32 @@ void AppKitScrollViewManager::advanceAnimation(facebook::react::Tag tag, double 
   }
 }
 
+// The overlay scrollbars. The geometry is core/ScrollIndicator.h's, so GTK,
+// AppKit and Win32 place the same thumb in the same place.
+//
+// Always drawn, rather than faded in while scrolling and out after: there is no
+// timer here and no animation, which is why `flashScrollIndicators` stays a
+// no-op -- there is nothing to flash something already on screen.
+void AppKitScrollViewManager::updateIndicators(const Entry &entry) {
+  if (entry.view == nil) {
+    return;
+  }
+
+  const ScrollIndicator vertical =
+      entry.showsVerticalIndicator
+          ? scrollIndicatorFor(entry.containerSize.height, entry.contentSize.height, entry.offsetY)
+          : ScrollIndicator{};
+  const ScrollIndicator horizontal =
+      entry.showsHorizontalIndicator
+          ? scrollIndicatorFor(entry.containerSize.width, entry.contentSize.width, entry.offsetX)
+          : ScrollIndicator{};
+
+  [entry.view setRnScrollIndicatorVerticalOffset:vertical.offset
+                                  verticalLength:vertical.length
+                                horizontalOffset:horizontal.offset
+                                horizontalLength:horizontal.length];
+}
+
 void AppKitScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
   const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
   const double clampedY = clampOffset(y, entry.contentSize.height, entry.containerSize.height);
@@ -361,6 +392,7 @@ void AppKitScrollViewManager::applyOffset(Entry &entry, double x, double y, bool
   entry.offsetY = clampedY;
 
   [entry.view setRnScrollOffsetX:clampedX y:clampedY];
+  updateIndicators(entry);
 
   // Unthrottled, and separate from onScroll on purpose.
   // ScrollViewShadowNode::getContentOriginOffset reads this, and through it so

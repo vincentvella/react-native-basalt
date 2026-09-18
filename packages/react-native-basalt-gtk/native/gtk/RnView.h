@@ -166,6 +166,18 @@ void rn_view_set_clips_children(RnView *self, gboolean clips);
 // Fabric assigned stay untouched and GTK's own hit testing follows the shift
 // for free: a child allocated at its scrolled position is picked there.
 void rn_view_set_scroll_offset(RnView *self, double offset_x, double offset_y);
+
+// The overlay scrollbars this view draws over its own content. Computed by the
+// scroll manager from core/ScrollIndicator.h, because the geometry is the same
+// on all three desktops and the drawing is not.
+//
+// Lengths of zero mean "no indicator on that axis", which is what content that
+// fits produces.
+void rn_view_set_scroll_indicators(RnView *self,
+                                   double vertical_offset,
+                                   double vertical_length,
+                                   double horizontal_offset,
+                                   double horizontal_length);
 void rn_view_get_scroll_offset(RnView *self, double *offset_x, double *offset_y);
 
 // A textual description of the widget tree rooted here, one indented line per

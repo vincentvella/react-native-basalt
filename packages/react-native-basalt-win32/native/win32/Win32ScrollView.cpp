@@ -77,6 +77,8 @@ void Win32ScrollViewManager::update(RnWin32View *view, const ShadowView &shadowV
 
   if (const auto props = std::dynamic_pointer_cast<const ScrollViewProps>(shadowView.props)) {
     entry.scrollEnabled = props->scrollEnabled;
+    entry.showsVerticalIndicator = props->showsVerticalScrollIndicator;
+    entry.showsHorizontalIndicator = props->showsHorizontalScrollIndicator;
     entry.contentInset = props->contentInset;
     entry.eventThrottleMs = static_cast<double>(props->scrollEventThrottle);
 
@@ -119,6 +121,9 @@ void Win32ScrollViewManager::update(RnWin32View *view, const ShadowView &shadowV
   entry.offsetX = clampOffset(entry.offsetX, entry.contentSize.width, entry.containerSize.width);
   entry.offsetY = clampOffset(entry.offsetY, entry.contentSize.height, entry.containerSize.height);
   view->setScrollOffset(static_cast<float>(entry.offsetX), static_cast<float>(entry.offsetY));
+  // Here as well as in applyOffset: a list that grew or a window that was
+  // resized changes the thumb without changing the offset at all.
+  updateIndicators(entry);
 }
 
 void Win32ScrollViewManager::remove(Tag tag) {
@@ -320,6 +325,32 @@ void Win32ScrollViewManager::advanceAnimation(facebook::react::Tag tag, double n
   }
 }
 
+// The overlay scrollbars. The geometry is core/ScrollIndicator.h's, so GTK,
+// AppKit and Win32 place the same thumb in the same place.
+//
+// Always drawn, rather than faded in while scrolling and out after: there is no
+// timer here and no animation, which is why `flashScrollIndicators` stays a
+// no-op -- there is nothing to flash something already on screen.
+void Win32ScrollViewManager::updateIndicators(const Entry &entry) {
+  if (entry.view == nullptr) {
+    return;
+  }
+
+  const ScrollIndicator vertical =
+      entry.showsVerticalIndicator
+          ? scrollIndicatorFor(entry.containerSize.height, entry.contentSize.height, entry.offsetY)
+          : ScrollIndicator{};
+  const ScrollIndicator horizontal =
+      entry.showsHorizontalIndicator
+          ? scrollIndicatorFor(entry.containerSize.width, entry.contentSize.width, entry.offsetX)
+          : ScrollIndicator{};
+
+  entry.view->setScrollIndicators(static_cast<float>(vertical.offset),
+                                  static_cast<float>(vertical.length),
+                                  static_cast<float>(horizontal.offset),
+                                  static_cast<float>(horizontal.length));
+}
+
 void Win32ScrollViewManager::applyOffset(Entry &entry, double x, double y, bool emitEvent) {
   const double clampedX = clampOffset(x, entry.contentSize.width, entry.containerSize.width);
   const double clampedY = clampOffset(y, entry.contentSize.height, entry.containerSize.height);
@@ -333,6 +364,7 @@ void Win32ScrollViewManager::applyOffset(Entry &entry, double x, double y, bool 
   if (entry.view != nullptr) {
     entry.view->setScrollOffset(static_cast<float>(clampedX), static_cast<float>(clampedY));
   }
+  updateIndicators(entry);
 
   // Unthrottled, and separate from onScroll on purpose.
   // ScrollViewShadowNode::getContentOriginOffset reads this, and through it so

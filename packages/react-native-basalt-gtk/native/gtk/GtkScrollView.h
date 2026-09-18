@@ -30,6 +30,7 @@
 
 #include "RnView.h"
 #include "ScrollAnimation.h"
+#include "ScrollIndicator.h"
 #include "ScrollSnap.h"
 #include "ScrollMomentum.h"
 
@@ -134,6 +135,10 @@ class GtkScrollViewManager {
     facebook::react::EdgeInsets contentInset{};
 
     bool scrollEnabled{true};
+    // `showsVerticalScrollIndicator` / `showsHorizontalScrollIndicator`. Both
+    // default to true, as React Native's own props do.
+    bool showsVerticalIndicator{true};
+    bool showsHorizontalIndicator{true};
     // Milliseconds, as React Native's prop is. Zero means every scroll.
     double eventThrottleMs{0};
 
@@ -185,6 +190,10 @@ class GtkScrollViewManager {
   void stopMomentum(Entry &entry, bool emitEnd);
 
   void applyOffset(Entry &entry, double x, double y, bool emitEvent);
+  // Recomputes both overlay scrollbars and hands them to the view to draw.
+  // Called wherever the offset, the content size or the container size can
+  // have changed, which is more places than the offset alone.
+  void updateIndicators(const Entry &entry);
   void emitScrollEvent(Entry &entry, const char *which);
   void writeStateOffset(const Entry &entry);
 

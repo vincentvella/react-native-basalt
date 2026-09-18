@@ -63,6 +63,16 @@ should.
 - **AND** it does not coast past it
 - **AND** it never settles outside the content
 
+#### Scenario: A scroll view shows where you are in it
+
+- **WHEN** a scroll view's content is longer than the view
+- **THEN** an overlay indicator is drawn inset from the trailing edge
+- **AND** its length is the fraction of the content on screen, above a minimum
+- **AND** its position follows the offset, clamped at both ends
+- **AND** content that fits draws no indicator at all
+- **AND** `showsVerticalScrollIndicator` or `showsHorizontalScrollIndicator` set
+  to false removes that axis's indicator without affecting the scrolling
+
 #### Scenario: Pulling a scroll view refreshes it
 
 - **WHEN** the person pulls a scroll view carrying a refresh control

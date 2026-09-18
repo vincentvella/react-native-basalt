@@ -2,6 +2,7 @@
 
 #include "ControlMetrics.h"
 #include "FocusRing.h"
+#include "ScrollIndicator.h"
 
 #include <vector>
 
@@ -175,6 +176,73 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   CGContextClip(context);
 }
 
+// The overlay scrollbars, as a view of their own.
+//
+// AppKit paints subviews over their superview, and a ScrollView always has one
+// -- its content -- covering the whole of it, so a thumb drawn in the scroll
+// view's own `drawRect:` would be behind everything it is meant to float over.
+// This sits above them all instead. See core/ScrollIndicator.h for the
+// geometry, which all three hosts share.
+@interface RnAppKitScrollIndicatorView : NSView
+@property(nonatomic) CGFloat rnVerticalOffset;
+@property(nonatomic) CGFloat rnVerticalLength;
+@property(nonatomic) CGFloat rnHorizontalOffset;
+@property(nonatomic) CGFloat rnHorizontalLength;
+@end
+
+@implementation RnAppKitScrollIndicatorView
+
+// Top-left origin, like every other view here and like React Native.
+- (BOOL)isFlipped {
+  return YES;
+}
+
+// Paint and nothing else: a press falls through to the content underneath.
+// Nothing here is a drag target yet -- plan/backlog records that.
+- (NSView *)hitTest:(NSPoint)point {
+  (void)point;
+  return nil;
+}
+
+- (void)rnFillPill:(NSRect)bar inContext:(CGContextRef)context {
+  const CGFloat radius = basalt::kScrollIndicatorThickness / 2.0;
+  CGPathRef path = CGPathCreateWithRoundedRect(bar, radius, radius, NULL);
+  CGContextAddPath(context, path);
+  CGContextFillPath(context);
+  CGPathRelease(path);
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  if (_rnVerticalLength <= 0.0 && _rnHorizontalLength <= 0.0) {
+    return;
+  }
+  CGContextRef context = [NSGraphicsContext currentContext].CGContext;
+  const NSSize size = self.bounds.size;
+  const CGFloat thickness = basalt::kScrollIndicatorThickness;
+  const CGFloat inset = basalt::kScrollIndicatorInset;
+  // Neutral and translucent, so it reads over light and dark content alike --
+  // the same colour the GTK and Win32 hosts use.
+  CGContextSetRGBFillColor(context, 0.0, 0.0, 0.0, 0.35);
+
+  if (_rnVerticalLength > 0.0) {
+    [self rnFillPill:NSMakeRect(size.width - thickness - inset,
+                                _rnVerticalOffset,
+                                thickness,
+                                _rnVerticalLength)
+           inContext:context];
+  }
+  if (_rnHorizontalLength > 0.0) {
+    [self rnFillPill:NSMakeRect(_rnHorizontalOffset,
+                                size.height - thickness - inset,
+                                _rnHorizontalLength,
+                                thickness)
+           inContext:context];
+  }
+}
+
+@end
+
 @implementation RnAppKitView {
   // React DevTools' overlay rectangles: eight floats each, plus a fill flag.
   // See setRnHighlights:filled:count:.
@@ -206,6 +274,8 @@ static void RnAppKitClipToHalfPlane(CGContextRef context,
   NSInteger _zIndex;
   // Only the surface root has one; see -updateTrackingAreas.
   NSTrackingArea *_rnHoverTrackingArea;
+  // Only a ScrollView with something to indicate has one.
+  RnAppKitScrollIndicatorView *_indicators;
 }
 
 + (instancetype)viewWithTag:(NSInteger)tag {
@@ -420,6 +490,39 @@ static NSAccessibilityRole RnAccessibilityRoleFor(NSString *name) {
 
 - (NSPoint)rnScrollOffset {
   return self.bounds.origin;
+}
+
+- (void)setRnScrollIndicatorVerticalOffset:(CGFloat)verticalOffset
+                            verticalLength:(CGFloat)verticalLength
+                          horizontalOffset:(CGFloat)horizontalOffset
+                          horizontalLength:(CGFloat)horizontalLength {
+  if (verticalLength <= 0.0 && horizontalLength <= 0.0) {
+    [_indicators removeFromSuperview];
+    _indicators = nil;
+    return;
+  }
+
+  if (_indicators == nil) {
+    _indicators = [[RnAppKitScrollIndicatorView alloc] initWithFrame:self.bounds];
+    [self addSubview:_indicators positioned:NSWindowAbove relativeTo:nil];
+  }
+
+  // `bounds` rather than a rect at the origin: a scrolled view's bounds origin
+  // is the scroll offset, so this pins the overlay to the viewport instead of
+  // letting it travel with the content.
+  _indicators.frame = self.bounds;
+
+  if (_indicators.rnVerticalOffset == verticalOffset &&
+      _indicators.rnVerticalLength == verticalLength &&
+      _indicators.rnHorizontalOffset == horizontalOffset &&
+      _indicators.rnHorizontalLength == horizontalLength) {
+    return;
+  }
+  _indicators.rnVerticalOffset = verticalOffset;
+  _indicators.rnVerticalLength = verticalLength;
+  _indicators.rnHorizontalOffset = horizontalOffset;
+  _indicators.rnHorizontalLength = horizontalLength;
+  _indicators.needsDisplay = YES;
 }
 
 static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
@@ -879,9 +982,20 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   NSArray<NSView *> *children = self.subviews;
   if (index >= (NSInteger)children.count) {
     [self addSubview:child];
+    [self rnRaiseIndicators];
     return;
   }
   [self addSubview:child positioned:NSWindowBelow relativeTo:children[(NSUInteger)index]];
+}
+
+// A child added at or past the end lands above the overlay, so put it back on
+// top. Cheap, and the alternative -- teaching every insert about a view that is
+// not part of the tree -- puts the overlay into code that has nothing to do
+// with it.
+- (void)rnRaiseIndicators {
+  if (_indicators != nil) {
+    [self addSubview:_indicators positioned:NSWindowAbove relativeTo:nil];
+  }
 }
 
 - (void)removeRnChild:(RnAppKitView *)child {
@@ -965,6 +1079,19 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
   const NSPoint scroll = self.bounds.origin;
   if (scroll.x != 0 || scroll.y != 0) {
     [out appendFormat:@" scroll=(%g,%g)", scroll.x, scroll.y];
+  }
+  // The overlay scrollbars, which are otherwise pure paint and so invisible to
+  // every test this project has. Printed only when there is one, so a view that
+  // does not scroll stays as short as it was.
+  if (_indicators != nil && _indicators.rnVerticalLength > 0) {
+    [out appendFormat:@" scrollbar-v=(%g,%g)",
+                      _indicators.rnVerticalOffset,
+                      _indicators.rnVerticalLength];
+  }
+  if (_indicators != nil && _indicators.rnHorizontalLength > 0) {
+    [out appendFormat:@" scrollbar-h=(%g,%g)",
+                      _indicators.rnHorizontalOffset,
+                      _indicators.rnHorizontalLength];
   }
   // Printed only when it is not the default, like every other field here.
   // Worth printing at all because it is invisible: a view with

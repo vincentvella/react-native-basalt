@@ -4,6 +4,7 @@
 #include "FocusRing.h"
 #include "RnWin32Image.h"
 #include "RnWin32TextLayout.h"
+#include "ScrollIndicator.h"
 #include "Win32Clip.h"
 #include "Win32Strings.h"
 
@@ -165,6 +166,16 @@ void RnWin32View::setFrame(float x, float y, float width, float height) {
 void RnWin32View::setScrollOffset(float x, float y) {
   scrollX_ = x;
   scrollY_ = y;
+}
+
+void RnWin32View::setScrollIndicators(float verticalOffset,
+                                      float verticalLength,
+                                      float horizontalOffset,
+                                      float horizontalLength) {
+  indicatorVerticalOffset_ = verticalOffset;
+  indicatorVerticalLength_ = verticalLength;
+  indicatorHorizontalOffset_ = horizontalOffset;
+  indicatorHorizontalLength_ = horizontalLength;
 }
 
 // --- Appearance ------------------------------------------------------------
@@ -410,6 +421,18 @@ void RnWin32View::paint(ID2D1RenderTarget *target) const {
 
     paintChildren(target);
 
+    // paintChildren leaves a ScrollView's offset applied, and nothing below
+    // here scrolls with the content -- so put the transform back to this view's
+    // own before drawing any of it.
+    target->SetTransform(local * parentTransform);
+
+    // The scrollbars: an overlay, so above the content and above any children,
+    // which is what "overlay indicator" means -- and below the DevTools overlay
+    // and the focus ring, neither of which belongs to the app.
+    if (indicatorVerticalLength_ > 0.0f || indicatorHorizontalLength_ > 0.0f) {
+      paintScrollIndicators(target);
+    }
+
     // React DevTools' overlay, over everything including the children. Above
     // the app on purpose: it is not part of it, and an inspected element half
     // hidden behind a card would be pointing at the wrong thing.
@@ -641,6 +664,46 @@ void RnWin32View::paintControl(ID2D1RenderTarget *target) const {
                       thumbBrush.Get());
 }
 
+// Always drawn, rather than faded in while scrolling and out after: there is no
+// timer here and no animation, which is why `flashScrollIndicators` stays a
+// no-op -- there is nothing to flash something already on screen.
+void RnWin32View::paintScrollIndicators(ID2D1RenderTarget *target) const {
+  const float thickness = static_cast<float>(basalt::kScrollIndicatorThickness);
+  const float inset = static_cast<float>(basalt::kScrollIndicatorInset);
+
+  ComPtr<ID2D1SolidColorBrush> brush;
+  // Neutral and translucent, so it reads over light and dark content alike --
+  // the same colour the GTK and AppKit hosts use.
+  if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.35f),
+                                           brush.GetAddressOf()))) {
+    return;
+  }
+
+  const float radius = thickness / 2.0f;
+  if (indicatorVerticalLength_ > 0.0f) {
+    const float left = frame_.width - thickness - inset;
+    target->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(left,
+                                      indicatorVerticalOffset_,
+                                      left + thickness,
+                                      indicatorVerticalOffset_ + indicatorVerticalLength_),
+                          radius,
+                          radius),
+        brush.Get());
+  }
+  if (indicatorHorizontalLength_ > 0.0f) {
+    const float top = frame_.height - thickness - inset;
+    target->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(indicatorHorizontalOffset_,
+                                      top,
+                                      indicatorHorizontalOffset_ + indicatorHorizontalLength_,
+                                      top + thickness),
+                          radius,
+                          radius),
+        brush.Get());
+  }
+}
+
 void RnWin32View::paintChildren(ID2D1RenderTarget *target) const {
   if (children_.empty()) {
     return;
@@ -820,6 +883,21 @@ void RnWin32View::describeInto(std::string &out, int depth) const {
                  " scroll=(%g,%g)",
                  static_cast<double>(scrollX_),
                  static_cast<double>(scrollY_));
+  }
+  // The overlay scrollbars, which are otherwise pure paint and so invisible to
+  // every test this project has. Printed only when there is one, so a view that
+  // does not scroll stays as short as it was.
+  if (indicatorVerticalLength_ > 0.0f) {
+    appendFormat(out,
+                 " scrollbar-v=(%g,%g)",
+                 static_cast<double>(indicatorVerticalOffset_),
+                 static_cast<double>(indicatorVerticalLength_));
+  }
+  if (indicatorHorizontalLength_ > 0.0f) {
+    appendFormat(out,
+                 " scrollbar-h=(%g,%g)",
+                 static_cast<double>(indicatorHorizontalOffset_),
+                 static_cast<double>(indicatorHorizontalLength_));
   }
   // Printed only when it is not the default, like every other field here.
   // Worth printing at all because it is invisible: a view with
