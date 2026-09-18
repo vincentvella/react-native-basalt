@@ -806,15 +806,16 @@ compositor opacity rule, not the renderer.
 
 ## Next
 
-In the order it is likely to be done. The per-area detail is
-`docs/BACKLOG.md`; how the thing is built is `docs/ARCHITECTURE.md`.
+In the order it is likely to be done. An entry with a proposal behind it names
+it; the rest are not designed yet. The per-area detail is `docs/BACKLOG.md`; how
+the thing is built is `docs/ARCHITECTURE.md`.
 
 1. **`npx react-native-basalt init`.** Adding a desktop to an Expo app works
    and is still manual: `@react-native/metro-config` and
    `@react-native-community/cli` as dev dependencies, `withDesktopPlatforms` in
    `metro.config.js`, and a script per desktop. One command should do all of
    it, tested against a fresh `create-expo-app` the way `release.yml`'s install
-   job is.
+   job is. Proposed, as `openspec/changes/add-init-command`.
 2. **Fast Refresh end to end on Windows.** It works there -- observed, on a
    development run through `run-windows`, which is what phase 43 was for. What
    it is not is *tested*, anywhere, on any platform: `integration_test.py`
@@ -823,19 +824,16 @@ In the order it is likely to be done. The per-area detail is
    on a GitHub runner never notices an edit. So the one thing standing between
    a working feature and a guarded one is a Windows path for the scenario, and
    then a runner whose file watching works -- `docs/BACKLOG.md` has what is
-   left to try on the second.
-3. **The title bar on Linux and macOS.** `useTitleBar`, `<TitleBar>` and
-   `useTitleBarMetrics` do nothing off Windows. GTK can drop its decorations
-   and take a header from the app; AppKit has a transparent, full-size-content
-   title bar that keeps the traffic lights.
-4. **A first release run.** `release.yml` has never run: its macOS job, Linux
+   left to try on the second. Proposed, as
+   `openspec/changes/test-fast-refresh-on-windows`.
+3. **A first release run.** `release.yml` has never run: its macOS job, Linux
    and Windows built from nothing, and the Expo install job are all unproven on
    hosted runners. Deliberately not yet. Windows belongs in the install job
    before it does.
-5. **A faster first `--build`.** It compiles Hermes and React Native's C++
+4. **A faster first `--build`.** It compiles Hermes and React Native's C++
    from source, twenty to thirty minutes. Prebuilt Hermes per platform and
    React Native version is what would change that for someone trying it out.
-6. **Publishing.** Versions, an npm account, the publish step in
+5. **Publishing.** Versions, an npm account, the publish step in
    `release.yml`, and an install guide.
 
 Known, and waiting on upstream rather than on this list: on React Native 0.86,

@@ -104,11 +104,13 @@ has gone unrecorded until now.
   is a different event from closing a window: Cmd-Q, and the Windows and GNOME
   session-end signals, each need their own seam. Proposed, as
   `openspec/changes/refuse-to-quit`.
-  The title can be influenced too, on Windows, with the title bar's colours
-  and a hidden style that lets the app draw its own header -- `useTitleBar`,
-  `<TitleBar>`, `<TitleBar.DragRegion>` and `useTitleBarMetrics` in
-  react-native-basalt. Linux and macOS ignore those calls until their hosts
-  implement them.
+  The title can be influenced too, with the title bar's colours and a hidden
+  style that lets the app draw its own header -- `useTitleBar`, `<TitleBar>`,
+  `<TitleBar.DragRegion>` and `useTitleBarMetrics`. Implemented on all three:
+  GTK drops its decorations and takes a header from the app, AppKit uses a
+  transparent full-size-content title bar that keeps the traffic lights, and
+  Win32 draws the caption buttons over the app's own header. See the
+  `window-title-bar` spec.
 - **Menus have no checkbox or radio items, and no dynamic enabling.** The
   application menu itself is done where a platform has one: `<Menu>`
   with `<Menu.Item role="copy" />`, over NSMenu and an HMENU. `Menu.isSupported`
