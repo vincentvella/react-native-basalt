@@ -2,13 +2,12 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (5):**
+**Open (4):**
 
-1. resizeMode: 'repeat' falls back to center; a repeating draw needs a pattern no
-2. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
-3. Assets are never fetched over the network, so a dev server's assets do not wor
-4. Nothing caches a downloaded asset, which is right for a local file and will no
-5. onProgress and onPartialLoad are never emitted
+1. blurRadius, overlayColor, fadeDuration and progressiveRenderingEnabled are ign
+2. Assets are never fetched over the network, so a dev server's assets do not wor
+3. Nothing caches a downloaded asset, which is right for a local file and will no
+4. onProgress and onPartialLoad are never emitted
 
 - ~~Nothing evicts the texture cache.~~ Done on all three, in
   `core/ImageCache.h`. Each host kept decoded images in an `unordered_map`
@@ -28,8 +27,25 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 
   An image larger than the whole budget is kept rather than refused: it is on
   screen, and evicting it would decode it again on the next frame, forever.
-- `resizeMode: 'repeat'` falls back to `center`; a repeating draw needs a
-  pattern node rather than one texture append.
+- ~~`resizeMode: 'repeat'` falls back to `center`.~~ Done on all three, and it
+  turned out each toolkit has a primitive for it rather than needing one
+  built: `gtk_snapshot_push_repeat`, `CGContextDrawTiledImage`, and a Direct2D
+  bitmap brush in wrap mode.
+
+  Tiled from the top left, so whole tiles start at the origin and the partial
+  one is at the far edge, which is what CSS `repeat` does -- and why the
+  centring it used to fall back to was a different picture rather than a
+  rougher one.
+
+  Windows uses nearest-neighbour sampling for the brush deliberately: the
+  default is linear, which blends the last column of one tile into the first
+  of the next and leaves a seam on every boundary, visible on exactly the
+  small sharp images people tile.
+
+  `fit=repeat` is in the tree dump, so `compare_hosts.sh` sees it, and
+  `test_appkit_image.mm` asserts the ink reaches all four corners -- which it
+  does not when centred, the check having been run against `center` first to
+  be sure it discriminates.
 - ~~**`tintColor` is ignored.**~~ Done on all three, and on expo-image's
   `tintColor` too. The image becomes a stencil and the colour is what is drawn,
   which is what the prop means: recolour the silhouette rather than blend with

@@ -276,8 +276,7 @@ RnAppKitImageFit toImageFit(ImageResizeMode mode) {
     case ImageResizeMode::None:
       return RnAppKitImageFitCenter;
     case ImageResizeMode::Repeat:
-      // No tiled draw yet; centring is the least wrong single draw.
-      return RnAppKitImageFitCenter;
+      return RnAppKitImageFitRepeat;
     case ImageResizeMode::Cover:
       break;
   }

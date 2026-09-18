@@ -21,7 +21,7 @@ Counts are open entries. Nothing is lost -- the prose moved, it did not shrink.
 | [Input](backlog/input.md) | 4 | Gestures a cursor cannot make, and the rest of RNGH's relation graph. |
 | [Text](backlog/text.md) | 7 | Measurement and layout gaps. |
 | [TextInput](backlog/textinput.md) | 8 | Multiline, `maxLength`, keyboard types, spell check. |
-| [Image](backlog/image.md) | 5 | Animated images, decorative props. |
+| [Image](backlog/image.md) | 4 | Animated images, decorative props. |
 | [ScrollView](backlog/scrollview.md) | 4 | Trackpad scrolling unverified, zoom, `contentBoundingRect`, view culling. |
 | [Components](backlog/components.md) | 5 | What is not implemented at all, and `<Modal>` as a real window. |
 | [Accessibility](backlog/accessibility.md) | 4 | Nothing has been tested against a real screen reader. |

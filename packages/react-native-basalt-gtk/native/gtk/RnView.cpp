@@ -348,6 +348,18 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
       clip.size.height = viewHeight;
       gtk_snapshot_push_clip(snapshot, &clip);
     }
+    // Tiling wraps everything below it: `gtk_snapshot_push_repeat` takes the
+    // area to fill and the rect of one tile, and repeats whatever is recorded
+    // until the pop. So the tint's mask node works inside it unchanged.
+    const gboolean tiles = self->texture_fit == RN_IMAGE_FIT_REPEAT;
+    if (tiles) {
+      graphene_rect_t area;
+      area.origin.x = 0.0f;
+      area.origin.y = 0.0f;
+      area.size.width = viewWidth;
+      area.size.height = viewHeight;
+      gtk_snapshot_push_repeat(snapshot, &area, &destination);
+    }
     if (self->has_image_tint) {
       // The image becomes a stencil and the colour is what is actually drawn.
       // GskMaskNode records the mask first and the source second, which is why
@@ -362,6 +374,9 @@ static void rn_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
       gtk_snapshot_pop(snapshot);
     } else {
       gtk_snapshot_append_texture(snapshot, self->texture, &destination);
+    }
+    if (tiles) {
+      gtk_snapshot_pop(snapshot);
     }
     if (needs_clip) {
       gtk_snapshot_pop(snapshot);
@@ -892,6 +907,8 @@ static const char *rn_image_fit_name(RnImageFit fit) {
       return "stretch";
     case RN_IMAGE_FIT_CENTER:
       return "center";
+    case RN_IMAGE_FIT_REPEAT:
+      return "repeat";
     case RN_IMAGE_FIT_COVER:
       break;
   }

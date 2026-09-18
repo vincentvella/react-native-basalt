@@ -30,6 +30,9 @@ enum class RnImageFit {
   Contain,
   Stretch,
   Center,
+  // Tiled from the top left at the image's own size, which is what CSS
+  // `repeat` and React Native's `resizeMode: 'repeat'` mean.
+  Repeat,
 };
 
 const char *imageFitName(RnImageFit fit);

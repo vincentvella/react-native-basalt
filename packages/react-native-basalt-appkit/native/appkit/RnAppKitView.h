@@ -161,6 +161,9 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
   RnAppKitImageFitContain,
   RnAppKitImageFitStretch,
   RnAppKitImageFitCenter,
+  // Tiled from the top left at the image's own size, which is what CSS
+  // `repeat` and React Native's `resizeMode: 'repeat'` mean.
+  RnAppKitImageFitRepeat,
 };
 
 // The decoded pixels of an <Image>. Pass nil to clear.

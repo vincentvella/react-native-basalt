@@ -375,9 +375,7 @@ RnImageFit toImageFit(ImageResizeMode mode) {
     case ImageResizeMode::None:
       return RnImageFit::Center;
     case ImageResizeMode::Repeat:
-      // No tiled draw yet; centring is the least wrong single draw, and it is
-      // what GTK falls back to as well.
-      return RnImageFit::Center;
+      return RnImageFit::Repeat;
     case ImageResizeMode::Cover:
       break;
   }

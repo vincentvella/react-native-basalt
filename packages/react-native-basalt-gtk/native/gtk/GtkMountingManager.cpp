@@ -340,8 +340,7 @@ RnImageFit toImageFit(ImageResizeMode mode) {
     case ImageResizeMode::None:
       return RN_IMAGE_FIT_CENTER;
     case ImageResizeMode::Repeat:
-      // No repeating draw yet; centring is the least wrong single draw.
-      return RN_IMAGE_FIT_CENTER;
+      return RN_IMAGE_FIT_REPEAT;
     case ImageResizeMode::Cover:
       break;
   }

@@ -129,6 +129,11 @@ typedef enum {
   RN_IMAGE_FIT_CONTAIN,
   RN_IMAGE_FIT_STRETCH,
   RN_IMAGE_FIT_CENTER,
+  // Tiled from the top left at the image's own size, which is what CSS
+  // `repeat` and React Native's `resizeMode: 'repeat'` mean. Every toolkit
+  // here has a primitive for it; centring, which is what this used to fall
+  // back to, is a different picture rather than a rougher one.
+  RN_IMAGE_FIT_REPEAT,
 } RnImageFit;
 
 // The decoded pixels of an <Image>. Takes its own reference; pass NULL to clear.

@@ -71,6 +71,10 @@ function App() {
       <View style={styles.row}>
         <Image source={FILE} resizeMode="stretch" style={styles.cell} />
         <Image source={FILE} resizeMode="center" style={styles.cell} />
+        {/* Tiled rather than centred. It fell back to `center` on every host
+            until each grew a tiled draw, and the two look identical in a cell
+            large enough to hold one copy -- which is why the cell is small. */}
+        <Image source={FILE} resizeMode="repeat" style={styles.cell} />
       </View>
       <Image source={{uri: INLINE}} resizeMode="stretch" style={styles.wide} />
 

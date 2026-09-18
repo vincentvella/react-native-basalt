@@ -548,6 +548,8 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
       return "stretch";
     case RnAppKitImageFitCenter:
       return "center";
+    case RnAppKitImageFitRepeat:
+      return "repeat";
     case RnAppKitImageFitCover:
       break;
   }
@@ -602,6 +604,10 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
       // what React Native's `center` does.
       scale = MIN(1.0, MIN(size.width / imageWidth, size.height / imageHeight));
       break;
+    case RnAppKitImageFitRepeat:
+      // One tile, at natural size. Where it is placed and how many there are
+      // is the draw's business, not this function's.
+      break;
     case RnAppKitImageFitStretch:
       break;
   }
@@ -651,9 +657,9 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
     const NSRect destination = [self rnImageRectForSize:size];
 
     CGContextSaveGState(context);
-    // cover and center can put pixels outside the frame, and an <Image> never
-    // paints beyond its own box on iOS or Android.
-    if (_imageFit == RnAppKitImageFitCover || _imageFit == RnAppKitImageFitCenter) {
+    // cover, center and repeat can all put pixels outside the frame, and an
+    // <Image> never paints beyond its own box on iOS or Android.
+    if (_imageFit != RnAppKitImageFitContain && _imageFit != RnAppKitImageFitStretch) {
       CGContextClipToRect(context, NSMakeRect(0, 0, size.width, size.height));
     }
     // CGImage draws bottom-up and this view is flipped, so without this every
@@ -665,7 +671,27 @@ static const char *RnAppKitImageFitName(RnAppKitImageFit fit) {
                                     size.height - destination.origin.y - destination.size.height,
                                     destination.size.width,
                                     destination.size.height);
-    if (_imageTint != nil) {
+    if (_imageFit == RnAppKitImageFitRepeat) {
+      // Tiled from the top left at natural size. `CGContextDrawTiledImage`
+      // takes the *first* tile's rect and repeats it across the clip, which is
+      // why the clip above is what stops it painting the whole window.
+      //
+      // The first tile is at the top of the view, which in this flipped
+      // context is `size.height - tileHeight` -- so a box that is not a whole
+      // number of tiles high has its partial tile at the bottom, as CSS
+      // `repeat` does, rather than at the top.
+      const NSRect tile = NSMakeRect(0,
+                                     size.height - destination.size.height,
+                                     destination.size.width,
+                                     destination.size.height);
+      if (_imageTint != nil) {
+        CGContextClipToMask(context, tile, _image);
+        CGContextSetFillColorWithColor(context, _imageTint.CGColor);
+        CGContextFillRect(context, NSMakeRect(0, 0, size.width, size.height));
+      } else {
+        CGContextDrawTiledImage(context, tile, _image);
+      }
+    } else if (_imageTint != nil) {
       // The image becomes a stencil and the colour is what is drawn. Clipping
       // to the mask uses the image's alpha, which is what `tintColor` means:
       // recolour the silhouette rather than blend with the pixels.

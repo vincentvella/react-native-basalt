@@ -49,6 +49,8 @@ const char *imageFitName(RnImageFit fit) {
       return "stretch";
     case RnImageFit::Center:
       return "center";
+    case RnImageFit::Repeat:
+      return "repeat";
     case RnImageFit::Cover:
       break;
   }
@@ -191,13 +193,18 @@ void RnWin32Image::draw(ID2D1RenderTarget *target,
         // what React Native's `center` does.
         scale = std::min(1.0f, std::min(boxWidth / imageWidth, boxHeight / imageHeight));
         break;
+      case RnImageFit::Repeat:
+        // One tile, at natural size. Where the tiles go is decided below.
+        break;
       case RnImageFit::Stretch:
         break;
     }
     const float drawnWidth = imageWidth * scale;
     const float drawnHeight = imageHeight * scale;
-    const float x = (boxWidth - drawnWidth) / 2.0f;
-    const float y = (boxHeight - drawnHeight) / 2.0f;
+    // From the top left for `repeat`, which is what CSS does: the whole tiles
+    // start at the origin and the partial one is at the far edge.
+    const float x = fit == RnImageFit::Repeat ? 0.0f : (boxWidth - drawnWidth) / 2.0f;
+    const float y = fit == RnImageFit::Repeat ? 0.0f : (boxHeight - drawnHeight) / 2.0f;
     destination = D2D1::RectF(x, y, x + drawnWidth, y + drawnHeight);
   }
 
@@ -205,12 +212,34 @@ void RnWin32Image::draw(ID2D1RenderTarget *target,
   // paints beyond its own box on iOS or Android. A geometry clip rather than an
   // axis-aligned one, because an <Image> inside a rotated view is not exotic;
   // see Win32Clip.h.
-  const bool needsClip = fit == RnImageFit::Cover || fit == RnImageFit::Center;
+  const bool needsClip =
+      fit == RnImageFit::Cover || fit == RnImageFit::Center || fit == RnImageFit::Repeat;
   {
     const ScopedGeometryClip clip(needsClip ? target : nullptr,
                                   D2D1::RectF(0.0f, 0.0f, boxWidth, boxHeight),
                                   0.0f);
-    if (tint != nullptr) {
+    if (fit == RnImageFit::Repeat) {
+      // A bitmap brush in wrap mode, which is Direct2D's tiling: the brush
+      // repeats the bitmap across whatever is filled, and the clip above is
+      // what stops it at the view's edge.
+      //
+      // Nearest-neighbour on purpose. The default is linear, which blends the
+      // last column of one tile into the first of the next and leaves a seam
+      // on every boundary -- visible on exactly the small, sharp images people
+      // tile.
+      Microsoft::WRL::ComPtr<ID2D1BitmapBrush> brush;
+      const D2D1_BITMAP_BRUSH_PROPERTIES properties = D2D1::BitmapBrushProperties(
+          D2D1_EXTEND_MODE_WRAP,
+          D2D1_EXTEND_MODE_WRAP,
+          D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+      // The four-argument form on the interface itself rather than one of
+      // d2d1.h's inline reference overloads, so which one is selected is not a
+      // thing to be wrong about.
+      if (SUCCEEDED(target->CreateBitmapBrush(
+              deviceBitmap_, &properties, nullptr, brush.GetAddressOf()))) {
+        target->FillRectangle(D2D1::RectF(0.0f, 0.0f, boxWidth, boxHeight), brush.Get());
+      }
+    } else if (tint != nullptr) {
       // The bitmap becomes an opacity mask and the brush is what is painted.
       // Direct2D requires aliased antialiasing for a mask whose content is
       // graphics rather than text, and refuses the call otherwise -- so the
