@@ -24,7 +24,16 @@ const path = require('node:path');
 const {test} = require('node:test');
 
 const REPO = path.resolve(__dirname, '..');
-const desktop = require(path.join(REPO, 'packages/react-native-basalt/cli/desktop.js'));
+
+// The built package, not the source. react-native-basalt is TypeScript and
+// `main` points into dist/; requiring the source would either miss a
+// conversion or fail on a .ts import. scripts/build_ts.sh runs before this in
+// both CI and test_all.sh.
+const DIST = path.join(REPO, 'packages/react-native-basalt/dist');
+if (!fs.existsSync(DIST)) {
+  throw new Error(`${DIST} does not exist. Run scripts/build_ts.sh first.`);
+}
+const desktop = require(path.join(DIST, 'cli/desktop.js'));
 
 // The three real command modules, loaded the way React Native's CLI loads them:
 // through each platform package's react-native.config.js. That this resolves at
@@ -384,7 +393,7 @@ test('the environment vcvars prints is read as NAME=value lines only', () => {
 });
 
 test('a Metro that dies on start is reported at once, with its own error', async () => {
-  const {startMetro} = require(path.join(REPO, 'packages/react-native-basalt/cli/metro.js'));
+  const {startMetro} = require(path.join(DIST, 'cli/metro.js'));
   const project = scratch();
 
   // A stand-in for react-native's cli.js that fails the way Metro does in an
@@ -450,7 +459,7 @@ test('a development run names the Metro config to install before starting Metro'
 // ---------------------------------------------------------------------------
 
 const packageApp = require(
-  path.join(REPO, 'packages/react-native-basalt/cli/packageApp.js'),
+  path.join(DIST, 'cli/packageApp.js'),
 );
 
 /** A throwaway project directory with the given files in it. */
@@ -672,9 +681,7 @@ test('a transitive dependency does not contribute native code on its own', () =>
 // real temporary directory rather than a mocked filesystem: what is being
 // tested is what it writes.
 
-const init = require(
-  path.join(REPO, 'packages/react-native-basalt/dist/cli/init.js'),
-).init;
+const init = require(path.join(DIST, 'cli/init.js')).init;
 
 function scratchApp(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-init-'));

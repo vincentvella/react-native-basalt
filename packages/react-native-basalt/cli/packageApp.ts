@@ -33,12 +33,85 @@
  * from costing forty megabytes a run.
  */
 
-'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const {spawnSync} = require('child_process');
-const {createRequire} = require('module');
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {createRequire} from 'node:module';
+
+/** The three desktops this can package for. */
+export type PackagePlatform = 'linux' | 'macos' | 'windows';
+
+/**
+ * What an app calls itself, gathered from whatever it already declares --
+ * `app.json`, `package.json`, or an Expo config. Never invented beyond the
+ * documented fallbacks.
+ */
+export type AppConfig = {
+  name: string;
+  slug: string;
+  /** Reverse-DNS, which is what macOS and notifications need. */
+  identifier: string;
+  /** Custom URL schemes the app registers. */
+  schemes: string[];
+  version: string;
+};
+
+export type PackageRequest = {
+  platform: PackagePlatform;
+  hostBinary: string;
+  outputDir: string;
+  projectRoot: string;
+  bundlePath?: string;
+};
+
+/**
+ * What was produced.
+ *
+ * `launchPath` is the thing to run, which is not always the host binary: on
+ * macOS it is the executable *inside* the bundle, because that is what makes
+ * `NSBundle.mainBundle` the bundle.
+ */
+export type PackageResult = {
+  launchPath: string;
+  config: AppConfig;
+  /** Where the identity file went, or null when there was no bundle to sit beside. */
+  identityPath: string | null;
+  /** macOS only: the `.app` that was built. */
+  appPath?: string;
+  /** Linux only: the `.desktop` entry that was written. */
+  desktopPath?: string;
+};
+
+/** What each platform's packager returns, before the shared fields are added. */
+type PackagedPaths = {
+  launchPath: string;
+  appPath?: string;
+  desktopPath?: string;
+};
+
+/** An app.json or package.json, as far as this reads one. */
+type Manifest = {
+  name?: string;
+  displayName?: string;
+  version?: string;
+  scheme?: string | string[];
+  /** This platform's own escape hatch in app.json, for an app that names neither. */
+  basalt?: {identifier?: string; scheme?: string | string[]};
+  expo?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+/** The parts of an Expo config this uses. */
+type ExpoConfig = {
+  name?: string;
+  slug?: string;
+  version?: string;
+  scheme?: string | string[];
+  ios?: {bundleIdentifier?: string};
+  android?: {package?: string};
+  [key: string]: unknown;
+};
 
 /**
  * What an app calls itself, from whichever of the three places says so.
@@ -48,10 +121,17 @@ const {createRequire} = require('module');
  * React Native answer; `package.json` is the last resort so that this never
  * fails outright.
  */
-function readAppConfig(projectRoot) {
-  let exp = null;
+export function readAppConfig(projectRoot: string): AppConfig {
+  let exp: ExpoConfig | null = null;
   try {
-    const {getConfig} = createRequire(path.join(projectRoot, 'package.json'))('expo/config');
+    const {getConfig} = createRequire(path.join(projectRoot, 'package.json'))(
+      'expo/config',
+    ) as {
+      getConfig: (
+        root: string,
+        options: {isPublicConfig?: boolean; skipSDKVersionRequirement?: boolean},
+      ) => {exp: ExpoConfig};
+    };
     exp = getConfig(projectRoot, {
       skipSDKVersionRequirement: true,
       isPublicConfig: true,
@@ -60,9 +140,9 @@ function readAppConfig(projectRoot) {
     // Not an Expo app. Not a failure: the two files below say the same things.
   }
 
-  const readJson = file => {
+  const readJson = (file: string): Manifest => {
     try {
-      return JSON.parse(fs.readFileSync(path.join(projectRoot, file), 'utf8'));
+      return JSON.parse(fs.readFileSync(path.join(projectRoot, file), 'utf8')) as Manifest;
     } catch {
       return {};
     }
@@ -98,14 +178,14 @@ function readAppConfig(projectRoot) {
 }
 
 /** XML text, escaped. A plist is XML and an app called `Ben & Co` is legal. */
-function xml(text) {
+function xml(text: string): string {
   return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
 
-function infoPlist(config, executableName) {
+export function infoPlist(config: AppConfig, executableName: string): string {
   const urlTypes =
     config.schemes.length === 0
       ? ''
@@ -156,7 +236,7 @@ ${config.schemes.map(s => `				<string>${xml(s)}</string>`).join('\n')}
 }
 
 /** Whether `source` is newer than `destination`, or the destination is absent. */
-function isStale(source, destination) {
+function isStale(source: string, destination: string): boolean {
   try {
     return fs.statSync(source).mtimeMs > fs.statSync(destination).mtimeMs;
   } catch {
@@ -169,7 +249,7 @@ function isStale(source, destination) {
  * it -- which is what should be launched, because that is what makes
  * `NSBundle.mainBundle` the bundle.
  */
-function packageMacos(hostBinary, outputDir, config) {
+function packageMacos(hostBinary: string, outputDir: string, config: AppConfig): PackagedPaths {
   const appDir = path.join(outputDir, `${config.name}.app`);
   const macosDir = path.join(appDir, 'Contents', 'MacOS');
   const resourcesDir = path.join(appDir, 'Contents', 'Resources');
@@ -233,7 +313,7 @@ function packageMacos(hostBinary, outputDir, config) {
  * command should not make on its own; the caller prints the one-line copy that
  * does it.
  */
-function packageLinux(hostBinary, outputDir, config) {
+function packageLinux(hostBinary: string, outputDir: string, config: AppConfig): PackagedPaths {
   const fileName = `${config.identifier}.desktop`;
   const destination = path.join(outputDir, fileName);
 
@@ -272,7 +352,10 @@ function packageLinux(hostBinary, outputDir, config) {
  * argument, because a Start Menu shortcut clicked in a month carries no
  * environment. See native/core/AppIdentity.h.
  */
-function writeIdentity(bundlePath, config) {
+export function writeIdentity(
+  bundlePath: string | undefined,
+  config: AppConfig,
+): string | null {
   if (bundlePath == null) {
     return null;
   }
@@ -294,7 +377,13 @@ function writeIdentity(bundlePath, config) {
   return destination;
 }
 
-function packageApp({platform, hostBinary, outputDir, projectRoot, bundlePath}) {
+export function packageApp({
+  platform,
+  hostBinary,
+  outputDir,
+  projectRoot,
+  bundlePath,
+}: PackageRequest): PackageResult {
   const config = readAppConfig(projectRoot);
   fs.mkdirSync(outputDir, {recursive: true});
   const identityPath = writeIdentity(bundlePath, config);
@@ -310,5 +399,3 @@ function packageApp({platform, hostBinary, outputDir, projectRoot, bundlePath}) 
   // doing it in PowerShell from here. See win32/Win32Packaging.h.
   return {config, identityPath, launchPath: hostBinary};
 }
-
-module.exports = {packageApp, readAppConfig, infoPlist, writeIdentity};

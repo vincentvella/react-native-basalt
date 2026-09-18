@@ -1593,7 +1593,7 @@ def packaged_host(build: Path) -> Path:
          "process.stdout.write(packageApp({"
          "platform: 'macos', hostBinary: process.argv[2],"
          "outputDir: process.argv[3], projectRoot: process.argv[4]}).launchPath);",
-         str(REPO / "packages/react-native-basalt/cli/packageApp.js"),
+         str(REPO / "packages/react-native-basalt/dist/cli/packageApp.js"),
          str(HOST), str(build / "app"), str(REPO / "js")],
         cwd=REPO, capture_output=True, text=True, timeout=120,
     )

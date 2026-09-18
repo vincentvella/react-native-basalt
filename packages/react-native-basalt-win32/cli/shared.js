@@ -13,6 +13,11 @@
  * an app is in, and beside us second, because that is the layout it is
  * developed in.
  *
+ * Both reach the *built* package. react-native-basalt is TypeScript: by name
+ * resolves through its `exports` map, which points into `dist/`, and the
+ * sibling path has to say so itself. A checkout that has not run
+ * scripts/build_ts.sh has nothing here to find, which is what the error says.
+ *
  * @format
  */
 
@@ -46,7 +51,17 @@ function shared(subpath) {
       // a real error in that file from being reported as a missing package.
       throw error;
     }
-    return require(path.join(SIBLING, subpath));
+    try {
+      return require(path.join(SIBLING, 'dist', subpath));
+    } catch (siblingError) {
+      if (siblingError.code === 'MODULE_NOT_FOUND') {
+        throw new Error(
+          `could not load ${name}. In a checkout, react-native-basalt has to be ` +
+            'built first: run scripts/build_ts.sh.',
+        );
+      }
+      throw siblingError;
+    }
   }
 }
 

@@ -16,15 +16,16 @@
  * @format
  */
 
-'use strict';
 
-const {spawn, spawnSync} = require('child_process');
-const fs = require('fs');
-const path = require('path');
+import type {ChildProcess} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const {bundleWithAssets, writeExpoAppConfig} = require('./bundleWithAssets');
-const {packageApp} = require('./packageApp');
-const {isPortTaken, startMetro} = require('./metro');
+import {bundleWithAssets, writeExpoAppConfig} from './bundleWithAssets';
+import {packageApp} from './packageApp';
+import type {PackagePlatform} from './packageApp';
+import {isPortTaken, startMetro} from './metro';
 
 const DEFAULT_PORT = 8081;
 
@@ -40,7 +41,71 @@ const DEFAULT_PORT = 8081;
  *   generator    optional CMake generator, when the default is wrong
  */
 
-class MissingHost extends Error {}
+/**
+ * What a platform package contributes. The fields are documented above; this
+ * is the same list, so that a package leaving one out is a compile error
+ * rather than an undefined read a long way from here.
+ */
+export type Target = {
+  platform: PackagePlatform;
+  command: string;
+  binary: string;
+  nativeDir: string;
+  coreDir: string;
+  toolchain: string;
+  label?: string;
+  generator?: string;
+  /** Extra CMake arguments this platform always needs. */
+  configureArgs?: string[];
+};
+
+/** What React Native's CLI hands a command. Only the fields this file reads. */
+/**
+ * Where React Native's C++ is, and how to ask bootstrap for it. A checkout and
+ * an installed package are different layouts, and the difference is what
+ * bootstrap has to be told.
+ */
+export type ReactNativeSources = {
+  layout: 'checkout' | 'installed';
+  bootstrapArg: string;
+  rnDir: string;
+};
+
+/**
+ * CMake arguments, and the one-line notes the run prints to say why each is
+ * there -- "capability package, from ...". The notes exist so that a build
+ * picking something up from the app's dependencies says so rather than doing
+ * it silently.
+ */
+export type ContributedArgs = {
+  args: string[];
+  notes: string[];
+};
+
+export type CliContext = {
+  root: string;
+  reactNativePath: string;
+};
+
+/** The flags a run command accepts. */
+export type RunOptions = {
+  mode?: string;
+  build?: boolean;
+  packager?: boolean;
+  port?: number;
+  entryFile?: string;
+  /** `--module`: the name the app registered with AppRegistry. */
+  module?: string;
+  /** `--host-binary`: a host to run instead of the one that would be found. */
+  hostBinary?: string;
+  /** `--bundle`: where the bundle is, or should be written. */
+  bundle?: string;
+  /** `--jobs`: parallelism for the build. */
+  jobs?: number | string;
+  generator?: string;
+};
+
+export class MissingHost extends Error {}
 
 /**
  * Executable, on a platform that has an opinion about it.
@@ -50,7 +115,7 @@ class MissingHost extends Error {}
  * Unix binary would call a non-executable one runnable, which is worse than
  * either mistake this avoids.
  */
-function isExecutable(file) {
+export function isExecutable(file: string): boolean {
   try {
     if (!fs.statSync(file).isFile()) {
       return false;
@@ -72,8 +137,8 @@ function isExecutable(file) {
  * directories up. That is what makes the demo app in examples/ work without
  * configuration.
  */
-function candidates(projectRoot, options, target) {
-  const found = [];
+export function candidates(projectRoot: string, options: RunOptions, target: Target): string[] {
+  const found: string[] = [];
 
   if (options.hostBinary) {
     found.push(path.resolve(projectRoot, options.hostBinary));
@@ -90,7 +155,7 @@ function candidates(projectRoot, options, target) {
   return found.map(entry => path.normalize(entry));
 }
 
-function resolveHost(projectRoot, options, target) {
+export function resolveHost(projectRoot: string, options: RunOptions, target: Target): string {
   const looked = candidates(projectRoot, options, target);
   const found = looked.find(isExecutable);
   if (found) {
@@ -109,10 +174,15 @@ function resolveHost(projectRoot, options, target) {
   );
 }
 
-function run(command, args, options, toolchain) {
+function run(
+  command: string,
+  args: string[],
+  options: {cwd?: string; env?: NodeJS.ProcessEnv},
+  toolchain: string,
+): void {
   const result = spawnSync(command, args, {stdio: 'inherit', ...options});
   if (result.error) {
-    if (result.error.code === 'ENOENT') {
+    if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new Error(
         `${command} is not installed. Building the host needs cmake, ninja, and ${toolchain}.`,
       );
@@ -139,7 +209,7 @@ function run(command, args, options, toolchain) {
  * lacked the C++, long after bootstrap and CMake had learned to build from one.
  * The command was the only part that had not.
  */
-function reactNativeSources(reactNativePath) {
+export function reactNativeSources(reactNativePath: string): ReactNativeSources {
   const root = monorepoRoot(reactNativePath);
   if (root != null) {
     return {
@@ -172,7 +242,7 @@ function reactNativeSources(reactNativePath) {
  * `<name>/package.json` throws for any package whose `exports` does not list
  * it, and the only question here is where the package is on disk.
  */
-function findPackage(name, from) {
+function findPackage(name: string, from: string): string | null {
   let dir = path.resolve(from);
   for (;;) {
     const candidate = path.join(dir, 'node_modules', name);
@@ -215,7 +285,7 @@ function findPackage(name, from) {
  * node_modules: a transitive dependency contributing C++ to the host binary
  * without the app asking is not a thing to make easy.
  */
-function capabilityPackages(projectRoot) {
+export function capabilityPackages(projectRoot: string): string[] {
   const manifestPath = path.join(projectRoot, 'package.json');
   if (!fs.existsSync(manifestPath)) {
     return [];
@@ -258,11 +328,12 @@ function capabilityPackages(projectRoot) {
   return found;
 }
 
-function optionalNativeModules(projectRoot) {
+export function optionalNativeModules(projectRoot: string): ContributedArgs {
   const args = [];
   const notes = [];
   // Forward slashes: CMake reads a backslash in a -D value as an escape.
-  const define = (name, dir) => args.push(`-D${name}=${dir.split(path.sep).join('/')}`);
+  const define = (name: string, dir: string): number =>
+    args.push(`-D${name}=${dir.split(path.sep).join('/')}`);
 
   const expo = findPackage('expo', projectRoot);
   const expoCore =
@@ -322,8 +393,11 @@ function optionalNativeModules(projectRoot) {
  * file, found the way bootstrap.sh finds vcpkg: by a header it cannot do
  * without, not by VCPKG_ROOT, which vcvars64.bat points at an empty copy.
  */
-function compilerArgs(platform, env = process.env) {
-  const args = [];
+export function compilerArgs(
+  platform: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const args: string[] = [];
   const named = Boolean(env.CC || env.CXX);
 
   if (platform !== 'windows') {
@@ -344,7 +418,7 @@ function compilerArgs(platform, env = process.env) {
     home && path.join(home, 'Tools', 'vcpkg'),
     home && path.join(home, 'vcpkg'),
     'C:/vcpkg',
-  ].filter(Boolean);
+  ].filter((root): root is string => typeof root === 'string' && root.length > 0);
   for (const root of roots) {
     const toolchain = path.join(root, 'scripts', 'buildsystems', 'vcpkg.cmake');
     const glog = path.join(root, 'installed', 'x64-windows', 'include', 'glog', 'logging.h');
@@ -369,11 +443,12 @@ function compilerArgs(platform, env = process.env) {
  * the standard install locations. Anything under System32 or WindowsApps is
  * refused wherever it came from.
  */
-function findGitBash(env = process.env) {
+export function findGitBash(env: NodeJS.ProcessEnv = process.env): string | null {
   // Either separator: a path handed in through BASALT_BASH or PATH may use
   // forward slashes, and the tests run this on Linux too.
-  const isLauncher = candidate => /[\\/](system32|windowsapps)[\\/]/i.test(candidate);
-  const usable = candidate =>
+  const isLauncher = (candidate: string): boolean =>
+    /[\\/](system32|windowsapps)[\\/]/i.test(candidate);
+  const usable = (candidate: string | undefined): boolean =>
     candidate != null && !isLauncher(candidate) && fs.existsSync(candidate);
 
   if (env.BASALT_BASH) {
@@ -400,12 +475,12 @@ function findGitBash(env = process.env) {
  * The environment `set` prints, as an object. Only lines of the form NAME=value;
  * cmd prints nothing else there, but a banner from a profile script might.
  */
-function parseSetOutput(output) {
-  const env = {};
+export function parseSetOutput(output: string): Record<string, string> {
+  const env: Record<string, string> = {};
   for (const line of output.split(/\r?\n/)) {
     const match = /^([^=\s][^=]*)=(.*)$/.exec(line);
     if (match) {
-      env[match[1]] = match[2];
+      env[match[1] as string] = match[2] as string;
     }
   }
   return env;
@@ -426,7 +501,7 @@ function parseSetOutput(output) {
  * marker). VCPKG_ROOT is left as it was: vcvars points it at the copy bundled
  * with Visual Studio, which has nothing installed in it.
  */
-function msvcEnvironment(env = process.env) {
+export function msvcEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   if (env.VCToolsInstallDir) {
     return env;
   }
@@ -479,7 +554,7 @@ function msvcEnvironment(env = process.env) {
  * checkout. An installed react-native has no monorepo above it, and this
  * returns null for one; reactNativeSources above decides what to do then.
  */
-function monorepoRoot(reactNativePath) {
+export function monorepoRoot(reactNativePath: string): string | null {
   // Through the symlink first. A workspace, a pnpm store and `npm link` all
   // put a link in node_modules, and walking up from the link lands in the app
   // rather than in the checkout it points at.
@@ -516,7 +591,7 @@ function monorepoRoot(reactNativePath) {
  * React Native's C++ core. Saying so before it starts is better than a silent
  * half hour.
  */
-function buildHost(context, options, target) {
+export function buildHost(context: CliContext, options: RunOptions, target: Target): string {
   const projectRoot = context.root;
   const workDir = path.join(projectRoot, '.basalt');
   const buildDir = path.join(workDir, 'build');
@@ -548,8 +623,8 @@ function buildHost(context, options, target) {
   let bash = 'bash';
   if (process.platform === 'win32') {
     buildEnv = msvcEnvironment(process.env);
-    bash = findGitBash(buildEnv);
-    if (bash == null) {
+    const found = findGitBash(buildEnv);
+    if (found == null) {
       throw new Error(
         'building the host on Windows needs Git Bash, and none was found -- only a WSL ' +
           'launcher, or nothing. Install Git for Windows, or set BASALT_BASH to its bash.exe.',
@@ -605,8 +680,8 @@ function buildHost(context, options, target) {
  * use, and what run-android reads for the same purpose. Expo apps register
  * "main" regardless, so an explicit --module has to win.
  */
-function resolveModuleName(projectRoot, options) {
-  if (options.module) {
+export function resolveModuleName(projectRoot: string, options: RunOptions): string {
+  if (typeof options.module === 'string') {
     return options.module;
   }
   const appJson = path.join(projectRoot, 'app.json');
@@ -617,7 +692,7 @@ function resolveModuleName(projectRoot, options) {
         return parsed.name;
       }
     } catch (error) {
-      throw new Error(`could not read ${appJson}: ${error.message}`);
+      throw new Error(`could not read ${appJson}: ${(error as Error).message}`);
     }
   }
   throw new Error(
@@ -634,10 +709,15 @@ function resolveModuleName(projectRoot, options) {
  * them, it may as well be the only path, so both kinds of app get identical
  * output and there is one place where assets can go wrong.
  */
-async function bundleForRelease(context, options, outputPath, target) {
+async function bundleForRelease(
+  context: CliContext,
+  options: RunOptions,
+  outputPath: string,
+  target: Target,
+): Promise<void> {
   const result = await bundleWithAssets({
     projectRoot: context.root,
-    entryFile: options.entryFile,
+    entryFile: options.entryFile ?? 'index.js',
     bundleOutput: outputPath,
     platform: target.platform,
     dev: false,
@@ -653,7 +733,19 @@ async function bundleForRelease(context, options, outputPath, target) {
  * Foreground on purpose: this is a desktop application, and the terminal that
  * launched it is where its output belongs and where Ctrl-C should reach it.
  */
-function launch(hostBinary, {bundlePath, moduleName, dev, port, entry, cwd}) {
+type LaunchOptions = {
+  bundlePath?: string;
+  moduleName: string;
+  dev: boolean;
+  port: number;
+  entry?: string;
+  cwd: string;
+};
+
+function launch(
+  hostBinary: string,
+  {bundlePath, moduleName, dev, port, entry, cwd}: LaunchOptions,
+): Promise<number> {
   const env = {...process.env};
   if (dev) {
     env.BASALT_DEV = '1';
@@ -664,7 +756,7 @@ function launch(hostBinary, {bundlePath, moduleName, dev, port, entry, cwd}) {
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(hostBinary, [bundlePath, moduleName], {
+    const child = spawn(hostBinary, [bundlePath ?? '', moduleName], {
       cwd,
       env,
       stdio: 'inherit',
@@ -691,7 +783,7 @@ function launch(hostBinary, {bundlePath, moduleName, dev, port, entry, cwd}) {
  * front, the answer can name the version to install: the app's react-native
  * version, which is what @react-native/community-cli-plugin pins it to.
  */
-function missingMetroConfig(projectRoot) {
+export function missingMetroConfig(projectRoot: string): string | null {
   if (findPackage('@react-native/metro-config', projectRoot) != null) {
     return null;
   }
@@ -716,7 +808,12 @@ function missingMetroConfig(projectRoot) {
   );
 }
 
-async function runDesktop(_argv, context, options, target) {
+async function runDesktop(
+  _argv: string[],
+  context: CliContext,
+  options: RunOptions,
+  target: Target,
+): Promise<void> {
   const projectRoot = context.root;
   const port = Number(options.port) || DEFAULT_PORT;
   const dev = options.mode !== 'release';
@@ -811,7 +908,7 @@ async function runDesktop(_argv, context, options, target) {
     moduleName,
     dev,
     port,
-    entry: options.entryFile.replace(/\.[^.]+$/, ''),
+    entry: (options.entryFile ?? 'index.js').replace(/\.[^.]+$/, ''),
     cwd: projectRoot,
   });
   if (status !== 0) {
@@ -822,11 +919,11 @@ async function runDesktop(_argv, context, options, target) {
 /**
  * The CLI command object React Native's CLI expects, for one target.
  */
-function makeRunCommand(target) {
+export function makeRunCommand(target: Target) {
   return {
     name: target.command,
     description: `builds nothing and runs your app on ${target.label}, against a packager`,
-    func: async (argv, context, options) => {
+    func: async (argv: string[], context: CliContext, options: RunOptions): Promise<void> => {
       try {
         await runDesktop(argv, context, options, target);
       } catch (error) {
@@ -883,22 +980,3 @@ function makeRunCommand(target) {
     ],
   };
 }
-
-module.exports = {
-  MissingHost,
-  buildHost,
-  candidates,
-  capabilityPackages,
-  compilerArgs,
-  findGitBash,
-  isExecutable,
-  makeRunCommand,
-  missingMetroConfig,
-  monorepoRoot,
-  msvcEnvironment,
-  optionalNativeModules,
-  parseSetOutput,
-  reactNativeSources,
-  resolveHost,
-  resolveModuleName,
-};
