@@ -102,13 +102,44 @@ void GtkTitleBar::close() {
 }
 
 void GtkTitleBar::startDrag() {
-  // Nothing to do here, and that is the answer rather than a gap.
+  // Still nothing to do here, but not for the reason this used to give.
   //
-  // GTK moves a window through GtkWindowHandle, which is a widget: anything
-  // inside one drags the window, and there is no "begin a drag now" call to
-  // make from a press. The host's overlay could wrap the app's drag regions in
-  // one, which is where this belongs -- not in a method JavaScript calls after
-  // the press has already been delivered elsewhere. See docs/BACKLOG.md.
+  // It said there is no "begin a drag now" call. There is:
+  // gdk_toplevel_begin_move, which beginMoveDrag below uses. What there is no
+  // way to supply is its arguments -- the device, the button and the
+  // timestamp of the press GDK is being asked to take over. By the time
+  // JavaScript can call this, the press has been delivered, handled and
+  // forgotten, and a move begun without it is refused by the compositor or
+  // starts a drag the pointer is not in.
+  //
+  // So the conclusion the old comment reached was right even though its
+  // premise was wrong: this belongs in the host, at the press. That is where
+  // it now is -- main_gtk.cpp hit-tests the drag regions on a click gesture
+  // and calls beginMoveDrag. An app marking <TitleBar.DragRegion> needs
+  // nothing from this method.
+}
+
+void GtkTitleBar::beginMoveDrag(GdkDevice *device,
+                                int button,
+                                double x,
+                                double y,
+                                guint32 timestamp) {
+  // window_ is a weak pointer and the device comes from an event that has
+  // already been dispatched, so both can be gone by the time this runs.
+  if (window_ == nullptr || device == nullptr) {
+    return;
+  }
+
+  GdkSurface *const surface = gtk_native_get_surface(GTK_NATIVE(window_));
+  // Not every GdkSurface is a toplevel -- a popup is not -- and only a
+  // toplevel can be moved. A window that has not been mapped yet has no
+  // surface at all, which is what an app calling this during its first render
+  // would reach.
+  if (surface == nullptr || !GDK_IS_TOPLEVEL(surface)) {
+    return;
+  }
+
+  gdk_toplevel_begin_move(GDK_TOPLEVEL(surface), device, button, x, y, timestamp);
 }
 
 TitleBarMetrics GtkTitleBar::metrics() const {

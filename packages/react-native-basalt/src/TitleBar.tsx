@@ -22,9 +22,14 @@
  * Requests stack like <StatusBar>'s: the most recently mounted wins, key by key,
  * and unmounting one restores what was beneath it. See titleBarState.ts.
  *
- * On a host with no title bar module -- today, anything but Windows -- every
- * call is ignored and the metrics are all zero, so the same code runs
- * everywhere.
+ * All three hosts have a title bar module. The calls are guarded regardless:
+ * on a host without one -- or before it has registered -- every call is
+ * ignored and the metrics are all zero, so the same code runs everywhere.
+ *
+ * `<TitleBar.DragRegion>` is where the three are not yet equal. Windows and
+ * GTK read the marks and drag the window from them; macOS does not read them
+ * yet, so a header an app drew there shows correctly but does not move the
+ * window. See core/TitleBarRegions.h for the marks and the rule.
  *
  * @format
  */
@@ -71,8 +76,12 @@ const NativeWindow = TurboModuleRegistry.get<NativeWindowModule>('BasaltWindow')
 
 const METRICS_EVENT = 'basaltTitleBarMetricsChanged';
 
-// Must match kTitleBarDragRegionId and kTitleBarNoDragRegionId in the Windows
-// host's Win32TitleBarLayout.h.
+// Must match kTitleBarDragRegionId and kTitleBarNoDragRegionId in
+// core/TitleBarRegions.h, which is where the hosts read them from -- Win32
+// through Win32TitleBarLayout.h and GTK through GtkTitleBarLayout.h. They were
+// spelled in the Windows host alone when Windows was the only reader; that
+// header now takes its values from core rather than repeating them, so these
+// two literals are the only other copy.
 const DRAG_REGION_ID = 'basalt-titlebar-drag';
 const NO_DRAG_REGION_ID = 'basalt-titlebar-no-drag';
 

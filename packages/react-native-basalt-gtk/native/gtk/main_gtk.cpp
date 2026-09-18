@@ -57,6 +57,8 @@
 #include "ColorScheme.h"
 #include "DevBundle.h"
 #include "GtkTitleBar.h"
+// Which parts of an app-drawn header drag the window; see the gesture below.
+#include "GtkTitleBarLayout.h"
 #include "GtkWindowModule.h"
 #include "ExpoModules.h"
 #include "GestureHandlerModule.h"
@@ -936,6 +938,98 @@ HostWindow *createHostWindow(Host *host,
   // docs/BACKLOG.md.
   if (isMainWindow) {
     basalt::titleBar().attach(made->window, controls);
+
+    // A press inside a region the app marked with <TitleBar.DragRegion> hands
+    // the window to the window manager's own move loop.
+    //
+    // This is the host's job rather than a method JavaScript calls, because
+    // gdk_toplevel_begin_move needs the device, button and timestamp of the
+    // press it is taking over, and by the time a JS handler could run those
+    // are gone. See GtkTitleBar::startDrag, which says so at more length.
+    //
+    // Windows needs none of this: it answers HTCAPTION from WM_NCHITTEST and
+    // the system does the rest. GTK has no equivalent hook, so the gesture is
+    // the equivalent -- and it asks the same question of the same nativeIDs,
+    // which is what keeps the two desktops agreeing about what drags.
+    GtkGesture *dragRegions = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(dragRegions), GDK_BUTTON_PRIMARY);
+    // Capture, so this is asked before the app's own views handle the press.
+    // In the bubble phase a <Pressable> inside a drag region would have taken
+    // it already, and the window would never move.
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(dragRegions),
+                                               GTK_PHASE_CAPTURE);
+    g_signal_connect(
+        dragRegions,
+        "pressed",
+        G_CALLBACK(+[](GtkGestureClick *gesture,
+                       int /*nPress*/,
+                       double x,
+                       double y,
+                       gpointer data) {
+          auto *self = static_cast<HostWindow *>(data);
+          if (self == nullptr || self->root == nullptr || self->window == nullptr) {
+            return;
+          }
+          // Only the hidden style. With GTK's own decorations the titlebar is
+          // a real widget above the app, dragging it already works, and an
+          // app's marked region is just a view.
+          if (basalt::titleBar().metrics().style != basalt::TitleBarStyle::Hidden) {
+            return;
+          }
+          if (!basalt::isTitleBarDragRegionAt(self->root, x, y)) {
+            return;
+          }
+
+          GtkEventController *const controller = GTK_EVENT_CONTROLLER(gesture);
+          GdkDevice *const device = gtk_event_controller_get_current_event_device(controller);
+          const guint32 timestamp = gtk_event_controller_get_current_event_time(controller);
+          const int button =
+              static_cast<int>(gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture)));
+
+          // The gesture reports the root's coordinates; GDK wants the
+          // surface's. They differ by the root's offset within the window and
+          // again by the surface transform, which is where a compositor puts
+          // client-side shadows -- ignore either and the window jumps by that
+          // much as the drag starts.
+          // compute_point rather than translate_coordinates, which GTK 4.12
+          // deprecated and this build treats as an error. Brace-initialised
+          // because GRAPHENE_POINT_INIT is a C99 compound literal that C++
+          // rejects -- the same trap GtkMountingManager records for
+          // GRAPHENE_SIZE_INIT -- and the result is checked because the
+          // function is warn-unused-result: false means the two widgets share
+          // no ancestry, which a window mid-teardown really can produce.
+          // Assigned field by field rather than brace-initialised, because this
+          // whole lambda is one argument to the G_CALLBACK macro below and the
+          // preprocessor counts commas at paren depth without understanding
+          // braces: `{a, b}` reads as two macro arguments and the expansion
+          // fails with "too many arguments provided to function-like macro".
+          // Empty braces are safe, which is why the same type in
+          // GtkTouchDispatcher.cpp raises nothing.
+          graphene_point_t inRoot{};
+          inRoot.x = static_cast<float>(x);
+          inRoot.y = static_cast<float>(y);
+          graphene_point_t inWindow{};
+          if (!gtk_widget_compute_point(
+                  GTK_WIDGET(self->root), GTK_WIDGET(self->window), &inRoot, &inWindow)) {
+            return;
+          }
+          double originX = 0;
+          double originY = 0;
+          gtk_native_get_surface_transform(GTK_NATIVE(self->window), &originX, &originY);
+
+          basalt::titleBar().beginMoveDrag(device,
+                                           button,
+                                           inWindow.x + originX,
+                                           inWindow.y + originY,
+                                           timestamp);
+
+          // Claimed: the move loop now owns the pointer, and leaving the
+          // sequence unclaimed would also deliver this press to the view under
+          // it once the drag ended.
+          gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+        }),
+        made);
+    gtk_widget_add_controller(GTK_WIDGET(made->root), GTK_EVENT_CONTROLLER(dragRegions));
   }
 
   rn_view_set_resize_callback(made->root, onRootResized, made);

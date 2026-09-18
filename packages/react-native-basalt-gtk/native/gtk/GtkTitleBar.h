@@ -60,6 +60,15 @@ class GtkTitleBar {
   void close();
   void startDrag();
 
+  // Hands the window to the window manager's own move loop, from the press
+  // that started it.
+  //
+  // `x` and `y` are in surface coordinates, and the device, button and
+  // timestamp are the press's own: GDK will not begin a move without them,
+  // which is the whole reason this takes arguments where startDrag() above
+  // cannot. The host calls it from the gesture; see main_gtk.cpp.
+  void beginMoveDrag(GdkDevice *device, int button, double x, double y, guint32 timestamp);
+
   TitleBarMetrics metrics() const;
 
   void setMetricsListener(std::function<void(const TitleBarMetrics &)> listener);

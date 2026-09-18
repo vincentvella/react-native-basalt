@@ -276,6 +276,23 @@ void rn_view_set_accessible_text(RnView *self, const char *label, const char *de
 // cannot disagree. Pass NULL or "" for no role.
 void rn_view_set_role_name(RnView *self, const char *name);
 
+// The view's `nativeID`, verbatim.
+//
+// Only the hidden title bar reads it, to find the regions an app marked with
+// <TitleBar.DragRegion> and <TitleBar.NoDragRegion>; see
+// core/TitleBarRegions.h for the two names and the rule. Nothing about layout,
+// painting or accessibility looks at it.
+//
+// Kept as the app set it rather than parsed into a flag here, because a view
+// can carry a nativeID for reasons that have nothing to do with the title bar
+// -- an end-to-end test looking a view up by name, most of them -- and this
+// layer has no business deciding which of those meanings was intended.
+//
+// Pass NULL or "" for none.
+void rn_view_set_native_id(RnView *self, const char *native_id);
+// NULL when unset, never the empty string.
+const char *rn_view_get_native_id(RnView *self);
+
 // Accessible states. Each is a tri-state: unset leaves GTK's default alone,
 // which is not the same as setting it false.
 typedef enum {

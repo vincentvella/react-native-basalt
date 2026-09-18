@@ -179,6 +179,9 @@ struct _RnView {
   gboolean has_image_tint;
   GdkRGBA image_tint;
   char *role_name;
+  // The app's `nativeID`. Read only by the hidden title bar's drag-region hit
+  // test; see RnView.h and core/TitleBarRegions.h.
+  char *native_id;
 
   gboolean clips_children;
   double scroll_x;
@@ -541,6 +544,7 @@ static void rn_view_dispose(GObject *object) {
   g_clear_object(&self->text_layout);
   g_clear_object(&self->texture);
   g_clear_pointer(&self->role_name, g_free);
+  g_clear_pointer(&self->native_id, g_free);
 
   G_OBJECT_CLASS(rn_view_parent_class)->dispose(object);
 }
@@ -848,6 +852,20 @@ void rn_view_set_role_name(RnView *self, const char *name) {
   g_return_if_fail(RN_IS_VIEW(self));
   g_free(self->role_name);
   self->role_name = name != nullptr && *name != '\0' ? g_strdup(name) : nullptr;
+}
+
+void rn_view_set_native_id(RnView *self, const char *native_id) {
+  g_return_if_fail(RN_IS_VIEW(self));
+  g_free(self->native_id);
+  // Empty becomes NULL, as the role name above does: React Native sends "" for
+  // a view with no nativeID at all, and storing that would make every
+  // unmarked view compare equal to an empty marker rather than to nothing.
+  self->native_id = native_id != nullptr && *native_id != '\0' ? g_strdup(native_id) : nullptr;
+}
+
+const char *rn_view_get_native_id(RnView *self) {
+  g_return_val_if_fail(RN_IS_VIEW(self), nullptr);
+  return self->native_id;
 }
 
 // The spelling React Native uses for the prop, which is also CSS's, so the

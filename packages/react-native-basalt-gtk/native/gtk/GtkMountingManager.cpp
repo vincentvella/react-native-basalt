@@ -891,6 +891,12 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
 
   rn_view_set_opacity(view, props->opacity);
 
+  // Only a hidden title bar reads this, to find the drag regions an app marked
+  // with <TitleBar.DragRegion>. Win32MountingManager does the same with the
+  // same comment, which is the point: the two hosts have to agree about what
+  // reaches them, or a header drags on one desktop and not the other.
+  rn_view_set_native_id(view, props->nativeId.c_str());
+
   // overflow: 'hidden'. React Native's default is 'visible', which is why the
   // phase-1 screenshots show a child outgrowing its shrunk parent.
   rn_view_set_clips_children(view, props->getClipsContentToBounds() ? TRUE : FALSE);

@@ -133,6 +133,9 @@ if(TARGET basalt_core)
     gtk/GtkScrollView.cpp
     gtk/GtkTextInput.cpp
     gtk/GtkTitleBar.cpp
+    # Whether a point drags the window: the geometry half, kept apart from the
+    # title bar so it needs no toplevel. See the header.
+    gtk/GtkTitleBarLayout.cpp
     # A window's size and full-screen state; see core/WindowControl.h.
     gtk/GtkWindowControl.cpp
     # The application menu; see core/MenuModel.h for why the three differ.
@@ -250,6 +253,9 @@ if(TARGET basalt_core)
     tests/test_viewprops.cpp
     tests/test_textinput.cpp
     tests/test_titlebar.cpp
+    # The drag regions, asking what tests/test_win32_titlebar.cpp asks of
+    # Windows. Needs a shown window: it walks up from gtk_widget_pick.
+    tests/test_titlebar_drag.cpp
     tests/test_version.cpp
     # Hit testing lives with the touch dispatcher, which the host builds; the
     # tests need it too, and it pulls in nothing else.
