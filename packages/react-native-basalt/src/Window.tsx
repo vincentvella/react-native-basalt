@@ -69,11 +69,38 @@
 'use strict';
 
 import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {AppRegistry, DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
 
 import {useCloseRequestFor} from './closeRequest';
+import type {CloseRequestHandler, WindowId} from './closeRequest';
 
-const NativeWindows = TurboModuleRegistry.get('BasaltWindows');
+/** How a second window opens. Changing these afterwards is `useWindow()`'s job. */
+export type WindowProps = {
+  title?: string;
+  width?: number;
+  height?: number;
+  children?: React.ReactNode;
+  /** The person closed it. The window is already gone when this arrives. */
+  onClose?: () => void;
+  /** Be asked first. See closeRequest.ts. */
+  onCloseRequest?: CloseRequestHandler | null;
+};
+
+type OpenWindowRequest = {
+  component: string;
+  title: string;
+  width: number;
+  height: number;
+  props: {basaltWindowId: number};
+};
+
+type NativeWindowsModule = TurboModule & {
+  open(request: OpenWindowRequest): Promise<WindowId | null>;
+  close(id: WindowId): void;
+};
+
+const NativeWindows = TurboModuleRegistry.get<NativeWindowsModule>('BasaltWindows');
 
 /** Whether this platform can open a second window at all. */
 export const isSupported = NativeWindows != null;
@@ -84,12 +111,12 @@ export const isSupported = NativeWindows != null;
 // Must match kWindowClosedEvent in native/core/WindowsModule.h.
 const CLOSED_EVENT = 'basaltWindowClosed';
 
-const contents = new Map();
-const listeners = new Map();
+const contents = new Map<number, React.ReactNode>();
+const listeners = new Map<number, (children: React.ReactNode) => void>();
 
 let nextId = 1;
 
-function setContent(id, children) {
+function setContent(id: number, children: React.ReactNode): void {
   contents.set(id, children);
   const listener = listeners.get(id);
   if (listener != null) {
@@ -104,8 +131,10 @@ function setContent(id, children) {
  * whatever its `<Window>` currently has as children, and subscribes so that a
  * re-render of the first tree reaches the second.
  */
-function WindowContent({basaltWindowId}) {
-  const [children, setChildren] = React.useState(() => contents.get(basaltWindowId) ?? null);
+function WindowContent({basaltWindowId}: {basaltWindowId: number}): React.ReactNode {
+  const [children, setChildren] = React.useState<React.ReactNode>(
+    () => contents.get(basaltWindowId) ?? null,
+  );
 
   React.useEffect(() => {
     listeners.set(basaltWindowId, setChildren);
@@ -123,7 +152,7 @@ function WindowContent({basaltWindowId}) {
 const CONTENT_COMPONENT = 'BasaltWindowContent';
 let registered = false;
 
-function ensureRegistered() {
+function ensureRegistered(): void {
   if (registered || !isSupported) {
     return;
   }
@@ -131,8 +160,15 @@ function ensureRegistered() {
   AppRegistry.registerComponent(CONTENT_COMPONENT, () => WindowContent);
 }
 
-export function Window({title, width, height, children, onClose, onCloseRequest}) {
-  const id = React.useRef(null);
+export function Window({
+  title,
+  width,
+  height,
+  children,
+  onClose,
+  onCloseRequest,
+}: WindowProps): null {
+  const id = React.useRef<number | null>(null);
   if (id.current == null) {
     id.current = nextId++;
   }
@@ -146,13 +182,13 @@ export function Window({title, width, height, children, onClose, onCloseRequest}
 
   // The surface id the host gave us, which is what closes the window. Kept in a
   // ref rather than in state: nothing renders differently for it.
-  const surfaceId = React.useRef(null);
+  const surfaceId = React.useRef<WindowId | null>(null);
   // And the same id in state, which `onCloseRequest` needs. A ref changing is
   // not a render, and the intercept has to be registered once the host has
   // answered with an id -- which is a promise later than the effect that asked
   // for the window. Two homes for one number, because the two readers want
   // different things from it.
-  const [opened, setOpened] = React.useState(null);
+  const [opened, setOpened] = React.useState<WindowId | null>(null);
 
   // In a ref so that the subscription below does not have to be torn down and
   // rebuilt every time an app passes a new closure, which is every render.
@@ -190,7 +226,8 @@ export function Window({title, width, height, children, onClose, onCloseRequest}
   // Asked before it closes, if the app wants to be. See closeRequest.js.
   useCloseRequestFor(
     () => opened,
-    windowId => NativeWindows.close(windowId),
+    // `isSupported` is what proves the module is here.
+    (closing: WindowId) => NativeWindows!.close(closing),
     onCloseRequest,
     [opened],
   );
@@ -202,29 +239,29 @@ export function Window({title, width, height, children, onClose, onCloseRequest}
     ensureRegistered();
 
     let closed = false;
-    NativeWindows.open({
+    NativeWindows!.open({
       component: CONTENT_COMPONENT,
       title: title ?? '',
       width: width ?? 900,
       height: height ?? 700,
       props: {basaltWindowId: windowId},
-    }).then(opened => {
+    }).then((openedId: WindowId | null) => {
       // Unmounted while the window was opening, which is a race a fast app
       // really does lose: close what was opened rather than leaking it.
       if (closed) {
-        if (opened != null) {
-          NativeWindows.close(opened);
+        if (openedId != null) {
+          NativeWindows!.close(openedId);
         }
         return;
       }
-      surfaceId.current = opened;
-      setOpened(opened);
+      surfaceId.current = openedId;
+      setOpened(openedId);
     });
 
     return () => {
       closed = true;
       if (surfaceId.current != null) {
-        NativeWindows.close(surfaceId.current);
+        NativeWindows!.close(surfaceId.current);
         surfaceId.current = null;
       }
       contents.delete(windowId);

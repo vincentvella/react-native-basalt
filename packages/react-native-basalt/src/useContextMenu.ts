@@ -63,12 +63,49 @@
  * @format
  */
 
-'use strict';
-
-import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {TurboModuleRegistry} from 'react-native';
 
-const NativeMenu = TurboModuleRegistry.get('BasaltMenu');
+/**
+ * One item in a context menu, as `native/core/MenuModel.h` reads it, plus the
+ * handler this file calls.
+ *
+ * `onSelect` is the only field the native side does not see: the promise
+ * carries the index back, and this calls the handler before settling it.
+ */
+export type ContextMenuItem = {
+  label?: string;
+  /** One of the platform roles; see native/core/MenuModel.h. */
+  role?: string;
+  /** "CmdOrCtrl+O", in Electron's spelling. Ignored for a role. */
+  accelerator?: string;
+  enabled?: boolean;
+  separator?: boolean;
+  submenu?: ReadonlyArray<ContextMenuItem>;
+  onSelect?: () => void;
+};
+
+/**
+ * Where to open it. A press event carries `pageX`/`pageY`; a caller with a
+ * point in hand carries `x`/`y`. Either, or neither for wherever the pointer
+ * is.
+ */
+export type ContextMenuPoint = {
+  x?: number;
+  y?: number;
+  pageX?: number;
+  pageY?: number;
+};
+
+type NativeMenuModule = TurboModule & {
+  showContextMenu(
+    items: ReadonlyArray<ContextMenuItem>,
+    x: number,
+    y: number,
+  ): Promise<number | null>;
+};
+
+const NativeMenu = TurboModuleRegistry.get<NativeMenuModule>('BasaltMenu');
 
 /**
  * Whether this platform can show one.
@@ -78,7 +115,10 @@ const NativeMenu = TurboModuleRegistry.get('BasaltMenu');
  */
 export const isSupported = NativeMenu?.showContextMenu != null;
 
-async function show(items, where) {
+async function show(
+  items: ReadonlyArray<ContextMenuItem>,
+  where?: ContextMenuPoint | null,
+): Promise<number | null> {
   if (!isSupported || !Array.isArray(items) || items.length === 0) {
     return null;
   }
@@ -88,7 +128,9 @@ async function show(items, where) {
   const x = where?.x ?? where?.pageX ?? -1;
   const y = where?.y ?? where?.pageY ?? -1;
 
-  const index = await NativeMenu.showContextMenu(items, x, y);
+  // `isSupported` is what proves this is non-null, and the compiler cannot see
+  // through that -- it is computed at module scope from the same optional call.
+  const index = await NativeMenu!.showContextMenu(items, x, y);
   if (index == null) {
     return null;
   }
@@ -104,7 +146,9 @@ async function show(items, where) {
  */
 export const contextMenu = Object.freeze({show, isSupported});
 
-export function useContextMenu() {
+export type ContextMenu = typeof contextMenu;
+
+export function useContextMenu(): ContextMenu {
   // Frozen and module-level, so this is a stable identity rather than a new
   // object every render: an app putting `menu` in a dependency array should not
   // get a new one each time.

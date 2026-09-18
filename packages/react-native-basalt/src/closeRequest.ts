@@ -21,12 +21,28 @@
  * @format
  */
 
-'use strict';
-
 import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
 
-const NativeWindows = TurboModuleRegistry.get('BasaltWindows');
+/** A window's id, as the host hands them out. */
+export type WindowId = number;
+
+/**
+ * What the handler is given: call it to let the close through. It stops
+ * intercepting first, so the close it then asks for is not refused by the
+ * registration that produced the question.
+ */
+export type AllowClose = () => void;
+
+export type CloseRequestHandler = (close: AllowClose) => void;
+
+type NativeWindowsModule = TurboModule & {
+  interceptClose?(id: WindowId, intercepted: boolean): void;
+  getWindows?(): WindowId[] | null;
+};
+
+const NativeWindows = TurboModuleRegistry.get<NativeWindowsModule>('BasaltWindows');
 
 // Must match kWindowCloseRequestedEvent in native/core/WindowsModule.h.
 const CLOSE_REQUESTED_EVENT = 'basaltWindowCloseRequested';
@@ -42,7 +58,7 @@ export const isSupported = NativeWindows?.interceptClose != null;
  * every host uses for it, for a platform with no windows module -- where the
  * whole thing is a no-op anyway.
  */
-export function mainWindowId() {
+export function mainWindowId(): WindowId {
   const open = NativeWindows?.getWindows?.();
   return Array.isArray(open) && open.length > 0 ? open[0] : 1;
 }
@@ -58,7 +74,12 @@ export function mainWindowId() {
  * the close it then asks for is not refused by the registration that produced
  * the question -- an app that answers "yes" once should not be asked again.
  */
-export function useCloseRequestFor(getId, close, handler, deps) {
+export function useCloseRequestFor(
+  getId: () => WindowId | null | undefined,
+  close: (id: WindowId) => void,
+  handler: CloseRequestHandler | null | undefined,
+  deps: ReadonlyArray<unknown>,
+): void {
   const handlerRef = React.useRef(handler);
   handlerRef.current = handler;
 
@@ -81,23 +102,29 @@ export function useCloseRequestFor(getId, close, handler, deps) {
     if (id == null) {
       return;
     }
-    NativeWindows.interceptClose(id, true);
+    // `isSupported` above is what proves these are here; it is computed at
+    // module scope from the same optional call, which the compiler cannot
+    // follow.
+    NativeWindows!.interceptClose!(id, true);
 
-    const subscription = DeviceEventEmitter.addListener(CLOSE_REQUESTED_EVENT, requestedId => {
-      if (requestedId !== id) {
-        return;
-      }
-      handlerRef.current?.(() => {
-        NativeWindows.interceptClose(id, false);
-        closeRef.current(id);
-      });
-    });
+    const subscription = DeviceEventEmitter.addListener(
+      CLOSE_REQUESTED_EVENT,
+      (requestedId: WindowId) => {
+        if (requestedId !== id) {
+          return;
+        }
+        handlerRef.current?.(() => {
+          NativeWindows!.interceptClose!(id, false);
+          closeRef.current(id);
+        });
+      },
+    );
 
     return () => {
       // Stop intercepting on the way out. A window whose app stopped listening
       // and went on refusing every close would be a window that cannot be
       // closed at all, which is a worse bug than the one this prevents.
-      NativeWindows.interceptClose(id, false);
+      NativeWindows!.interceptClose!(id, false);
       subscription.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -10,11 +10,12 @@
 
 ## 2. The public surface
 
-- [ ] `src/*.js` to TypeScript, excluding `src/overrides/`
+- [x] `src/*.js` to TypeScript, excluding `src/overrides/` -- all nine files
 - [x] `package.json`: `main`, `types`, `bin`, `exports` and `files` all point
       at `dist`; `react-native.config.js` stays at the root, which is where
       React Native's CLI looks for it by convention
-- [ ] `exports` resolves every current specifier to the same shape it does today
+- [x] `exports` resolves every current specifier to the same shape it does today
+- [x] A consumer type-checks against the package, and three wrong calls fail
 
 ## 3. The CLI and the config files
 

@@ -29,20 +29,33 @@ export {default as Platform} from './overrides/Platform';
 // The native file dialogs, which React Native has no API for: a phone has none.
 // See useDialog.js.
 export {useDialog, dialog} from './useDialog';
+export type {Dialog, DialogFilter, DialogOptions, DialogResult} from './useDialog';
 // The application menu. On macOS it is also what makes Cmd-C reach a text
 // field, which is why an app gets one whether or not it renders a <Menu>. See
 // Menu.js.
 export {Menu} from './Menu';
+export type {MenuItemProps, MenuProps, MenuRole, MenuSubmenuProps} from './Menu';
 // A context menu, which every desktop has -- including the one with no menu
 // bar. See useContextMenu.js.
 export {useContextMenu, contextMenu} from './useContextMenu';
+export type {ContextMenu, ContextMenuItem, ContextMenuPoint} from './useContextMenu';
 // A second window, which is a second surface and so a second React root. See
 // Window.js for what that costs and what it does not.
 export {Window} from './Window';
+export type {WindowProps} from './Window';
 // The window itself: its size, how big it may be, its position, whether it
 // fills the screen, live bounds, and being asked before it closes. See
 // useWindow.js.
 export {useWindow, useCloseRequest, windowControl} from './useWindow';
+export type {
+  CloseRequestHandler,
+  UseWindow,
+  WindowBounds,
+  WindowCapabilities,
+  WindowControl,
+  WindowId,
+} from './useWindow';
 // The window's title bar: its title and colours, and a hidden style that lets
 // the app draw its own header. See TitleBar.js.
 export {TitleBar, useTitleBar, useTitleBarMetrics} from './TitleBar';
+export type {TitleBarMetrics, TitleBarOptions, TitleBarStyle} from './TitleBar';

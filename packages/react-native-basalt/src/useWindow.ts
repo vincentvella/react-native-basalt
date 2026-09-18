@@ -82,16 +82,60 @@
 'use strict';
 
 import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
 
 import {mainWindowId, useCloseRequestFor} from './closeRequest';
+import type {CloseRequestHandler} from './closeRequest';
 
-const NativeWindow = TurboModuleRegistry.get('BasaltWindow');
+export type {CloseRequestHandler, WindowId} from './closeRequest';
+
+/** Where the window is and how big, plus the two states that are not sizes. */
+export type WindowBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fullScreen: boolean;
+  maximized: boolean;
+};
+
+/**
+ * What this desktop actually does, which is not the same list everywhere.
+ *
+ * All false where there is no window module, so an app that checks before
+ * offering a control gets the right answer rather than an exception.
+ */
+export type WindowCapabilities = {
+  position: boolean;
+  minimumSize: boolean;
+  maximumSize: boolean;
+  resizable: boolean;
+  alwaysOnTop: boolean;
+};
+
+type NativeWindowModule = TurboModule & {
+  setSize?(width: number, height: number): void;
+  setPosition?(x: number, y: number): void;
+  center?(): void;
+  setFullScreen?(fullScreen: boolean): void;
+  minimize?(): void;
+  toggleMaximize?(): void;
+  close?(): void;
+  setMinimumSize?(width: number, height: number): void;
+  setMaximumSize?(width: number, height: number): void;
+  setResizable?(resizable: boolean): void;
+  setAlwaysOnTop?(alwaysOnTop: boolean): void;
+  getBounds?(): WindowBounds | null;
+  getCapabilities?(): WindowCapabilities | null;
+};
+
+const NativeWindow = TurboModuleRegistry.get<NativeWindowModule>('BasaltWindow');
 
 // Must match kWindowBoundsEvent in native/core/WindowMethods.h.
 const BOUNDS_EVENT = 'basaltWindowBoundsChanged';
 
-const NO_BOUNDS = Object.freeze({
+const NO_BOUNDS: WindowBounds = Object.freeze({
   x: 0,
   y: 0,
   width: 0,
@@ -104,7 +148,7 @@ const NO_BOUNDS = Object.freeze({
 //
 // All false on a host with no window module, so an app that checks before
 // offering a control gets the right answer rather than an exception.
-const NO_CAPABILITIES = Object.freeze({
+const NO_CAPABILITIES: WindowCapabilities = Object.freeze({
   position: false,
   minimumSize: false,
   maximumSize: false,
@@ -112,7 +156,7 @@ const NO_CAPABILITIES = Object.freeze({
   alwaysOnTop: false,
 });
 
-function readCapabilities() {
+function readCapabilities(): WindowCapabilities {
   if (NativeWindow?.getCapabilities == null) {
     return NO_CAPABILITIES;
   }
@@ -124,7 +168,7 @@ function readCapabilities() {
 // a JSI call per frame for an answer that cannot change.
 const capabilities = readCapabilities();
 
-function readBounds() {
+function readBounds(): WindowBounds {
   if (NativeWindow?.getBounds == null) {
     return NO_BOUNDS;
   }
@@ -139,43 +183,43 @@ function readBounds() {
  * on a platform that has not implemented one.
  */
 export const windowControl = Object.freeze({
-  setSize(width, height) {
+  setSize(width: number, height: number): void {
     NativeWindow?.setSize?.(width, height);
   },
-  setPosition(x, y) {
+  setPosition(x: number, y: number): void {
     NativeWindow?.setPosition?.(x, y);
   },
-  center() {
+  center(): void {
     NativeWindow?.center?.();
   },
-  setFullScreen(fullScreen) {
+  setFullScreen(fullScreen?: boolean): void {
     NativeWindow?.setFullScreen?.(fullScreen === true);
   },
-  minimize() {
+  minimize(): void {
     NativeWindow?.minimize?.();
   },
-  toggleMaximize() {
+  toggleMaximize(): void {
     NativeWindow?.toggleMaximize?.();
   },
-  close() {
+  close(): void {
     NativeWindow?.close?.();
   },
-  setMinimumSize(width, height) {
+  setMinimumSize(width: number, height: number): void {
     NativeWindow?.setMinimumSize?.(width, height);
   },
-  setMaximumSize(width, height) {
+  setMaximumSize(width: number, height: number): void {
     NativeWindow?.setMaximumSize?.(width, height);
   },
-  setResizable(resizable) {
+  setResizable(resizable?: boolean): void {
     NativeWindow?.setResizable?.(resizable !== false);
   },
-  setAlwaysOnTop(alwaysOnTop) {
+  setAlwaysOnTop(alwaysOnTop?: boolean): void {
     NativeWindow?.setAlwaysOnTop?.(alwaysOnTop === true);
   },
-  getBounds() {
+  getBounds(): WindowBounds {
     return readBounds();
   },
-  getCapabilities() {
+  getCapabilities(): WindowCapabilities {
     // The cached answer, so that the imperative half and the hook cannot
     // disagree about a thing that does not change.
     return capabilities;
@@ -188,11 +232,19 @@ export const windowControl = Object.freeze({
  * Pass null or nothing to stop being asked, which is also what unmounting does.
  * See the header above, and `<Window onCloseRequest>` for a second window.
  */
-export function useCloseRequest(handler) {
+export function useCloseRequest(handler?: CloseRequestHandler | null): void {
   useCloseRequestFor(mainWindowId, () => windowControl.close(), handler, []);
 }
 
-export function useWindow() {
+export type WindowControl = typeof windowControl;
+
+/** What the hook returns: the imperative surface, plus live state. */
+export type UseWindow = WindowControl & {
+  bounds: WindowBounds;
+  capabilities: WindowCapabilities;
+};
+
+export function useWindow(): UseWindow {
   const [bounds, setBounds] = React.useState(readBounds);
 
   React.useEffect(() => {
@@ -201,9 +253,12 @@ export function useWindow() {
     // opens its window and mounts into it is the common case, not the rare one.
     setBounds(readBounds());
 
-    const subscription = DeviceEventEmitter.addListener(BOUNDS_EVENT, next => {
-      setBounds(next ?? NO_BOUNDS);
-    });
+    const subscription = DeviceEventEmitter.addListener(
+      BOUNDS_EVENT,
+      (next: WindowBounds | null) => {
+        setBounds(next ?? NO_BOUNDS);
+      },
+    );
     return () => subscription.remove();
   }, []);
 

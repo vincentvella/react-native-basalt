@@ -46,14 +46,51 @@
  * @format
  */
 
-'use strict';
-
-import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {TurboModuleRegistry} from 'react-native';
 
-const NativeDialog = TurboModuleRegistry.get('BasaltDialog');
+/**
+ * A file type a dialog offers to filter by. Extensions are bare -- 'png', not
+ * '.png' and not 'image/png' -- which is what all three desktops translate
+ * from.
+ */
+export type DialogFilter = {
+  name: string;
+  extensions: ReadonlyArray<string>;
+};
 
-const CANCELED = Object.freeze({canceled: true, paths: Object.freeze([])});
+export type DialogOptions = {
+  title?: string;
+  defaultPath?: string;
+  confirmLabel?: string;
+  /** Open only; a save and a folder choose one. */
+  multiple?: boolean;
+  filters?: ReadonlyArray<DialogFilter>;
+};
+
+/**
+ * Always both, and always a list. "The person pressed Cancel" and "the person
+ * chose nothing" are different answers; `paths` is a list even where it can
+ * only have one entry, so an app moving between the three calls is not also
+ * moving between result types.
+ */
+export type DialogResult = {
+  canceled: boolean;
+  paths: ReadonlyArray<string>;
+};
+
+type NativeDialogModule = TurboModule & {
+  openFile(options: DialogOptions): Promise<Partial<DialogResult> | null>;
+  saveFile(options: DialogOptions): Promise<Partial<DialogResult> | null>;
+  openFolder(options: DialogOptions): Promise<Partial<DialogResult> | null>;
+};
+
+const NativeDialog = TurboModuleRegistry.get<NativeDialogModule>('BasaltDialog');
+
+const CANCELED: DialogResult = Object.freeze({
+  canceled: true,
+  paths: Object.freeze([]) as ReadonlyArray<string>,
+});
 
 /**
  * Normalises whatever the native side answered.
@@ -62,7 +99,7 @@ const CANCELED = Object.freeze({canceled: true, paths: Object.freeze([])});
  * defensive about it: what it is for is the host that has no module at all,
  * where there is no answer to normalise.
  */
-function answer(result) {
+function answer(result: Partial<DialogResult> | null | undefined): DialogResult {
   if (result == null || !Array.isArray(result.paths)) {
     return CANCELED;
   }
@@ -78,7 +115,7 @@ export const dialog = Object.freeze({
    * '.png' and not 'image/png' -- which is what all three desktops translate
    * from.
    */
-  async openFile(options) {
+  async openFile(options?: DialogOptions | null): Promise<DialogResult> {
     if (NativeDialog == null) {
       return CANCELED;
     }
@@ -92,7 +129,7 @@ export const dialog = Object.freeze({
    * Whether an existing file may be overwritten is the platform's question and
    * it asks for itself; by the time this resolves, the answer was yes.
    */
-  async saveFile(options) {
+  async saveFile(options?: DialogOptions | null): Promise<DialogResult> {
     if (NativeDialog == null) {
       return CANCELED;
     }
@@ -100,7 +137,7 @@ export const dialog = Object.freeze({
   },
 
   /** A directory. `filters` means nothing here and is ignored. */
-  async openFolder(options) {
+  async openFolder(options?: DialogOptions | null): Promise<DialogResult> {
     if (NativeDialog == null) {
       return CANCELED;
     }
@@ -108,7 +145,9 @@ export const dialog = Object.freeze({
   },
 });
 
-export function useDialog() {
+export type Dialog = typeof dialog;
+
+export function useDialog(): Dialog {
   // The same object every render. Nothing here depends on a render, so a new
   // one would only make every effect that lists it a dependency run again.
   return dialog;

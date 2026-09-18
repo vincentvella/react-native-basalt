@@ -26,6 +26,10 @@
     "module": "node16",
     "moduleResolution": "node16",
     "target": "es2022",
+    // React Native's automatic runtime. The components here use
+    // React.createElement rather than JSX today, but a .tsx module cannot be
+    // resolved at all without this set.
+    "jsx": "react-jsx",
     "lib": ["es2022"],
 
     "declaration": true,

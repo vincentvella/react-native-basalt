@@ -41,12 +41,52 @@
  * @format
  */
 
-'use strict';
-
 import * as React from 'react';
+import type {TurboModule} from 'react-native';
 import {DeviceEventEmitter, TurboModuleRegistry} from 'react-native';
 
-const NativeMenu = TurboModuleRegistry.get('BasaltMenu');
+/** One of the role names in `native/core/MenuModel.h`. */
+export type MenuRole = string;
+
+export type MenuItemProps = {
+  label?: string;
+  /** Handled by the platform, and never reported back. See the header. */
+  role?: MenuRole;
+  /** "CmdOrCtrl+O", in Electron's spelling. Ignored for a role. */
+  accelerator?: string;
+  enabled?: boolean;
+  onClick?: () => void;
+};
+
+export type MenuSubmenuProps = {
+  label?: string;
+  enabled?: boolean;
+  children?: React.ReactNode;
+};
+
+/**
+ * What crosses into C++: `native/core/MenuModel.h`'s `MenuItemModel`, exactly.
+ * Built here from the JSX, which is why ids are assigned in this file -- an app
+ * numbering its own items would be an app with two items numbered 3.
+ */
+type MenuItemModel = {
+  label?: string;
+  role?: string;
+  accelerator?: string;
+  enabled?: boolean;
+  separator?: boolean;
+  id?: number;
+  submenu?: MenuItemModel[];
+};
+
+type NativeMenuModule = TurboModule & {
+  setApplicationMenu?(items: MenuItemModel[]): void;
+  isSupported?(): boolean;
+};
+
+type MenuHandlers = Map<number, () => void>;
+
+const NativeMenu = TurboModuleRegistry.get<NativeMenuModule>('BasaltMenu');
 
 // Must match kMenuChosenEvent in native/core/MenuModule.h.
 const CHOSEN_EVENT = 'basaltMenuItemChosen';
@@ -59,12 +99,18 @@ export const isSupported = NativeMenu?.isSupported?.() === true;
 // an app with two items numbered 3.
 let nextId = 1;
 
-function describe(children, handlers) {
-  const items = [];
-  React.Children.forEach(children, child => {
-    if (child == null || typeof child !== 'object') {
+function describe(children: React.ReactNode, handlers: MenuHandlers): MenuItemModel[] {
+  const items: MenuItemModel[] = [];
+  React.Children.forEach(children, rawChild => {
+    if (rawChild == null || typeof rawChild !== 'object') {
       return;
     }
+    // `React.Children.forEach` types its argument as ReactNode; everything
+    // below only makes sense for an element, and anything else is skipped by
+    // the type checks that follow.
+    const child = rawChild as React.ReactElement<
+      MenuItemProps & MenuSubmenuProps & {kind?: unknown}
+    >;
     const {kind, label, role, accelerator, enabled, onClick} = child.props ?? {};
 
     if (child.type === Separator) {
@@ -85,7 +131,7 @@ function describe(children, handlers) {
       return;
     }
 
-    const item = {
+    const item: MenuItemModel = {
       label: label ?? '',
       role: role ?? '',
       accelerator: accelerator ?? '',
@@ -104,18 +150,20 @@ function describe(children, handlers) {
   return items;
 }
 
-function Item() {
+function Item(_props: MenuItemProps): null {
   return null;
 }
-function Separator() {
+function Separator(): null {
   return null;
 }
-function Submenu() {
+function Submenu(_props: MenuSubmenuProps): null {
   return null;
 }
 
-export function Menu({children}) {
-  const handlers = React.useRef(new Map());
+export type MenuProps = {children?: React.ReactNode};
+
+export function Menu({children}: MenuProps): null {
+  const handlers = React.useRef<MenuHandlers>(new Map());
 
   // Described during render rather than in the effect, so that the effect's
   // dependency is the menu itself: a menu whose labels did not change should
@@ -136,7 +184,7 @@ export function Menu({children}) {
   }, [serialised]);
 
   React.useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener(CHOSEN_EVENT, id => {
+    const subscription = DeviceEventEmitter.addListener(CHOSEN_EVENT, (id: number) => {
       const onClick = handlers.current.get(id);
       if (onClick != null) {
         onClick();
