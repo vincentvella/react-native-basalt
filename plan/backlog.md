@@ -679,7 +679,99 @@ has gone unrecorded until now.
   who has already dismissed one still sees it counted as presented. The fix is
   `ToastNotificationManager`, which means WinRT, a manifest and a registered
   activator COM class.
-- **Cursor control** beyond what the `cursor` style property covers.
+- **Cursor control** beyond what the `cursor` style property covers: setting a
+  busy cursor for the window, hiding it, and capturing it to a region.
+
+### The rest of the surface, catalogued
+
+Everything above grew out of something the demo or an app needed, which is why
+it is mostly windows, menus and dialogs: those are what came up. This is the
+other direction -- Electron's main-process surface and the consent dialogs a
+desktop actually shows, gone through one at a time and checked against the
+repository rather than remembered. Status is *done*, *partial* or *absent*, and
+partial always says which half.
+
+Nothing here is scheduled. It is here so that "what is missing" is an answer
+rather than a search.
+
+**Application lifecycle** -- *absent*, all of it.
+- **Quitting cannot be refused.** The gap `useCloseRequest()` leaves: an app can
+  guard every window and still lose data to Cmd-Q, which goes through
+  `applicationShouldTerminate:` and never asks a window whether it minds. The
+  Windows and GNOME session-end signals (`WM_QUERYENDSESSION`, the session
+  manager's) are the same question. Each needs its own seam; the flag machinery
+  in core/WindowHost.h is the shape to copy.
+- **No single-instance lock.** A second launch starts a second process. Every
+  desktop expects the first to be raised and handed the arguments instead --
+  which is also how a file association or a URL reaches a running app.
+- **No launch at login**, no recent-documents list, no dock or taskbar badge,
+  no jump list, and no standard About panel.
+
+**A system tray icon** -- *absent as a feature*; see the entry above for the
+hidden one Windows keeps because `Shell_NotifyIcon` needs somewhere to notify
+from. The popup-menu seam it would need already exists.
+
+**Drag and drop** -- *absent*, in both directions. The largest single item here:
+it needs a drop-target seam, hit testing against the drag position, and a
+representation for what is being dragged, over `GtkDropTarget`,
+`NSDraggingDestination` and OLE's `IDropTarget`. Dragging *out* is the half
+people forget and the half a file manager needs.
+
+**Clipboard** -- *partial*. Text works, through React Native's own `Clipboard`.
+Images, HTML, RTF and a list of files are each a separate pasteboard type on
+each platform, and none is carried.
+
+**Shell integration** -- *partial*. Opening a URL works (`Linking`). Opening a
+path with its default application, revealing a file in the file manager, and
+moving one to the trash do not. Custom URL schemes are declared by
+`app.identity.json` and `Linking.getInitialURL()` answers on a cold start, but a
+URL delivered to an app that is *already running* is not reported -- which needs
+the single-instance lock above to be anywhere to deliver it to.
+
+**Displays and screen** -- *partial, and not exposed at all*. The window controls
+already ask about the display for `center()` and full screen -- `NSScreen`,
+`MonitorFromWindow` -- so the platform knows. An app does not: there is no
+display list, no per-display scale factor or work area, no pointer position, and
+no event when a monitor is plugged in or the arrangement changes. React Native's
+`Dimensions` reports the window, which is the right answer to a different
+question.
+
+**Power and idle** -- *absent*. Suspend, resume, lock, unlock, on-battery and
+battery level; how long the person has been idle; and asking the system not to
+sleep while something is running. The last is the one a media or build app needs
+and cannot fake.
+
+**Global shortcuts** -- *absent*. A menu accelerator works while the app is
+focused, which is a different thing from a shortcut that works when it is not.
+
+**Permissions** -- *absent as a concept*, which matters more than any single one
+of them. macOS gates the camera, the microphone, screen recording, location,
+accessibility and full disk access behind TCC, and each needs a usage string in
+`Info.plist` *and* a request at runtime; Windows has its own capability prompts.
+Today `cli/packageApp.js` writes no usage strings and nothing asks for anything,
+so an app that reaches for a camera is denied without a prompt. Notifications
+are the one consent flow that works, and only because expo-notifications drove
+it. What is missing is the seam -- "ask for X, tell me the answer, tell me when
+it changes" -- rather than any particular permission.
+
+**Secure storage** -- *absent*. No Keychain, Credential Manager or libsecret, so
+an app storing a token has nowhere but a file.
+
+**Auto-update** -- *absent*, and worth deciding rather than building: it is
+Sparkle on macOS, MSIX or a custom updater on Windows, and the package manager
+on Linux, which is three answers rather than one API.
+
+**Printing** -- *absent*. No print dialog and no page rendering.
+
+**File system beyond the dialogs** -- *absent*. No watching a directory, and no
+security-scoped bookmarks, which is how a sandboxed macOS app keeps access to a
+file the person chose last week.
+
+**Screen capture and media devices** -- *absent*. No display or window capture,
+no camera or microphone enumeration.
+
+**Crash reporting** -- *absent*. A host that segfaults leaves an `.ips` on macOS
+and nothing an app or its author sees.
 
 ## Input
 
