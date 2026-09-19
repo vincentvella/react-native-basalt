@@ -29,6 +29,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import {BLOCKED, CHANGED, DONE, report, step} from './steps';
+import type {NamedStep, Step, StepState} from './steps';
+
+// Re-exported because they were this module's before `doctor` needed them too.
+export type {Step, StepState};
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {DESKTOP_PLATFORMS} = require('../metro-config') as {
   DESKTOP_PLATFORMS: ReadonlyArray<string>;
@@ -83,13 +89,6 @@ export const HOST_PACKAGES: Readonly<Record<string, string>> = {
  */
 const DESKTOPS_KEY = 'desktops';
 
-/** What one step did. The summary is written once, at the end. */
-export type StepState = 'done' | 'changed' | 'blocked';
-
-export type Step = {
-  state: StepState;
-  message: string;
-};
 
 /** The app's package.json, as far as this reads and writes it. */
 type Manifest = {
@@ -105,19 +104,9 @@ type Project =
   | {ok: true; manifest: string; json: Manifest; expo: boolean};
 
 export type InitResult =
-  | {ok: false; reason: string; steps: Array<[string, Step]>}
-  | {ok: true; steps: Array<[string, Step]>};
+  | {ok: false; reason: string; steps: NamedStep[]}
+  | {ok: true; steps: NamedStep[]};
 
-// What a step did, so the summary can be written once at the end rather than
-// printed as it goes -- a run that refuses halfway should not have narrated
-// four successes first.
-const DONE: StepState = 'done';
-const CHANGED: StepState = 'changed';
-const BLOCKED: StepState = 'blocked';
-
-function step(state: StepState, message: string): Step {
-  return {state, message};
-}
 
 /**
  * Reads a JSON file, or returns null when it is absent or unparseable.
@@ -232,6 +221,7 @@ function addDependencies(
   project: Extract<Project, {ok: true}>,
   version: string,
   desktops: string[],
+  write: boolean,
 ): Step {
   const json = project.json;
   const changes: string[] = [];
@@ -268,11 +258,16 @@ function addDependencies(
   if (changes.length === 0) {
     return step(DONE, 'dependencies are already present');
   }
-  return step(CHANGED, `added ${changes.join(', ')} -- run your package manager to install`);
+  // Phrased for what actually happened. `doctor` runs this same function with
+  // writing off, and a report that said "added" when nothing was added would
+  // be the one thing a read-only command must never do.
+  return write
+    ? step(CHANGED, `added ${changes.join(', ')} -- run your package manager to install`)
+    : step(CHANGED, `would add ${changes.join(', ')}`);
 }
 
 /** Adds a script per desktop, leaving any the app already defined alone. */
-function addScripts(project: Extract<Project, {ok: true}>): Step {
+function addScripts(project: Extract<Project, {ok: true}>, write: boolean): Step {
   const json = project.json;
   json.scripts = json.scripts || {};
   const added: string[] = [];
@@ -286,7 +281,7 @@ function addScripts(project: Extract<Project, {ok: true}>): Step {
   if (added.length === 0) {
     return step(DONE, 'scripts are already present');
   }
-  return step(CHANGED, `added scripts: ${added.join(', ')}`);
+  return step(CHANGED, write ? `added scripts: ${added.join(', ')}` : `would add scripts: ${added.join(', ')}`);
 }
 
 /**
@@ -313,6 +308,23 @@ function writeMetroConfig(root: string, expo: boolean): Step {
 
   fs.writeFileSync(file, contents);
   return step(CHANGED, `wrote metro.config.js, on ${defaults}`);
+}
+
+/** Whether the app's Metro config is already wrapped, changing nothing. */
+function inspectMetroConfig(file: string): Step {
+  const name = path.basename(file);
+  const before = fs.readFileSync(file, 'utf8');
+  if (before.includes('withDesktopPlatforms')) {
+    return step(DONE, `${name} already wraps the config`);
+  }
+  if (!/^module\.exports\s*=\s*([\s\S]+?);$/m.test(before)) {
+    return step(
+      BLOCKED,
+      `could not find a \`module.exports =\` in ${name}. Wrap its export in ` +
+        '`withDesktopPlatforms(...)` by hand.',
+    );
+  }
+  return step(CHANGED, `${name} would be wrapped in withDesktopPlatforms`);
 }
 
 /**
@@ -400,7 +412,7 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
   }
 
   const metro = findMetroConfig(root);
-  const steps: Array<[string, Step]> = [];
+  const steps: NamedStep[] = [];
 
   const {desktops, reason} = desktopsFor(root);
   if (reason != null) {
@@ -408,8 +420,8 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
     // is one field. Refusing would leave it configured for nothing.
     steps.push(['desktops', step(BLOCKED, reason)]);
   }
-  steps.push(['dependencies', addDependencies(project, ownVersion(), desktops)]);
-  steps.push(['scripts', addScripts(project)]);
+  steps.push(['dependencies', addDependencies(project, ownVersion(), desktops, write)]);
+  steps.push(['scripts', addScripts(project, write)]);
 
   if (metro.file == null && metro.missing) {
     // No config at all, which is what a stock Expo app looks like: write one
@@ -423,6 +435,11 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
     steps.push(['metro config', step(BLOCKED, metro.reason ?? 'no metro config')]);
   } else if (write) {
     steps.push(['metro config', wrapMetroConfig(metro.file)]);
+  } else {
+    // The read-only form, which this branch did not have: with writing off it
+    // pushed no step at all, so `doctor` would have said nothing about the one
+    // file most likely to be wrong.
+    steps.push(['metro config', inspectMetroConfig(metro.file)]);
   }
 
   if (write) {
@@ -434,7 +451,7 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
   return {ok: true, steps};
 }
 
-function main(argv: string[]): number {
+export function main(argv: string[]): number {
   // `npx react-native-basalt init` is how the README and the proposal both
   // spell this, and it is how react-native-windows and react-native-macos
   // spell theirs -- so `init` is the verb, not the directory to configure.
@@ -449,14 +466,7 @@ function main(argv: string[]): number {
     return 1;
   }
 
-  let changed = 0;
-  let blocked = 0;
-  for (const [name, outcome] of result.steps) {
-    const mark = outcome.state === DONE ? '=' : outcome.state === CHANGED ? '+' : '!';
-    process.stdout.write(`  ${mark} ${name}: ${outcome.message}\n`);
-    if (outcome.state === CHANGED) changed++;
-    if (outcome.state === BLOCKED) blocked++;
-  }
+  const {changed, blocked} = report(result.steps, line => process.stdout.write(`${line}\n`));
 
   if (blocked > 0) {
     process.stdout.write('\nSome steps need doing by hand; see above.\n');

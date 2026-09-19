@@ -494,6 +494,19 @@ that wants fewer says so in `app.json`:
 {"basalt": {"desktops": ["macos", "linux"]}}
 ```
 
+To find out whether a machine can build any of it:
+
+```
+npx react-native-basalt doctor
+```
+
+The same checks with writing off, plus the ones `init` has no fix for --
+cmake, ninja, GTK's development headers, vcpkg, a React Native outside
+`supported-versions.json`. Every one of those otherwise arrives as a compiler
+error twenty minutes into a first build, which compiles Hermes and React
+Native's C++ from source. A desktop this machine cannot answer for is reported
+as unchecked rather than as fine.
+
 That is what this project exists to show.
 
 Beyond the template, a real app's dependency set -- expo-image, expo-font,

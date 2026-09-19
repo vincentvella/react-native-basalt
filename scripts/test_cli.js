@@ -972,3 +972,108 @@ test('a misspelled desktop is reported rather than ignored', () => {
   // configured while the person fixes the field.
   assert.ok(manifestOf(dir).dependencies['react-native-basalt-gtk'] != null);
 });
+
+// `doctor`
+//
+// The machine checks take their "is this program here" question as a
+// parameter, so the interesting cases -- a missing cmake, a Linux box with no
+// GTK headers -- are testable from a Mac. Asking the real PATH would make
+// these tests say different things on different machines, which is the one
+// thing a test of a diagnostic must not do.
+
+const doctorCli = require(path.join(DIST, 'cli/doctor.js'));
+
+const VERSIONS = path.join(
+  __dirname,
+  '..',
+  'packages',
+  'react-native-basalt',
+  'supported-versions.json',
+);
+
+function stateOf(steps, name) {
+  const found = steps.find(([label]) => label === name);
+  return found == null ? null : found[1].state;
+}
+
+test('doctor reports a missing build tool and does not pass it', () => {
+  const steps = doctorCli.checkBuildTools(program => program !== 'ninja');
+  assert.equal(stateOf(steps, 'cmake'), 'done');
+  assert.equal(stateOf(steps, 'ninja'), 'blocked');
+  const [, ninja] = steps.find(([name]) => name === 'ninja');
+  assert.match(ninja.message, /ninja-build/, 'says how to install it');
+});
+
+test('doctor does not claim a desktop it cannot check', () => {
+  const steps = doctorCli.checkDesktop('macos', ['linux', 'macos', 'windows'], () => true);
+  // Neither passing nor failing: a Mac cannot answer for GTK's headers, and
+  // saying either would be worse than saying nothing.
+  assert.equal(stateOf(steps, 'linux'), 'unchecked');
+  assert.equal(stateOf(steps, 'windows'), 'unchecked');
+  assert.equal(stateOf(steps, 'command line tools'), 'done');
+});
+
+test('doctor checks GTK on Linux and says how to get it', () => {
+  const steps = doctorCli.checkDesktop('linux', ['linux'], () => false);
+  assert.equal(stateOf(steps, 'gtk4'), 'blocked');
+  const [, gtk] = steps.find(([name]) => name === 'gtk4');
+  assert.match(gtk.message, /libgtk-4-dev/);
+  assert.equal(stateOf(steps, 'clang'), 'blocked');
+});
+
+test('doctor reports an unsupported React Native with what is supported', () => {
+  const dir = scratchApp({'package.json': JSON.stringify({name: 'x'})});
+  fs.mkdirSync(path.join(dir, 'node_modules', 'react-native'), {recursive: true});
+  fs.writeFileSync(
+    path.join(dir, 'node_modules', 'react-native', 'package.json'),
+    JSON.stringify({name: 'react-native', version: '0.71.0'}),
+  );
+
+  const outcome = doctorCli.checkReactNative(dir, VERSIONS);
+  assert.equal(outcome.state, 'blocked');
+  assert.match(outcome.message, /0\.71\.0/, 'the version it found');
+  assert.match(outcome.message, /0\.87/, 'and one that is supported');
+});
+
+test('doctor accepts a React Native that is supported', () => {
+  const dir = scratchApp({'package.json': JSON.stringify({name: 'x'})});
+  fs.mkdirSync(path.join(dir, 'node_modules', 'react-native'), {recursive: true});
+  fs.writeFileSync(
+    path.join(dir, 'node_modules', 'react-native', 'package.json'),
+    JSON.stringify({name: 'react-native', version: '0.87.1'}),
+  );
+
+  assert.equal(doctorCli.checkReactNative(dir, VERSIONS).state, 'done');
+});
+
+test('doctor names a host package that is a dependency but not installed', () => {
+  const dir = scratchApp(EXPO_APP);
+  const steps = doctorCli.checkHostPackages(dir, ['macos']);
+  assert.equal(stateOf(steps, 'react-native-basalt-appkit'), 'blocked');
+  const [, host] = steps[0];
+  assert.match(host.message, /run-macos/, 'says what is missing, not just what');
+});
+
+test('doctor changes nothing in an app it has never configured', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({name: 'x', dependencies: {expo: '^54.0.0'}}),
+  });
+  const before = fs.readFileSync(path.join(dir, 'package.json'), 'utf8');
+
+  const result = doctorCli.doctor(dir, VERSIONS);
+  assert.equal(result.ok, false, 'an app with nothing installed is not ready');
+  assert.equal(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'), before);
+  assert.ok(!fs.existsSync(path.join(dir, 'metro.config.js')), 'and wrote no config');
+
+  // And what it would do is phrased as such, because a read-only command that
+  // reports "added" is the one thing it must never say.
+  const [, deps] = result.steps.find(([name]) => name === 'dependencies');
+  assert.match(deps.message, /would add/);
+});
+
+test('doctor refuses a directory that is not an app', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'basalt-doctor-'));
+  const result = doctorCli.doctor(dir, VERSIONS);
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no package.json/);
+});

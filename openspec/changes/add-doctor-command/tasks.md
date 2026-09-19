@@ -2,27 +2,27 @@
 
 ## 1. Share what `init` already does
 
-- [ ] Lift the step machinery -- the three states and the summary -- out of
+- [x] Lift the step machinery -- the three states and the summary -- out of
       `cli/init.ts` so both commands report the same way
-- [ ] Give each existing check a read-only form, which `init` already has for
+- [x] Give each existing check a read-only form, which `init` already has for
       the Metro config and does not for the rest
 
 ## 2. Check the machine
 
-- [ ] cmake, ninja and a compiler, per platform, from the list in
+- [x] cmake, ninja and a compiler, per platform, from the list in
       `docs/PORTING.md`
-- [ ] The system libraries each desktop needs: GTK4 development headers on
+- [x] The system libraries each desktop needs: GTK4 development headers on
       Linux, the macOS SDK, vcpkg on Windows
-- [ ] The app's React Native against `supported-versions.json`, reporting the
+- [x] The app's React Native against `supported-versions.json`, reporting the
       version found and the versions supported
-- [ ] Report a desktop that cannot be checked from here as unchecked, never as
+- [x] Report a desktop that cannot be checked from here as unchecked, never as
       passing
 
 ## 3. The command
 
-- [ ] `cli/doctor.ts`, as a second verb on the `react-native-basalt` bin
-- [ ] Non-zero exit when anything is wrong, so CI can run it
-- [ ] Have `release.yml`'s Expo job run it after `init`, where it would have
+- [x] `cli/doctor.ts`, as a second verb on the `react-native-basalt` bin
+- [x] Non-zero exit when anything is wrong, so CI can run it
+- [x] Have `release.yml`'s Expo job run it after `init`, where it would have
       caught the host packages being missing
 
 ## 4. Which desktops
@@ -34,6 +34,26 @@
 
 ## 5. Records
 
-- [ ] Update the `packaging` spec
-- [ ] A line in `docs/DECISIONS.md` only if the toolchain checks turn out to
-      need a rule; the packaging boundary already has one
+- [x] Update the `packaging` spec
+- [x] A line in `docs/DECISIONS.md` only if the toolchain checks turn out to
+      need a rule; the packaging boundary already has one -- they did not, so
+      there is none. What the checks encode is `docs/PORTING.md`'s list, which
+      is a fact about each platform rather than a decision about this one
+
+## 6. What building it found
+
+- [x] A fourth step state. `unchecked` was going to be `changed`, which read
+      as "init would fix this" for a GTK check on a Mac, and then counted
+      towards a summary telling the person to run `init`. Neither a failure
+      nor a success, so it is counted as neither and marked `?`
+- [x] `init`'s dependency and script steps said "added" whether or not they
+      had. Harmless while `init` was the only caller and a lie in `doctor`'s
+      mouth, which is the one thing a read-only command must never say
+- [x] The new bin had no `#!/usr/bin/env node`, so the shell tried to run
+      JavaScript as a shell script. Both existing bins carry one in their
+      source and nothing in the build adds it, so a third was always going to
+      miss it -- found by running the command out of an installed tarball
+      rather than out of `dist/`
+- [x] The Metro check had no read-only form for a config that already exists:
+      with writing off it pushed no step at all, so `doctor` would have said
+      nothing about the file most likely to be wrong

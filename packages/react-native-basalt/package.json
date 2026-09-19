@@ -29,7 +29,7 @@
   },
   "bin": {
     "basalt-bundle": "./dist/cli/bundle-cli.js",
-    "react-native-basalt": "./dist/cli/init.js"
+    "react-native-basalt": "./dist/cli/basalt.js"
   },
   "types": "dist/src/index.d.ts",
   "scripts": {

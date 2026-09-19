@@ -236,6 +236,16 @@ jobs:
           npx react-native-basalt init
           npm install
 
+      - name: Check it the way a person would
+        # `doctor` is the same checks with writing off, plus the ones `init`
+        # cannot fix -- cmake, ninja, GTK's headers, the React Native version.
+        # Run here because this is the only job with a real app on a real
+        # machine, and because it is what would have caught `init` adding no
+        # host packages: every run-<desktop> command was missing and the build
+        # step was the first thing to say so.
+        working-directory: app
+        run: npx react-native-basalt doctor
+
       - name: Start a display
         run: |
           Xvfb :99 -screen 0 1400x1000x24 > /tmp/xvfb.log 2>&1 &
