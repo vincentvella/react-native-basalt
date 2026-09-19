@@ -559,3 +559,72 @@ control, so they must be emitted as CommonJS at paths that do not move.
 None of that is hard. All of it is the kind of thing that is discovered by an
 app failing to bundle rather than by a type error, which is why it is written
 down here before the work rather than after it.
+
+## Core is the app's own surface; a package is what reaches outside it — 2026-09-19
+
+React Native shipped one package with everything in it and has spent the decade
+since extracting AsyncStorage, WebView, NetInfo, Clipboard, CameraRoll, Slider
+and the rest. The extraction is the expensive half: every move is a breaking
+change, a migration guide and a community package that has to be adopted before
+core can drop the original. This platform has thirty-three desktop capabilities
+catalogued as open and, until now, nothing deciding where the next one goes.
+
+**The rule.** Core is the application's own surface — its windows, menus,
+dialogs, title bar, components and input. A capability goes in a package of its
+own if it fails **any one** of three tests:
+
+1. **Does the operating system ask the person for consent?** A permission prompt
+   is the system saying this is not ordinary application behaviour.
+2. **Does it touch hardware, or another application?**
+3. **Does it act outside the app's own windows?**
+
+So: notifications, camera, microphone, screen capture, location, drag and drop,
+the tray icon, global shortcuts, power and idle, secure storage, auto-update,
+crash reporting, file-system watching, in-app purchase — each its own package.
+Windows and their geometry, menus and context menus, file dialogs, the title
+bar, components and input, clipboard, sharing, linking, appearance, developer
+tools, packaging, displays, window state, dock progress — core.
+
+**Rejected: "could an app ship without it?"** An earlier draft moved menus,
+dialogs and the title bar on that reasoning. By that test almost everything is
+optional and the boundary lands nowhere useful. A file dialog is the person
+choosing a file inside the app's own flow, a menu is the window's furniture, and
+a title bar is part of the window. A desktop platform that made you install a
+package for a menu would be a worse platform, not a smaller one.
+
+**Spell checking, which the design left open, is core — both halves.** The
+question was posed as the platform's own dictionary being ordinary and a
+downloaded one not being, and applying the rule rather than the intuition
+settles it the other way: fetching a dictionary asks nobody for consent, touches
+no hardware and no other application, and acts inside the app's own windows. It
+fails none of the three tests. What a downloaded dictionary actually needs is a
+cache-directory seam, which is a question about a seam and not about a package —
+the same seam network assets need, and it is on the backlog under its own name.
+
+That is the rule doing its job: it produced an answer that the reasoning which
+raised the question did not.
+
+**One package per capability, not one per desktop.** A capability only one
+desktop can do still ships as one package, installs and imports the same way
+everywhere, and does nothing where it cannot work. That is what the platform
+already does — `<TitleBar>` accepts every call on a host with no title bar,
+`windowControl`'s mutations are no-ops where GTK4 removed the call,
+`Menu.isSupported` is false on GNOME. A package per desktop would mean an app
+importing different modules per platform, which is the thing this platform
+exists to avoid.
+
+**A no-op is always paired with a way to ask.** Doing nothing quietly is right
+for a call an app makes anyway; it is wrong as the only answer available, because
+an app should be able to hide a control rather than offer one that does nothing.
+Notifications is the shipped example: `notificationSupport()` answers with a
+reason, and `getPermissionsAsync` reports `denied` and carries that reason to
+where a developer will see it.
+
+**Version together, at first.** Separate packages need not mean independent
+versions, and independent versions of packages sharing a C++ ABI with the host
+is a support problem nobody here wants yet.
+
+**A package declares itself** with a `basalt` key naming a CMake entry point,
+and the CLI scans the app's dependencies for it. Expo, worklets and Reanimated
+keep their hardcoded special cases because they are third-party packages that
+will never carry the key. See `openspec/changes/split-optional-capabilities-into-packages`.

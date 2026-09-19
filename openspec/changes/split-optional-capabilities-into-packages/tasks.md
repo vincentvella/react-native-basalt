@@ -2,21 +2,32 @@
 
 ## 1. Settle the rule
 
-- [ ] Agree the three tests, or amend them
-- [ ] Ensure every capability package reports whether it is supported here, not
-      only no-ops
-- [ ] Decide which half of spell checking this platform implements
-- [ ] Record the outcome in `docs/DECISIONS.md`
+- [x] Agree the three tests, or amend them -- agreed unamended. Notifications
+      was moved by them and the move held, which is the evidence they were
+      going to get before the first dependant exists
+- [x] Ensure every capability package reports whether it is supported here, not
+      only no-ops -- the one that exists does: `notificationSupport()` answers
+      with a reason, and `getPermissionsAsync` carries it to where a developer
+      sees it. Written into the rule so the next package inherits it
+- [x] Decide which half of spell checking this platform implements -- both, in
+      core. Applying the three tests answers it the other way from the
+      intuition that raised the question: fetching a dictionary asks nobody for
+      consent, touches no hardware and no other application, and acts inside
+      the app's own windows. What it needs is a cache-directory seam, which is
+      a question about a seam and not about a package
+- [x] Record the outcome in `docs/DECISIONS.md`
 
 ## 2. Generalise discovery
 
 - [x] Define the manifest key and the CMake entry point it names
 - [x] Make `optionalNativeModules` scan dependencies for it
 - [x] Keep the Expo, worklets and Reanimated special cases, and say why
-- [ ] Fail loudly, naming the package, when a contributed build fails
-      (a missing declared entry point is already refused by name, in
-      `capabilityPackages`; a package whose native code fails to *compile*
-      still produces only the compiler's own error, which names a path)
+- [x] Fail loudly, naming the package, when a contributed build fails.
+      `explainContributedFailure` adds what was in the build to the error.
+      It does not claim *which* package broke it: the build output is
+      streamed rather than captured, because a person watching a
+      twenty-minute compile should see it happen, and buffering it to grep
+      for a directory would trade that for a guess
 
 ## 3. Apply it
 

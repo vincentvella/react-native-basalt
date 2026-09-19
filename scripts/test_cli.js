@@ -639,6 +639,37 @@ test('a package declaring native code is discovered by its manifest', () => {
   assert.ok(found[0].endsWith('react-native-basalt-notifications'));
 });
 
+// A capability package compiles into the same binary, so its compiler errors
+// arrive looking exactly like the platform's own -- a path, in a node_modules
+// directory nobody was thinking about. The build cannot say which package
+// broke it, because the output is streamed rather than captured, but it can
+// say what was in it.
+test('a failed build names the packages that contributed native code', () => {
+  const root = appWith(
+    {'react-native-basalt-notifications': '*'},
+    {
+      'react-native-basalt-notifications': {
+        name: 'react-native-basalt-notifications',
+        basalt: {native: 'native/CMakeLists.txt'},
+      },
+    },
+  );
+
+  const explained = desktop.explainContributedFailure(root, new Error('cmake --build failed'));
+  assert.match(explained.message, /cmake --build failed/, 'the original error survives');
+  assert.match(explained.message, /react-native-basalt-notifications/);
+  assert.match(explained.message, /1 capability package:/, 'singular for one');
+});
+
+test('a failed build with no contributing packages says nothing extra', () => {
+  const root = appWith({'left-pad': '*'}, {'left-pad': {name: 'left-pad'}});
+  const original = new Error('cmake --build failed');
+
+  // The same error object, not a copy that happens to read the same: there is
+  // nothing to add, and wrapping it would lose its stack for no reason.
+  assert.equal(desktop.explainContributedFailure(root, original), original);
+});
+
 test('a package that declares native code and has none fails the build early', () => {
   // Rather than a host quietly built without the capability, which fails later
   // and further away -- at `requireNativeModule`, in JavaScript, at runtime.

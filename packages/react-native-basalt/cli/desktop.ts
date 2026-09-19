@@ -591,6 +591,42 @@ export function monorepoRoot(reactNativePath: string): string | null {
  * React Native's C++ core. Saying so before it starts is better than a silent
  * half hour.
  */
+/**
+ * A build failure, with what was in the build.
+ *
+ * A capability package compiles into the same binary as the platform, so its
+ * compiler errors arrive looking exactly like the platform's own -- a path, in
+ * a node_modules directory nobody was thinking about. Naming what contributed
+ * is the part that cannot be read off the error.
+ *
+ * Which package broke it is deliberately not claimed. The build output is
+ * streamed rather than captured, because a person watching a twenty-minute
+ * compile should see it happen, and buffering it to grep for a directory would
+ * trade that for a guess. Naming the contributors is what can be said honestly
+ * without giving that up.
+ */
+export function explainContributedFailure(projectRoot: string, error: Error): Error {
+  let contributors: string[] = [];
+  try {
+    contributors = capabilityPackages(projectRoot);
+  } catch {
+    // The packages could not even be listed, which is its own error and not
+    // one to raise from inside the handler for a different one.
+    return error;
+  }
+  if (contributors.length === 0) {
+    return error;
+  }
+  const names = contributors.map(dir => path.basename(dir)).join(', ');
+  return new Error(
+    `${error.message}\n\n` +
+      `This host was built with native code from ${contributors.length} ` +
+      `capability package${contributors.length === 1 ? '' : 's'}: ${names}. ` +
+      `A compiler error naming a path inside one of those is that package's ` +
+      `rather than the platform's.`,
+  );
+}
+
 export function buildHost(context: CliContext, options: RunOptions, target: Target): string {
   const projectRoot = context.root;
   const workDir = path.join(projectRoot, '.basalt');
@@ -664,7 +700,11 @@ export function buildHost(context: CliContext, options: RunOptions, target: Targ
 
   console.log('==> building');
   const jobs = options.jobs ? ['-j', String(options.jobs)] : [];
-  run('cmake', ['--build', buildDir, ...jobs], {env: buildEnv}, target.toolchain);
+  try {
+    run('cmake', ['--build', buildDir, ...jobs], {env: buildEnv}, target.toolchain);
+  } catch (error) {
+    throw explainContributedFailure(projectRoot, error as Error);
+  }
 
   const binary = path.join(buildDir, target.binary);
   if (!isExecutable(binary)) {
