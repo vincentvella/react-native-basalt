@@ -43,6 +43,17 @@
 - [x] Nothing else moves: every seam left in `native/core/` was checked
       against the three tests and none fails one. Camera, tray, location and
       the rest of the package side of the rule are catalogued, not built
-- [ ] Move what the rule moves, in one commit per package
-- [ ] Have `init` install what an app needs so the split is invisible to it
-- [ ] Update the specs whose capability moved
+- [x] Move what the rule moves, in one commit per package -- which turned out
+      to be no commits. Every seam in `native/core/` was checked against the
+      three tests and none fails one; the package side of the rule is
+      catalogued rather than built, so notifications was the whole of it
+- [x] Have `init` install what an app needs so the split is invisible to it --
+      the host packages, which are not optional and which `init` was not
+      adding. Capability packages deliberately stay out of that: an app gets
+      one by asking, which is the whole point of the boundary, and a command
+      that installed notifications into every app would have moved the seam
+      without moving the dependency
+- [x] Update the specs whose capability moved: `desktop-notifications` says
+      it ships as its own package, and `distribution` gains the requirement
+      today's bug proved was missing -- core builds with no capability
+      package installed, and a package satisfies its own seam

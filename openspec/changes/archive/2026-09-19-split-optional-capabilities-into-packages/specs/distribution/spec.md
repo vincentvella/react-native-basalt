@@ -65,3 +65,27 @@ of offering one that does nothing.
 
 - **WHEN** an app asks whether the capability is supported here
 - **THEN** it gets an answer it can render from
+
+### Requirement: Core builds with no capability package installed
+
+The system SHALL build `react-native-basalt` in an app that has installed none
+of them. Core SHALL NOT include a capability package's header or name its
+symbols; a package whose code is compiled into core SHALL also supply whatever
+a build with no platform needs in order to link.
+
+The dependency only ever points one way. An app installs the capabilities it
+asks for, so core depending on one -- even to stub it -- makes the ordinary
+case the broken one.
+
+#### Scenario: An app that installs no capability package
+
+- **WHEN** an app installs the platform and its host packages, and no
+  capability package
+- **THEN** the host builds and runs
+
+#### Scenario: A package satisfies its own seam
+
+- **WHEN** a capability package contributes code to core that calls its own
+  platform seam
+- **THEN** the package also supplies the stub a platform-less build links
+  against, rather than core carrying it
