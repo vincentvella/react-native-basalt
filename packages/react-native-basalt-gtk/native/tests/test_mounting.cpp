@@ -329,8 +329,12 @@ ShadowView makeTransformed(Tag tag,
                            float height,
                            facebook::react::Transform transform,
                            facebook::react::TransformOrigin origin = {}) {
+  // Fresh props rather than a copy of makeView's: BaseViewProps has a deleted
+  // copy constructor at React Native 0.86, which is what a current Expo app
+  // installs. Copying compiled against main and broke the version an app
+  // actually has -- found by building a real create-expo-app, not here.
   ShadowView view = makeView(tag, 0.0F, 0.0F, width, height);
-  auto props = std::make_shared<ViewProps>(*std::static_pointer_cast<const ViewProps>(view.props));
+  auto props = std::make_shared<ViewProps>();
   props->transform = transform;
   props->transformOrigin = origin;
   view.props = props;

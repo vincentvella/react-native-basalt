@@ -133,7 +133,7 @@ function describeProject(root: string): Project {
  * wrapper is a require() call, and a TypeScript config may be doing something
  * this cannot preserve.
  */
-function findMetroConfig(root: string): {file: string | null; reason?: string} {
+function findMetroConfig(root: string): {file: string | null; reason?: string; missing?: boolean} {
   for (const name of ['metro.config.js', 'metro.config.cjs']) {
     const file = path.join(root, name);
     if (fs.existsSync(file)) {
@@ -150,7 +150,8 @@ function findMetroConfig(root: string): {file: string | null; reason?: string} {
       };
     }
   }
-  return {file: null, reason: 'no metro.config.js'};
+  // Absent rather than unreadable, which the caller writes one for.
+  return {file: null, reason: 'no metro.config.js', missing: true};
 }
 
 /** Adds this package and the two dev dependencies, without touching versions. */
@@ -199,6 +200,32 @@ function addScripts(project: Extract<Project, {ok: true}>): Step {
     return step(DONE, 'scripts are already present');
   }
   return step(CHANGED, `added scripts: ${added.join(', ')}`);
+}
+
+/**
+ * Writes a Metro config for an app that has none.
+ *
+ * A stock `create-expo-app --template blank` has no `metro.config.js` at all:
+ * Expo's default is implicit, and an app only grows the file when it has
+ * something to say. That is the common case rather than an edge one, and
+ * blocking on it left the command reporting by hand the single step it exists
+ * to do -- which is what `release.yml` had been working around with a heredoc
+ * of exactly these three lines.
+ *
+ * Which default to start from is the app's own: `expo/metro-config` reads
+ * app.json and the Expo plugins, and a bare React Native app has neither.
+ */
+function writeMetroConfig(root: string, expo: boolean): Step {
+  const file = path.join(root, 'metro.config.js');
+  const defaults = expo ? 'expo/metro-config' : '@react-native/metro-config';
+  const contents =
+    `const {getDefaultConfig} = require('${defaults}');\n` +
+    `const {withDesktopPlatforms} = require('${PACKAGE_NAME}/metro-config');\n` +
+    '\n' +
+    'module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));\n';
+
+  fs.writeFileSync(file, contents);
+  return step(CHANGED, `wrote metro.config.js, on ${defaults}`);
 }
 
 /**
@@ -291,7 +318,15 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
   steps.push(['dependencies', addDependencies(project, ownVersion())]);
   steps.push(['scripts', addScripts(project)]);
 
-  if (metro.file == null) {
+  if (metro.file == null && metro.missing) {
+    // No config at all, which is what a stock Expo app looks like: write one
+    // rather than refuse. A config that exists and cannot be edited is a
+    // different case and still refused below.
+    steps.push([
+      'metro config',
+      write ? writeMetroConfig(root, project.expo) : step(CHANGED, 'would write metro.config.js'),
+    ]);
+  } else if (metro.file == null) {
     steps.push(['metro config', step(BLOCKED, metro.reason ?? 'no metro config')]);
   } else if (write) {
     steps.push(['metro config', wrapMetroConfig(metro.file)]);
@@ -307,7 +342,13 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
 }
 
 function main(argv: string[]): number {
-  const root = argv[0] != null && !argv[0].startsWith('-') ? path.resolve(argv[0]) : process.cwd();
+  // `npx react-native-basalt init` is how the README and the proposal both
+  // spell this, and it is how react-native-windows and react-native-macos
+  // spell theirs -- so `init` is the verb, not the directory to configure.
+  // Without this the command resolved ./init, found no package.json there,
+  // and refused to configure the app it was standing in.
+  const args = argv[0] === 'init' ? argv.slice(1) : argv;
+  const root = args[0] != null && !args[0].startsWith('-') ? path.resolve(args[0]) : process.cwd();
 
   const result = init(root);
   if (!result.ok) {

@@ -789,3 +789,95 @@ test('init reports a metro config it cannot safely edit', () => {
   // And it did not rewrite the TypeScript config it just said it could not edit.
   assert.equal(fs.readFileSync(path.join(dir, 'metro.config.ts'), 'utf8'), 'module.exports = {};\n');
 });
+
+// An app with no metro.config.js at all, which is what a stock
+// `create-expo-app --template blank` is: Expo's default is implicit, and an
+// app only grows the file when it has something to say. Every fixture above
+// hands init a config to edit, which is how the command came to report by
+// hand the single step it exists to do -- found by running it against a real
+// create-expo-app rather than by reading it.
+test('init writes a metro config for an app that has none', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({
+      name: 'my-app',
+      version: '1.0.0',
+      dependencies: {expo: '^54.0.0'},
+    }),
+  });
+  const result = init(dir);
+  assert.equal(result.ok, true);
+
+  const [, step] = result.steps.find(([label]) => label === 'metro config');
+  assert.equal(step.state, 'changed');
+
+  const metro = fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8');
+  assert.match(metro, /withDesktopPlatforms/);
+  assert.match(metro, /module\.exports = withDesktopPlatforms\(getDefaultConfig\(__dirname\)\);/);
+  // Expo's defaults, because this app is an Expo app: expo/metro-config reads
+  // app.json and the Expo plugins, and @react-native/metro-config does not.
+  assert.match(metro, /require\('expo\/metro-config'\)/);
+  assert.ok(metro.endsWith('\n'));
+});
+
+test('init writes a bare React Native app the React Native defaults', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({
+      name: 'my-app',
+      version: '1.0.0',
+      dependencies: {'react-native': '0.87.1'},
+    }),
+  });
+  init(dir);
+
+  const metro = fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8');
+  assert.match(metro, /require\('@react-native\/metro-config'\)/);
+  // Not `/expo/`, which `module.exports` contains.
+  assert.doesNotMatch(metro, /expo\/metro-config/);
+});
+
+// And what it writes is what it can read back: a second run reports the
+// config as already wrapped rather than writing a second one.
+test('init leaves the metro config it wrote alone', () => {
+  const dir = scratchApp({
+    'package.json': JSON.stringify({
+      name: 'my-app',
+      version: '1.0.0',
+      dependencies: {expo: '^54.0.0'},
+    }),
+  });
+  init(dir);
+  const written = fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8');
+
+  const again = init(dir);
+  const [, step] = again.steps.find(([label]) => label === 'metro config');
+  assert.equal(step.state, 'done');
+  assert.equal(fs.readFileSync(path.join(dir, 'metro.config.js'), 'utf8'), written);
+});
+
+// `npx react-native-basalt init` is how the README spells it, and `init` is
+// the verb rather than the directory to configure. The command used to
+// resolve ./init, find no package.json there, and refuse to configure the app
+// it was standing in -- which is every invocation the documentation gives.
+test('the init verb is not mistaken for a directory', () => {
+  const dir = scratchApp(EXPO_APP);
+  const cli = path.join(DIST, 'cli/init.js');
+  const run = (args) =>
+    require('node:child_process').spawnSync(process.execPath, [cli, ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+
+  const withVerb = run(['init']);
+  assert.equal(withVerb.status, 0, withVerb.stderr);
+  assert.match(withVerb.stdout, /metro config/);
+
+  // And a directory argument still works, which is what the verb must not
+  // have taken away.
+  const elsewhere = scratchApp(EXPO_APP);
+  const withPath = run(['init', elsewhere]);
+  assert.equal(withPath.status, 0, withPath.stderr);
+  assert.match(
+    fs.readFileSync(path.join(elsewhere, 'metro.config.js'), 'utf8'),
+    /withDesktopPlatforms/,
+  );
+});

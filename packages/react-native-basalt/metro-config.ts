@@ -44,6 +44,7 @@
  * @format
  */
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /**
@@ -174,6 +175,26 @@ export const SELF_IMPORTING_SHIMS = [
  * stops the tooling from saying it once per import per bundle.
  */
 const UPSTREAM_PREFIX = 'react-native-basalt/upstream/';
+
+/**
+ * Upstream files that are not in every supported React Native, and what to
+ * use instead where they are absent.
+ *
+ * `supported-versions.json` lists 0.86 and 0.87, and the abort API moved
+ * between them: 0.86's own `setUpXHR` polyfills `AbortController` from the
+ * `abort-controller` npm package, and 0.87 brought an implementation into
+ * React Native's source. An override written against the newer one therefore
+ * fails to *resolve* on the older -- a bundling error, not a runtime one, so
+ * no amount of try/catch in the override helps.
+ *
+ * Keyed by the path after the prefix, and consulted only when the upstream
+ * file is really not there, so the newer layout is what is used wherever it
+ * exists. The exports differ too; see src/overrides/setUpXHR.ts.
+ */
+const UPSTREAM_FALLBACKS: ReadonlyMap<string, string> = new Map([
+  ['src/private/webapis/dom/abort-api/AbortController', 'abort-controller/dist/abort-controller'],
+  ['src/private/webapis/dom/abort-api/AbortSignal', 'abort-controller/dist/abort-controller'],
+]);
 
 /**
  * Kind 3: modules this project implements itself. Checked before the shim list,
@@ -530,7 +551,16 @@ export function withDesktopPlatforms(
         let request = moduleName;
         if (request.startsWith(UPSTREAM_PREFIX)) {
           const root = reactNativeRoot(() => resolveName('react-native', platform));
-          request = path.join(root, request.slice(UPSTREAM_PREFIX.length));
+          const within = request.slice(UPSTREAM_PREFIX.length);
+          const absolute = path.join(root, within);
+          const fallback = UPSTREAM_FALLBACKS.get(within);
+          // Only when the file is genuinely absent: a supported React Native
+          // that has it gets it. `.js` because that is what React Native's
+          // source is; a directory would have an index.js inside it.
+          request =
+            fallback != null && !fs.existsSync(`${absolute}.js`) && !fs.existsSync(absolute)
+              ? fallback
+              : absolute;
         }
 
         const resolveAs = (target: string | null): Resolution => resolveName(request, target);

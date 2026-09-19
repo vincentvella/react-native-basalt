@@ -58,6 +58,12 @@ endif()
 if(NOT DEFINED BASALT_PACKAGES)
   file(GLOB BASALT_PACKAGES ${CMAKE_CURRENT_SOURCE_DIR}/packages/react-native-basalt-notifications)
 endif()
+#
+# The same loop is in each host package's CMakeLists, because that is the entry
+# point for an app -- the CLI configures -S <host package>/native and never
+# reads this file. The property guard keeps whichever runs first from being
+# undone by the other.
+set_property(GLOBAL PROPERTY BASALT_PACKAGES_ADDED TRUE)
 foreach(package ${BASALT_PACKAGES})
   if(EXISTS ${package}/native/CMakeLists.txt)
     get_filename_component(name ${package} NAME)

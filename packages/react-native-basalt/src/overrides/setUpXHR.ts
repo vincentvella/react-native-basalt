@@ -172,13 +172,21 @@ polyfillGlobal('File', () => require('react-native-basalt/upstream/Libraries/Blo
 polyfillGlobal('FileReader', () => require('react-native-basalt/upstream/Libraries/Blob/FileReader').default);
 polyfillGlobal('URL', () => require('react-native-basalt/upstream/Libraries/Blob/URL').URL);
 polyfillGlobal('URLSearchParams', () => require('react-native-basalt/upstream/Libraries/Blob/URL').URLSearchParams);
+// The abort API moved into React Native's own source in 0.87; 0.86 polyfills
+// it from the `abort-controller` package, which exports `AbortSignal` where
+// React Native's exports `AbortSignal_public`. The resolver sends both
+// specifiers to whichever exists -- see UPSTREAM_FALLBACKS in metro-config --
+// and this takes whichever name came back, because a missing module is a
+// bundling error that no try/catch here could have caught anyway.
 polyfillGlobal(
   'AbortController',
   () =>
     require('react-native-basalt/upstream/src/private/webapis/dom/abort-api/AbortController')
       .AbortController,
 );
-polyfillGlobal(
-  'AbortSignal',
-  () => require('react-native-basalt/upstream/src/private/webapis/dom/abort-api/AbortSignal').AbortSignal_public,
-);
+polyfillGlobal('AbortSignal', () => {
+  const module = require(
+    'react-native-basalt/upstream/src/private/webapis/dom/abort-api/AbortSignal',
+  );
+  return module.AbortSignal_public ?? module.AbortSignal;
+});

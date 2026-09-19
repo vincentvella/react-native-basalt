@@ -13,6 +13,8 @@
 
 #include "TestHarness.h"
 
+#include <memory>
+
 #include "DesktopControls.h"
 #include "PullToRefresh.h"
 
@@ -31,12 +33,17 @@ namespace {
 
 // A mounted view of a given component name, carrying props built by the caller.
 // Fabric's ShadowView is a plain struct, so this is the whole fixture.
+//
+// The props arrive already in a shared_ptr rather than being copied into one.
+// BaseViewProps has a deleted copy constructor at React Native 0.86 -- which
+// is what a current Expo app installs -- so copying compiled here, against
+// the checkout's newer React Native, and failed in the one place it matters.
 template <typename Props>
-ShadowView viewOf(const char *componentName, const Props &props) {
+ShadowView viewOf(const char *componentName, std::shared_ptr<Props> props) {
   ShadowView view;
   view.componentName = componentName;
   view.tag = 10;
-  view.props = std::make_shared<const Props>(props);
+  view.props = std::move(props);
   return view;
 }
 
@@ -54,9 +61,9 @@ TEST(controls_name_decides_kind) {
 }
 
 TEST(controls_indicator_props_are_read) {
-  facebook::react::ActivityIndicatorViewProps props;
-  props.animating = true;
-  props.size = facebook::react::ActivityIndicatorViewSize::Large;
+  auto props = std::make_shared<facebook::react::ActivityIndicatorViewProps>();
+  props->animating = true;
+  props->size = facebook::react::ActivityIndicatorViewSize::Large;
 
   const ControlState state = controlStateOf(viewOf("ActivityIndicatorView", props));
   EXPECT(state.kind == ControlKind::ActivityIndicator);
@@ -69,9 +76,9 @@ TEST(controls_indicator_props_are_read) {
 }
 
 TEST(controls_switch_props_are_read) {
-  facebook::react::SwitchProps props;
-  props.value = true;
-  props.disabled = true;
+  auto props = std::make_shared<facebook::react::SwitchProps>();
+  props->value = true;
+  props->disabled = true;
 
   const ControlState state = controlStateOf(viewOf("Switch", props));
   EXPECT(state.kind == ControlKind::Switch);
@@ -80,8 +87,8 @@ TEST(controls_switch_props_are_read) {
 }
 
 TEST(controls_refresh_props_are_read) {
-  facebook::react::PullToRefreshViewProps props;
-  props.refreshing = true;
+  auto props = std::make_shared<facebook::react::PullToRefreshViewProps>();
+  props->refreshing = true;
 
   const ControlState state = controlStateOf(viewOf("PullToRefreshView", props));
   EXPECT(state.kind == ControlKind::PullToRefresh);
@@ -89,7 +96,7 @@ TEST(controls_refresh_props_are_read) {
 }
 
 TEST(controls_a_plain_view_is_not_a_control) {
-  facebook::react::ViewProps props;
+  auto props = std::make_shared<facebook::react::ViewProps>();
   const ControlState state = controlStateOf(viewOf("View", props));
   EXPECT(state.kind == ControlKind::None);
   EXPECT(describeControl(state).empty());

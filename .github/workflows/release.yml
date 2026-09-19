@@ -217,17 +217,24 @@ jobs:
       - name: Install the packages into it
         # All four in one install, so the platform packages' dependency on
         # react-native-basalt is satisfied by its tarball and not looked up on
-        # the registry. The community CLI is what `react-native run-linux` is;
-        # an Expo app does not have it.
+        # the registry.
+        working-directory: app
+        run: npm install ../tarballs/*.tgz
+
+      - name: Configure it, the way the README says to
+        # `init` rather than a heredoc of the same three lines. Writing the
+        # config here meant the job proved the platform worked and never that
+        # the command did -- and the command was broken in two ways that only
+        # a real app could show: it read `init` as the directory to configure,
+        # and it refused an app with no metro.config.js, which a stock
+        # create-expo-app is.
+        #
+        # It adds the dev dependencies rather than installing them, which is
+        # why the install below is separate and not a repeat.
         working-directory: app
         run: |
-          npm install ../tarballs/*.tgz @react-native-community/cli
-          cat > metro.config.js <<'EOF'
-          const {getDefaultConfig} = require('expo/metro-config');
-          const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
-
-          module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
-          EOF
+          npx react-native-basalt init
+          npm install
 
       - name: Start a display
         run: |

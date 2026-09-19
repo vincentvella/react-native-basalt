@@ -7,10 +7,6 @@
 cmake_minimum_required(VERSION 3.13)
 project(basalt_gtk CXX)
 
-# What capability packages contributed for this host; see the root
-# CMakeLists and packages/react-native-basalt-notifications.
-get_property(BASALT_PACKAGE_GTK_SOURCES GLOBAL PROPERTY BASALT_PACKAGE_GTK_SOURCES)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -42,8 +38,44 @@ if(NOT TARGET basalt_core)
       "react-native-basalt not found at ${BASALT_CORE_DIR}.\n"
       "Pass -DBASALT_CORE_DIR=<path to react-native-basalt/native>.")
   endif()
+  # Capability packages first, and only here, because they contribute include
+  # directories to basalt_core and CMake resolves those when the target is
+  # created rather than afterwards.
+  #
+  # This used to live only in the repository's root CMakeLists, which is the
+  # entry point for a checkout and is not the entry point for an app: the CLI
+  # configures -S <host package>/native, so the loop never ran and
+  # core/portability_probe.cpp failed on a Notifications.h that nothing had
+  # put on the path. A checkout could not see it, because there the root added
+  # the packages first and the header was always there.
+  #
+  # Guarded on the property rather than the variable for the same reason the
+  # block around it is guarded on the target: a build configuring two host
+  # packages must not add the same directory twice.
+  get_property(basalt_packages_added GLOBAL PROPERTY BASALT_PACKAGES_ADDED)
+  if(NOT basalt_packages_added)
+    set_property(GLOBAL PROPERTY BASALT_PACKAGES_ADDED TRUE)
+    foreach(package ${BASALT_PACKAGES})
+      if(EXISTS ${package}/native/CMakeLists.txt)
+        get_filename_component(basalt_package_name ${package} NAME)
+        message(STATUS "basalt: capability package ${basalt_package_name}")
+        add_subdirectory(${package}/native basalt-package-${basalt_package_name})
+      endif()
+    endforeach()
+  endif()
+
   add_subdirectory(${BASALT_CORE_DIR} basalt_core)
 endif()
+
+# What capability packages contributed for this host; see
+# packages/react-native-basalt-notifications for what a package sets.
+#
+# Read *after* the block above, because that block is where the packages are
+# added. It used to be read at the top of this file, which worked for a
+# checkout -- the root CMakeLists adds the packages before it adds this one --
+# and silently contributed nothing for an app, where this file is the entry
+# point. The symptom was a link error naming every notification seam.
+get_property(BASALT_PACKAGE_GTK_SOURCES GLOBAL PROPERTY BASALT_PACKAGE_GTK_SOURCES)
 
 # Found here rather than inherited from the shared half. find_package sets
 # PKG_CONFIG_VERSION as an ordinary variable, which is scoped to the directory

@@ -2,7 +2,7 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (9):**
+**Open (10):**
 
 1. No rendering assertions on GTK
 2. Nothing exercises the JS thread and the main thread concurrently
@@ -13,6 +13,7 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 7. A `<TextInput>`'s wrapper is still an element of its own on Windows
 8. The hover scenario cannot assert its order on GTK-over-quartz
 9. One flaky end-to-end scenario
+10. An app build compiles this repository's test suites
 
 - **No rendering assertions on GTK.** The widget tree says a view has a colour
   and a frame, not that the right pixels reached the screen. This is not
@@ -228,3 +229,22 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   delays and assumes the host has caught up, which is a timing assumption rather
   than a synchronisation. Fixing it means waiting on something observable --
   the tree, or a log line -- instead of on a clock.
+
+- **An app build compiles this repository's test suites.** `native/` is packed
+  whole, tests included, and nothing gates them -- so `react-native run-macos
+  --build` in someone's app builds `basalt_appkit_tests`,
+  `mount_harness_appkit` and `basalt_core_probe` before it builds their app.
+  Minutes of a first build that is already the slow one, for binaries the app
+  will never run.
+
+  It is not only waste. Twice while verifying `add-init-command` a test-only
+  file broke a user's app build: `tests/test_controls.cpp` and a new
+  `transformOrigin` fixture both copied props, which React Native 0.86 forbids
+  and 0.87 allows. Both were fixed, and neither should have been able to stop
+  an app compiling.
+
+  The shape is a `BASALT_BUILD_TESTS` option defaulting off, with the
+  repository's root CMakeLists turning it on -- which matches the split that
+  already exists between the two entry points: the root is for a checkout, a
+  host package's CMakeLists is what an app configures. Left undone deliberately
+  rather than folded into a change about the init command.
