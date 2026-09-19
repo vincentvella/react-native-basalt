@@ -6,14 +6,15 @@
 // this project can be wrong on its own.
 
 #include "TestHarness.h"
+#include "TreeDump.h"
 
 #include "GtkMountingManager.h"
 
+#include <string>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/graphics/Color.h>
 
 #include <cstdint>
-#include <sstream>
 
 using facebook::react::ColorComponents;
 using facebook::react::LayoutMetrics;
@@ -305,6 +306,106 @@ TEST(a_hover_listener_is_remembered_from_the_props) {
   apply(manager, std::move(updates));
   EXPECT_EQ(manager.hoverListenersForTag(10),
             static_cast<std::uint16_t>(basalt::HoverListenerNone));
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// --- transformOrigin --------------------------------------------------------
+//
+// `resolveTransform` folds the origin into the matrix, and all three hosts
+// call it -- so this has been "passed through but never exercised" since it
+// was written. What makes it checkable without a display is that the anchor
+// is a claim about a point: scaling about the top-left must leave the
+// top-left corner exactly where it was.
+//
+// The hosts anchor a transform at the view's centre, which is what an
+// untouched `transformOrigin` means, so the matrix is in centre-relative
+// coordinates and the top-left corner is at (-w/2, -h/2).
+
+namespace {
+
+ShadowView makeTransformed(Tag tag,
+                           float width,
+                           float height,
+                           facebook::react::Transform transform,
+                           facebook::react::TransformOrigin origin = {}) {
+  ShadowView view = makeView(tag, 0.0F, 0.0F, width, height);
+  auto props = std::make_shared<ViewProps>(*std::static_pointer_cast<const ViewProps>(view.props));
+  props->transform = transform;
+  props->transformOrigin = origin;
+  view.props = props;
+  return view;
+}
+
+// The dump this host wrote, as a string.
+std::string treeOf(RnView *root) {
+  char *described = rn_view_describe_tree(root);
+  std::string tree = described != nullptr ? described : "";
+  g_free(described);
+  return tree;
+}
+
+} // namespace
+
+TEST(transform_origin_anchors_the_corner_it_names) {
+  basalt::GtkMountingManager manager;
+  RnView *root = manager.createSurfaceRoot(kSurfaceId);
+
+  using facebook::react::Transform;
+  using facebook::react::TransformOrigin;
+  using facebook::react::UnitType;
+  using facebook::react::ValueUnit;
+
+  // Doubled about the top-left of a 100x50 view.
+  TransformOrigin topLeft;
+  topLeft.xy = {ValueUnit(0.0F, UnitType::Point), ValueUnit(0.0F, UnitType::Point)};
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(
+      makeTransformed(30, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F), topLeft)));
+  mutations.push_back(ShadowViewMutation::InsertMutation(
+      kSurfaceId,
+      makeTransformed(30, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F), topLeft),
+      0));
+  apply(manager, std::move(mutations));
+
+  const auto matrix = basalt::testing::transformIn(treeOf(root), 30);
+  EXPECT_EQ(matrix[0], 2.0);
+  EXPECT_EQ(matrix[3], 2.0);
+
+  // The corner the origin names, in the centre-relative coordinates the
+  // matrix is written in, has to come back to itself: (-50,-25) scaled by two
+  // is (-100,-50), so the translation has to put 50 and 25 back.
+  const double cornerX = matrix[0] * -50.0 + matrix[2] * -25.0 + matrix[4];
+  const double cornerY = matrix[1] * -50.0 + matrix[3] * -25.0 + matrix[5];
+  EXPECT_EQ(cornerX, -50.0);
+  EXPECT_EQ(cornerY, -25.0);
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// And with no origin set, the centre is the anchor -- which is the default
+// every host relies on, and the reason an unset origin must not be folded in
+// as (0,0).
+TEST(no_transform_origin_anchors_the_centre) {
+  basalt::GtkMountingManager manager;
+  RnView *root = manager.createSurfaceRoot(kSurfaceId);
+
+  using facebook::react::Transform;
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(
+      makeTransformed(31, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F))));
+  mutations.push_back(ShadowViewMutation::InsertMutation(
+      kSurfaceId, makeTransformed(31, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F)), 0));
+  apply(manager, std::move(mutations));
+
+  const auto matrix = basalt::testing::transformIn(treeOf(root), 31);
+  EXPECT_EQ(matrix[0], 2.0);
+  EXPECT_EQ(matrix[3], 2.0);
+  // No translation at all: the centre is already the anchor.
+  EXPECT_EQ(matrix[4], 0.0);
+  EXPECT_EQ(matrix[5], 0.0);
 
   manager.destroySurfaceRoot(kSurfaceId);
 }

@@ -13,6 +13,7 @@
 // a refcount or to ARC.
 
 #include "TestHarness.h"
+#include "TreeDump.h"
 
 #include "Win32MountingManager.h"
 
@@ -307,4 +308,99 @@ TEST(win32_has_component_matches_the_registered_descriptors) {
   EXPECT(!manager.hasComponent("Slider"));
   EXPECT(!manager.hasComponent("ActivityIndicator"));
   EXPECT(!manager.hasComponent("SomethingNobodyHasHeardOf"));
+}
+
+// --- transformOrigin --------------------------------------------------------
+//
+// `resolveTransform` folds the origin into the matrix, and all three hosts
+// call it -- so this has been "passed through but never exercised" since it
+// was written. What makes it checkable without a display is that the anchor
+// is a claim about a point: scaling about the top-left must leave the
+// top-left corner exactly where it was.
+//
+// The hosts anchor a transform at the view's centre, which is what an
+// untouched `transformOrigin` means, so the matrix is in centre-relative
+// coordinates and the top-left corner is at (-w/2, -h/2).
+//
+// The same two tests are in the other two suites, with the same tags, for the
+// same reason the ones above are.
+
+namespace {
+
+ShadowView makeTransformed(Tag tag,
+                           float width,
+                           float height,
+                           facebook::react::Transform transform,
+                           facebook::react::TransformOrigin origin = {}) {
+  ShadowView view = makeView(tag, 0.0F, 0.0F, width, height);
+  auto props = std::make_shared<ViewProps>(*std::static_pointer_cast<const ViewProps>(view.props));
+  props->transform = transform;
+  props->transformOrigin = origin;
+  view.props = props;
+  return view;
+}
+
+} // namespace
+
+TEST(transform_origin_anchors_the_corner_it_names) {
+  Win32MountingManager manager;
+  RnWin32View *root = manager.createSurfaceRoot(kSurfaceId);
+
+  using facebook::react::Transform;
+  using facebook::react::TransformOrigin;
+  using facebook::react::UnitType;
+  using facebook::react::ValueUnit;
+
+  // Doubled about the top-left of a 100x50 view.
+  TransformOrigin topLeft;
+  topLeft.xy = {ValueUnit(0.0F, UnitType::Point), ValueUnit(0.0F, UnitType::Point)};
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(
+      makeTransformed(30, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F), topLeft)));
+  mutations.push_back(ShadowViewMutation::InsertMutation(
+      kSurfaceId,
+      makeTransformed(30, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F), topLeft),
+      0));
+  apply(manager, std::move(mutations));
+
+  const auto matrix = basalt::testing::transformIn(root->describeTree(), 30);
+  EXPECT_EQ(matrix[0], 2.0);
+  EXPECT_EQ(matrix[3], 2.0);
+
+  // The corner the origin names, in the centre-relative coordinates the
+  // matrix is written in, has to come back to itself: (-50,-25) scaled by two
+  // is (-100,-50), so the translation has to put 50 and 25 back.
+  const double cornerX = matrix[0] * -50.0 + matrix[2] * -25.0 + matrix[4];
+  const double cornerY = matrix[1] * -50.0 + matrix[3] * -25.0 + matrix[5];
+  EXPECT_EQ(cornerX, -50.0);
+  EXPECT_EQ(cornerY, -25.0);
+
+  manager.destroySurfaceRoot(kSurfaceId);
+}
+
+// And with no origin set, the centre is the anchor -- which is the default
+// every host relies on, and the reason an unset origin must not be folded in
+// as (0,0).
+TEST(no_transform_origin_anchors_the_centre) {
+  Win32MountingManager manager;
+  RnWin32View *root = manager.createSurfaceRoot(kSurfaceId);
+
+  using facebook::react::Transform;
+
+  ShadowViewMutationList mutations;
+  mutations.push_back(ShadowViewMutation::CreateMutation(
+      makeTransformed(31, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F))));
+  mutations.push_back(ShadowViewMutation::InsertMutation(
+      kSurfaceId, makeTransformed(31, 100.0F, 50.0F, Transform::Scale(2.0F, 2.0F, 1.0F)), 0));
+  apply(manager, std::move(mutations));
+
+  const auto matrix = basalt::testing::transformIn(root->describeTree(), 31);
+  EXPECT_EQ(matrix[0], 2.0);
+  EXPECT_EQ(matrix[3], 2.0);
+  // No translation at all: the centre is already the anchor.
+  EXPECT_EQ(matrix[4], 0.0);
+  EXPECT_EQ(matrix[5], 0.0);
+
+  manager.destroySurfaceRoot(kSurfaceId);
 }

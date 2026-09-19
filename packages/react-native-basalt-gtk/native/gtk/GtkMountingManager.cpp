@@ -984,7 +984,7 @@ void GtkMountingManager::applyProps(RnView *view, const ShadowView &shadowView) 
       break;
   }
 
-  // TODO(props): borderStyles (dashed/dotted), backfaceVisibility.
+  // TODO(props): borderStyles (dashed/dotted).
 }
 
 void GtkMountingManager::applyLayoutMetrics(RnView *view, const ShadowView &shadowView) {
