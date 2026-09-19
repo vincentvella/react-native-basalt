@@ -288,7 +288,13 @@ if(DEFINED RN_DIR)
 
   # Links the core and no toolkit. See core/portability_probe.cpp: what it
   # cannot find is precisely what a new desktop platform has to provide.
-  add_executable(basalt_core_probe core/portability_probe.cpp)
+  #
+  # Capability packages contribute their own stubs: their core half is
+  # compiled into basalt_core, so their seams are symbols this has to satisfy,
+  # and the probe cannot include their headers itself -- an app installs the
+  # packages it wants, and core must compile in one that installed none.
+  get_property(basalt_package_probe_sources GLOBAL PROPERTY BASALT_PACKAGE_PROBE_SOURCES)
+  add_executable(basalt_core_probe core/portability_probe.cpp ${basalt_package_probe_sources})
   target_link_libraries(basalt_core_probe PRIVATE basalt_core)
 
 endif()

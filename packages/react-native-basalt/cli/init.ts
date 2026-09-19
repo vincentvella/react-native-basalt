@@ -44,6 +44,45 @@ export const DEV_DEPENDENCIES = [
 
 const PACKAGE_NAME = 'react-native-basalt';
 
+/**
+ * The host packages, one per desktop, and all three by default.
+ *
+ * Each carries its own `run-<desktop>` command -- React Native's CLI reads a
+ * `react-native.config.js` out of every dependency, and the commands live
+ * beside the host they need rather than in core, so an app with only the
+ * AppKit package never sees a command it could not have used. Which means an
+ * app that installed core alone has no desktop commands at all, and `init`'s
+ * own closing line tells the person to run one.
+ *
+ * All three rather than the one this machine runs, because `package.json` is
+ * committed: which desktops an app builds for is a property of the project and
+ * not of whoever set it up. Narrowing by the current platform would configure
+ * an app on a Mac that failed on a contributor's Linux box, reporting an
+ * unrecognised command -- which reads as a broken install rather than as a
+ * decision somebody made.
+ *
+ * The cost of the other two is source that is never compiled: the build only
+ * configures the host for the platform it is running on. An app that wants
+ * fewer says so in app.json; see DESKTOPS_KEY.
+ */
+export const HOST_PACKAGES: Readonly<Record<string, string>> = {
+  linux: 'react-native-basalt-gtk',
+  macos: 'react-native-basalt-appkit',
+  windows: 'react-native-basalt-win32',
+};
+
+/**
+ * Where an app narrows that list: `"basalt": {"desktops": ["macos"]}`.
+ *
+ * app.json rather than package.json, and under the `basalt` key that is
+ * already this platform's escape hatch there -- `cli/packageApp.ts` reads
+ * `basalt.identifier` and `basalt.scheme` from the same place.
+ *
+ * Not Expo's own `platforms` field: a bare React Native app does not have one,
+ * and it is Expo's to define rather than this platform's to borrow.
+ */
+const DESKTOPS_KEY = 'desktops';
+
 /** What one step did. The summary is written once, at the end. */
 export type StepState = 'done' | 'changed' | 'blocked';
 
@@ -154,8 +193,46 @@ function findMetroConfig(root: string): {file: string | null; reason?: string; m
   return {file: null, reason: 'no metro.config.js', missing: true};
 }
 
-/** Adds this package and the two dev dependencies, without touching versions. */
-function addDependencies(project: Extract<Project, {ok: true}>, version: string): Step {
+/**
+ * The desktops this app builds for: every one, unless app.json narrows it.
+ *
+ * An unknown name is refused rather than ignored. A typo -- "mac", "win" --
+ * would otherwise quietly install one package fewer and fail much later, at
+ * the command that is missing, which is the failure this whole step exists to
+ * prevent.
+ */
+export function desktopsFor(root: string): {desktops: string[]; reason?: string} {
+  const all = Object.keys(HOST_PACKAGES);
+  const appJson = readJson<{basalt?: {desktops?: unknown}}>(path.join(root, 'app.json'));
+  const named = appJson?.basalt?.[DESKTOPS_KEY];
+  if (named == null) {
+    return {desktops: all};
+  }
+  if (!Array.isArray(named) || named.some(entry => typeof entry !== 'string')) {
+    return {
+      desktops: all,
+      reason: `app.json's "basalt.${DESKTOPS_KEY}" is not a list of names; using all of them`,
+    };
+  }
+  const unknown = named.filter(entry => !(entry in HOST_PACKAGES));
+  if (unknown.length > 0) {
+    return {
+      desktops: all,
+      reason:
+        `app.json's "basalt.${DESKTOPS_KEY}" names ${unknown.join(', ')}, which ` +
+        `${unknown.length === 1 ? 'is not a desktop' : 'are not desktops'} this ` +
+        `platform has. Expected any of ${all.join(', ')}; using all of them`,
+    };
+  }
+  return {desktops: named as string[]};
+}
+
+/** Adds this package, the host packages, and the two dev dependencies. */
+function addDependencies(
+  project: Extract<Project, {ok: true}>,
+  version: string,
+  desktops: string[],
+): Step {
   const json = project.json;
   const changes: string[] = [];
 
@@ -163,6 +240,16 @@ function addDependencies(project: Extract<Project, {ok: true}>, version: string)
   if (json.dependencies[PACKAGE_NAME] == null) {
     json.dependencies[PACKAGE_NAME] = version;
     changes.push(PACKAGE_NAME);
+  }
+
+  // The same version as core: they share a C++ ABI with the host, and
+  // docs/DECISIONS.md says they version together until that stops being true.
+  for (const desktop of desktops) {
+    const host = HOST_PACKAGES[desktop];
+    if (host != null && json.dependencies[host] == null) {
+      json.dependencies[host] = version;
+      changes.push(host);
+    }
   }
 
   json.devDependencies = json.devDependencies || {};
@@ -315,7 +402,13 @@ export function init(root: string = process.cwd(), {write = true}: {write?: bool
   const metro = findMetroConfig(root);
   const steps: Array<[string, Step]> = [];
 
-  steps.push(['dependencies', addDependencies(project, ownVersion())]);
+  const {desktops, reason} = desktopsFor(root);
+  if (reason != null) {
+    // Reported rather than refused: the app is configurable, and what is wrong
+    // is one field. Refusing would leave it configured for nothing.
+    steps.push(['desktops', step(BLOCKED, reason)]);
+  }
+  steps.push(['dependencies', addDependencies(project, ownVersion(), desktops)]);
   steps.push(['scripts', addScripts(project)]);
 
   if (metro.file == null && metro.missing) {

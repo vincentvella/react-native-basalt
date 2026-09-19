@@ -912,3 +912,63 @@ test('the init verb is not mistaken for a directory', () => {
     /withDesktopPlatforms/,
   );
 });
+
+// The host packages carry the `run-<desktop>` commands -- React Native's CLI
+// reads a react-native.config.js out of every dependency, and they live beside
+// the host they need rather than in core. So an app given core alone has no
+// desktop commands at all, while `init` signs off by telling the person to run
+// one. Found by installing the tarballs by hand during verification, which is
+// exactly what hid it.
+test('init adds a host package per desktop', () => {
+  const dir = scratchApp(EXPO_APP);
+  init(dir);
+
+  const manifest = manifestOf(dir);
+  for (const host of [
+    'react-native-basalt-gtk',
+    'react-native-basalt-appkit',
+    'react-native-basalt-win32',
+  ]) {
+    assert.ok(manifest.dependencies[host] != null, `${host} is a dependency`);
+  }
+  // The same version as core: they share a C++ ABI with the host.
+  assert.equal(
+    manifest.dependencies['react-native-basalt-gtk'],
+    manifest.dependencies['react-native-basalt'],
+  );
+});
+
+// All three by default, because package.json is committed and which desktops
+// an app builds for is the project's business rather than that of whoever ran
+// the command. An app that wants fewer says so.
+test('app.json narrows which desktops are installed', () => {
+  const dir = scratchApp({
+    ...EXPO_APP,
+    'app.json': JSON.stringify({name: 'my-app', basalt: {desktops: ['macos']}}),
+  });
+  init(dir);
+
+  const manifest = manifestOf(dir);
+  assert.ok(manifest.dependencies['react-native-basalt-appkit'] != null);
+  assert.equal(manifest.dependencies['react-native-basalt-gtk'], undefined);
+  assert.equal(manifest.dependencies['react-native-basalt-win32'], undefined);
+});
+
+// A typo would otherwise install one package fewer and fail much later, at the
+// command that is missing -- the failure this step exists to prevent.
+test('a misspelled desktop is reported rather than ignored', () => {
+  const dir = scratchApp({
+    ...EXPO_APP,
+    'app.json': JSON.stringify({name: 'my-app', basalt: {desktops: ['mac']}}),
+  });
+  const result = init(dir);
+
+  const found = result.steps.find(([label]) => label === 'desktops');
+  assert.ok(found != null, 'the bad field is reported');
+  assert.equal(found[1].state, 'blocked');
+  assert.match(found[1].message, /mac/);
+
+  // And it fell back to all three rather than to none, so the app is still
+  // configured while the person fixes the field.
+  assert.ok(manifestOf(dir).dependencies['react-native-basalt-gtk'] != null);
+});

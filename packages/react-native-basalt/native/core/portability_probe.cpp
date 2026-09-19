@@ -12,6 +12,16 @@
 //
 // It is not a test of behaviour. It never constructs a runtime and never
 // renders anything. It answers one question: what does a second platform owe?
+//
+// What it deliberately does not include is any capability package's header.
+// A package's core half is compiled into `basalt_core`, so its seam is a
+// symbol this has to satisfy -- but an app installs the packages it wants and
+// core has to compile in one that installed none. So a package brings its own
+// stub, through BASALT_PACKAGE_PROBE_SOURCES; see
+// packages/react-native-basalt-notifications/native/probe_stub.cpp. Including
+// one here made core fail to compile in an app without that package, and the
+// failure read as a missing file in core rather than as a dependency core
+// should never have had.
 
 #include "AppearanceModule.h"
 #include "ColorScheme.h"
@@ -23,7 +33,6 @@
 #include "SourceCodeModule.h"
 #include "PlatformServices.h"
 #include "MenuModel.h"
-#include "Notifications.h"
 #include "WindowControl.h"
 #include "WindowHost.h"
 #include "StatusBarModule.h"
@@ -85,30 +94,6 @@ void showMenu(const MenuRequest &, MenuCallback onChosen) {
 // Added when the gesture recognisers arrived: "run this on the UI thread", now
 // and later. A platform with a run loop has both already; this one has neither
 // and says so.
-// The notification seam, stubbed the same way. A real platform answers through
-// org.freedesktop.Notifications, UNUserNotificationCenter or the Windows
-// toast API; one that has not yet says so and goes no further.
-//
-// Still here after notifications moved out of core, and that is the honest
-// answer rather than an oversight: the probe links `basalt_core`, and a
-// discovered capability package is compiled into it, so its seam is one of the
-// symbols a build has to satisfy. A build that discovered no packages would not
-// need these -- which is exactly the question the probe exists to answer, and
-// it will answer it differently depending on what is installed.
-NotificationSupport notificationSupport() {
-  return {false, "no platform in this build"};
-}
-bool showNotification(const std::string &, const NotificationContent &) {
-  return false;
-}
-bool dismissNotification(const std::string &) {
-  return false;
-}
-void dismissAllNotifications() {}
-std::vector<std::string> presentedNotifications() {
-  return {};
-}
-
 // The window seam, stubbed the same way. A real platform answers from a
 // GtkWindow, an NSWindow or an HWND; one that has not yet reports a window of
 // no size, which is what an app reading bounds before there is one sees.

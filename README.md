@@ -466,19 +466,32 @@ One command makes the change:
 npx react-native-basalt init
 ```
 
-It adds this package and the two dev dependencies an app needs to bundle
-(`@react-native/metro-config` and `@react-native-community/cli`), wraps the
-app's Metro config, and adds a script per desktop. Running it again reports
-what is already right and writes nothing; run somewhere that is not an app, it
-says what it expected to find and leaves the directory alone.
+It adds this package, a host package per desktop, and the two dev dependencies
+an app needs to bundle (`@react-native/metro-config` and
+`@react-native-community/cli`); wraps the app's Metro config; and adds a script
+per desktop. Running it again reports what is already right and writes nothing;
+run somewhere that is not an app, it says what it expected to find and leaves
+the directory alone.
 
-The whole change it makes to the config is three lines:
+The whole change it makes to the config is three lines, and it writes the file
+when an app has none -- which a stock `create-expo-app` does not:
 
 ```js
 const {getDefaultConfig} = require('expo/metro-config');
 const {withDesktopPlatforms} = require('react-native-basalt/metro-config');
 
 module.exports = withDesktopPlatforms(getDefaultConfig(__dirname));
+```
+
+All three desktops by default, because `package.json` is committed: which
+desktops an app builds for belongs to the project rather than to whoever set it
+up, and installing for only the machine at hand would configure an app on a Mac
+that failed on a contributor's Linux box. The other two cost source that is
+never compiled -- the build configures only the host it is running on. An app
+that wants fewer says so in `app.json`:
+
+```json
+{"basalt": {"desktops": ["macos", "linux"]}}
 ```
 
 That is what this project exists to show.

@@ -15,6 +15,13 @@ set_property(GLOBAL APPEND PROPERTY BASALT_PACKAGE_CORE_SOURCES
 # The header the seam lives in, so core and the hosts can include it.
 set_property(GLOBAL APPEND PROPERTY BASALT_PACKAGE_INCLUDES ${BASALT_NOTIFICATIONS_DIR})
 
+# What a platform would have to implement, stubbed, for the portability probe.
+# The probe links basalt_core -- which now carries this package's core half --
+# so the seam it calls has to resolve there too. In the package because the
+# probe cannot depend on a package an app may not have installed.
+set_property(GLOBAL APPEND PROPERTY BASALT_PACKAGE_PROBE_SOURCES
+  ${BASALT_NOTIFICATIONS_DIR}/probe_stub.cpp)
+
 # The installer the generated translation unit calls.
 set_property(GLOBAL APPEND PROPERTY BASALT_PACKAGE_EXPO_INSTALLERS installNotificationExpoModules)
 

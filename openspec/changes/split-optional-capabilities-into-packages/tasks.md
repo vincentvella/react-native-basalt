@@ -34,6 +34,15 @@
 - [x] Move the notifications seam out of core first -- it is the only shipped
       capability the rule catches, and proving it does not break the
       expo-notifications proxy is what makes the rest safe
+- [x] Finish that move: `core/portability_probe.cpp` still included
+      `Notifications.h` unconditionally, so core did not compile in an app
+      that had not installed the package -- which is every app, since `init`
+      does not add optional capabilities. A package brings its own probe stub
+      now, through `BASALT_PACKAGE_PROBE_SOURCES`, which is one more property
+      of the same kind as the four it already contributes
+- [x] Nothing else moves: every seam left in `native/core/` was checked
+      against the three tests and none fails one. Camera, tray, location and
+      the rest of the package side of the rule are catalogued, not built
 - [ ] Move what the rule moves, in one commit per package
 - [ ] Have `init` install what an app needs so the split is invisible to it
 - [ ] Update the specs whose capability moved
