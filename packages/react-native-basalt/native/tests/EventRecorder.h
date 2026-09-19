@@ -49,6 +49,7 @@
 #include <react/renderer/core/RawEvent.h>
 #include <react/renderer/runtimescheduler/RuntimeScheduler.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
