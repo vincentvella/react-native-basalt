@@ -1,7 +1,6 @@
 {
   "name": "react-native-basalt",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.0-rc1",
   "description": "React Native on the desktop, over React Native's own C++ core rather than a fork. The shared half: the platform module, the Metro configuration that resolves it, the bundler, and the C++ that is not about a toolkit.",
   "license": "MIT",
   "main": "dist/src/index.js",
@@ -29,7 +28,7 @@
   },
   "bin": {
     "basalt-bundle": "./dist/cli/bundle-cli.js",
-    "react-native-basalt": "./dist/cli/basalt.js"
+    "react-native-basalt": "0.0.0-rc1"
   },
   "types": "dist/src/index.d.ts",
   "scripts": {
