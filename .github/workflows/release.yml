@@ -118,6 +118,14 @@ jobs:
         # Needs neither a display nor a window: nothing in it is presented.
         run: ./build/basalt_appkit_tests
 
+      - name: Build the JavaScript packages
+        # react-native-basalt is TypeScript and `main` points into its dist/,
+        # so nothing below can require it until this has run. The Linux job in
+        # ci.yml has had this step all along; this one did not, and nothing
+        # noticed until the release workflow first ran and the CLI tests threw
+        # on a dist/ that was never built.
+        run: ./scripts/build_ts.sh
+
       - name: CLI tests
         run: node --test scripts/test_cli.js
 
@@ -198,13 +206,47 @@ jobs:
         with:
           node-version: 24
 
+      - name: Read the React Native pin
+        id: pin
+        working-directory: basalt
+        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch React Native at the pinned release
+        # Packing runs each package's `prepack`, which typechecks the
+        # TypeScript, which needs a React Native to check against and a tsc to
+        # do it with. This job otherwise has no checkout of one -- the point of
+        # it is an app with nothing from this repository on the path -- so it
+        # fetches one solely to build the tarballs, and the app it installs
+        # them into still gets React Native from npm like anybody else.
+        run: |
+          mkdir -p react-native-src && cd react-native-src
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
+          git checkout -q FETCH_HEAD
+
+      - name: Restore React Native's node_modules
+        id: node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: react-native-src/node_modules
+          # The same key ci.yml uses, so this shares that cache rather than
+          # paying for its own: a fixed commit has a fixed yarn.lock.
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
+
+      - name: Install React Native's dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        working-directory: react-native-src
+        run: yarn install --frozen-lockfile
+
       - name: Pack
         # Exactly what would be uploaded: `files` in each package.json decides,
         # so a directory missing from it is missing here too.
         run: |
           mkdir tarballs
           for package in basalt/packages/*/; do
-            npm pack "$package" --pack-destination tarballs
+            RN_DIR="$GITHUB_WORKSPACE/react-native-src" \
+              npm pack "$package" --pack-destination tarballs
           done
           ls -l tarballs
 
