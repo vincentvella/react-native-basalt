@@ -1335,6 +1335,42 @@ def test_keyboard_focus(bundle: Path) -> None:
         )
 
 
+# The message the demo logs as an error, which is what tells its toast from
+# the warning one above it.
+ERROR_TOAST_TEXT = "an error that should raise a red box"
+
+
+def _measure_toast(app: Path, label: str) -> tuple:
+    """Where a LogBox toast carrying `label` is, in surface-root points.
+
+    One extra run of the host with nothing tapped. The toasts appear a second
+    and a half in, so this waits for them rather than dumping immediately.
+    """
+    env = dict(os.environ)
+    env["BASALT_QUIT_AFTER_MS"] = "4000"
+    for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER", "BASALT_TEST_FOCUS"):
+        env.pop(name, None)
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env["BASALT_DUMP_TREE"] = str(dump)
+        subprocess.run(
+            [str(HOST), str(app), "BasaltLogBox"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        if not dump.exists():
+            raise Failure("the host wrote no tree while looking for the error toast")
+        tree = dump.read_text()
+
+    for body, (x, y), (width, height) in _views(tree):
+        if f'text="{label}"' in body:
+            return (round(x + width / 2), round(y + height / 2))
+    raise Failure(
+        f"no toast carrying {label!r} in the tree; did the demo stop logging it?\n"
+        f"{tree[-1200:]}"
+    )
+
+
 def test_logbox(bundle: Path) -> None:
     """A console error opens React Native's own inspector.
 
@@ -1353,12 +1389,23 @@ def test_logbox(bundle: Path) -> None:
     """
     app = bundle_app(bundle.parent, "logbox", dev=True)
 
+    # Where the error toast is, asked of the app rather than assumed.
+    #
+    # This tapped 400,650 until the release workflow ran the suite on macOS
+    # for the first time and it missed: the toast is at y=580..628 there and
+    # the tap landed 22 points under it. The two hosts put LogBox's toasts at
+    # different heights and one hard-coded point cannot be inside both.
+    #
+    # The warning toast sits above the error one, so the message text is what
+    # distinguishes them -- and a tap on the text bubbles to the toast, the
+    # same way the demo's button labels work.
+    toast = _measure_toast(app, ERROR_TOAST_TEXT)
+
     env = dict(os.environ)
     env["BASALT_QUIT_AFTER_MS"] = "12000"
     # The first tap is a miss, and is there only to let the error arrive: the
-    # app logs it a second and a half in, and taps fire a second apart. The
-    # second lands on the error toast, which is the lower of the two.
-    env["BASALT_TEST_TAP"] = "5,5;400,650"
+    # app logs it a second and a half in, and taps fire a second apart.
+    env["BASALT_TEST_TAP"] = f"5,5;{toast[0]},{toast[1]}"
     env.pop("BASALT_TEST_TYPE", None)
     env.pop("BASALT_TEST_HOVER", None)
     env.pop("BASALT_TEST_FOCUS", None)

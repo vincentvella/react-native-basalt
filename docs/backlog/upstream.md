@@ -65,12 +65,22 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   `ReactCommon/react/nativemodule/cputime`'s C++ while its codegen spec lives
   under `src/private/testing/fantom` and does not ship, so that module cannot be
   compiled from the package. This platform stopped building it.
-- Report the `HttpUtils.h` missing-`<cstdint>` bug. Since phase 41 there is a
-  second of exactly the same shape and they should go together:
+- Report the `HttpUtils.h` missing-`<cstdint>` bug. There are now two more of
+  exactly the same shape and all three should go together:
   `react/renderer/components/view/conversions.h` uses `M_PI` seven times, and
   `M_PI` is a POSIX extension rather than standard C++ -- MSVC's `<cmath>`
-  defines it only behind `_USE_MATH_DEFINES`. Both compile on Meta's toolchains
-  through luck rather than intent.
+  defines it only behind `_USE_MATH_DEFINES`. And
+  `ReactCxxPlatform/react/runtime/ReactInstanceConfig.h` declares a `uint32_t`
+  `devServerPort` while including only `<string>`.
+
+  That third one is the best evidence the class is worth reporting rather
+  than working around one at a time, because of how narrowly it shows itself.
+  It breaks only on **React Native 0.86, only on Linux**: at 0.87 the same
+  header also includes `<functional>` and `<memory>`, which drag `<cstdint>`
+  in on libstdc++, and on a Mac libc++ supplies it either way. So the same
+  Expo app built on this machine and on a CI runner disagreed about whether
+  React Native compiles, and it took the release workflow's first run to say
+  so. All three compile on Meta's toolchains through luck rather than intent.
 - **`ReactCommon/cmake-utils/react-native-flags.cmake` hardcodes clang's command
   line** -- `-Wall -Werror -fexceptions -frtti -std=c++20` -- and carries
   `TODO T228344694 improve this so that it works for all platforms` directly

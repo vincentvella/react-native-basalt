@@ -239,6 +239,22 @@ if(DEFINED RN_DIR)
     core/WindowsModule.cpp
     core/WorkletsModule.cpp)
   target_compile_options(basalt_core PRIVATE -Wall -Wextra)
+  # The same upstream portability bug ReactNativeCore.cmake force-includes
+  # around for React Native's own targets, reaching our translation units too:
+  # ReactCxxPlatform's react/runtime/ReactInstanceConfig.h declares a
+  # `uint32_t` and includes no <cstdint>, so anything of ours that includes it
+  # -- core/DevMenu.cpp does -- fails to compile.
+  #
+  # PUBLIC, so the host libraries that include React Native's headers get it
+  # as well, for the same reason the definitions below are.
+  #
+  # Only React Native 0.86 on Linux shows it, which is why it took a release
+  # workflow to find. At 0.87 the header also includes <functional> and
+  # <memory>, which drag <cstdint> in on libstdc++; 0.86 includes only
+  # <string>, which does not. On a Mac libc++ supplies it either way, so the
+  # same app built here and on Linux disagreed about whether React Native
+  # compiles.
+  target_compile_options(basalt_core PUBLIC ${BASALT_FORCE_INCLUDE_CSTDINT_FLAG})
   # The React Native version, for the version guards and PlatformConstants.
   #
   # ReactNativeCore.cmake also states these with add_compile_definitions, which

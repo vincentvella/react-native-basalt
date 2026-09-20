@@ -147,7 +147,11 @@ from the command line rather than by editing React Native's tree:
   `react/renderer/components/view/conversions.h`, to convert degrees for
   `transform: rotate`. It is a POSIX extension rather than standard C++, and
   MSVC's `<cmath>` defines it only behind `_USE_MATH_DEFINES`.
-- **A missing `<cstdint>`** in `HttpUtils.h`, which this build force-includes
-  around.
+- **A missing `<cstdint>`** in `HttpUtils.h`, and another in
+  `ReactCxxPlatform/react/runtime/ReactInstanceConfig.h`, which this build
+  force-includes around. The second appears only at React Native 0.86 on
+  Linux: 0.87's copy of the header also includes `<functional>` and
+  `<memory>`, which pull `<cstdint>` in on libstdc++, and libc++ supplies it
+  on a Mac regardless.
 
 `docs/backlog/upstream.md` carries these and the rest.
