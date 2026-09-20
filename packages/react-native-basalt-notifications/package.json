@@ -7,6 +7,6 @@
     "native": "native/CMakeLists.txt"
   },
   "peerDependencies": {
-    "react-native-basalt": "0.0.0-rc1"
+    "react-native-basalt": "*"
   }
 }

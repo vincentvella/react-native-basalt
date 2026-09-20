@@ -28,7 +28,7 @@
   },
   "bin": {
     "basalt-bundle": "./dist/cli/bundle-cli.js",
-    "react-native-basalt": "0.0.0-rc1"
+    "react-native-basalt": "./dist/cli/basalt.js"
   },
   "types": "dist/src/index.d.ts",
   "scripts": {
