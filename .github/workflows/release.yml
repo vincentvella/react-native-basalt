@@ -250,6 +250,18 @@ jobs:
           done
           ls -l tarballs
 
+      - name: Keep the tarballs
+        # So that `ready to publish` reports on the exact files this job
+        # installed and tested, rather than packing its own copies. Packing
+        # needs a React Native checkout -- core's `prepack` typechecks -- and
+        # that job has none; giving it one would be a third copy of the same
+        # three steps to keep in step with the other two.
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs/
+          retention-days: 7
+
       - name: Create an Expo app
         # SDK 57 installs React Native 0.86, which supported-versions.json lists
         # because it is what a current Expo app gets. Pinned, so this job fails
@@ -316,11 +328,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Collect the tarballs the Expo job installed
+        uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
       - name: What would be published
-        # A dry run, because every package is private. Publishing is a step to
-        # add here -- with an npm token, and once `private` comes off -- rather
-        # than something this workflow does by accident.
+        # The actual files, rather than a fresh `npm pack` of each package.
+        # This used to re-pack, and failed the first time it ran: core's
+        # `prepack` typechecks the TypeScript, which needs a React Native
+        # checkout, which a bare runner does not have -- so the four packages
+        # without a prepack reported and the fifth killed the job.
+        #
+        # Reporting on what the Expo job built is better than fixing that by
+        # adding a checkout here: these are the bytes that were installed into
+        # a real app and run, so the summary describes something that has been
+        # tested rather than something packed again at the end.
+        #
+        # Publishing is a step to add here -- with an npm token -- rather than
+        # something this workflow does by accident.
         run: |
-          for package in packages/*/; do
-            npm pack --dry-run "$package" 2>&1 | grep -E "name:|version:|total files:|package size:"
+          for tarball in tarballs/*.tgz; do
+            echo "== $tarball"
+            tar -xzOf "$tarball" package/package.json |
+              node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                const m=JSON.parse(s);
+                console.log(`   ${m.name} ${m.version}`);
+              })'
+            echo "   $(tar -tzf "$tarball" | wc -l) files, $(du -h "$tarball" | cut -f1)"
           done
