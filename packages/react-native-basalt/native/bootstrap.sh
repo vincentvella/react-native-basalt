@@ -477,7 +477,25 @@ log "yarn $(yarn --version)"
 # with a populated third_party/codegen and an empty node_modules skips this
 # step and then cannot bundle. That is exactly what CI hit the first time its
 # third_party cache was warm.
-if [ "$RN_LAYOUT" = checkout ] && { [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; }; then
+#
+# `node_modules` being populated is not enough to conclude yarn has run here,
+# which is the same bug one layer down and cost a fortnight of red Windows
+# builds. `@react-native/codegen` is a workspace symlink out of node_modules
+# to `packages/react-native-codegen`, and the `lib/` that babel-plugin-codegen
+# requires is built by yarn's own prepare step -- into the package, not into
+# node_modules. So a cache of `node_modules` alone restores a tree that looks
+# installed and cannot bundle: "Cannot find module
+# '@react-native/codegen/lib/parsers/flow/parser'".
+#
+# Checking for that directory as well is what makes a warm cache honest. It
+# showed on Windows and not on Linux only because the Linux job kept being
+# cancelled by a newer push before it got this far; release.yml was green
+# throughout because a cold build restores no cache and always installs.
+RN_CODEGEN_LIB="$RN_DIR/packages/react-native-codegen/lib"
+if [ "$RN_LAYOUT" = checkout ] && {
+     [ ! -d "$RN_DIR/node_modules" ] ||
+     [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ] ||
+     [ ! -d "$RN_CODEGEN_LIB" ]; }; then
   log "installing React Native's monorepo dependencies"
   (cd "$RN_DIR" && run_nice ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
 fi
