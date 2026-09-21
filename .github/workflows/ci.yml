@@ -298,6 +298,25 @@ jobs:
     name: the AppKit host
     runs-on: macos-15
     timeout-minutes: 120
+    env:
+      # This workflow's top-level env is written for the Linux jobs: an Xvfb
+      # display at :99 and GTK's x11 backend. Neither exists on a Mac, and
+      # inheriting them is not harmless -- GTK honours GDK_BACKEND, fails to
+      # open a display, and every host it starts produces an empty tree. The
+      # first run of this job reported all eighteen apps disagreeing, which
+      # is what a comparison says when one side never rendered.
+      #
+      # `macos` and not `quartz`: GTK 4 renamed that backend, and GTK 3's name
+      # matches nothing compiled in -- which fails exactly like inheriting
+      # x11 does, silently and with every app reported as disagreeing.
+      # Checked by running compare_all.sh with each spelling on a Mac: x11
+      # and quartz both give 18 of 18 disagreeing, macos gives 18 of 18
+      # agreeing. Homebrew's GTK having a macOS backend at all is what makes
+      # this comparison possible on one runner.
+      GDK_BACKEND: macos
+      # Emptied rather than left at :99. Nothing on a Mac reads it, and a
+      # display number that does not exist is worse than none.
+      DISPLAY: ""
     # Here rather than only in release.yml as of the day this repository went
     # public. It lived there because macOS minutes bill at ten times Linux's
     # and that was worth avoiding on a private repository; standard runners
