@@ -15,8 +15,12 @@ name: Release
 # Run by pushing a tag (`git tag v0.1.0 && git push origin v0.1.0`), or by hand
 # from the Actions tab, which skips the version check and runs everything else.
 #
-# On a private repository the macOS job is the costly one: macOS minutes bill
-# at ten times Linux's. It is here and not in ci.yml for that reason.
+# macOS used to be defined here rather than in ci.yml, because macOS minutes
+# bill at ten times Linux's and that was worth avoiding on a private
+# repository. Standard runners are free on a public one, so it moved to
+# ci.yml and runs on every push; the cold build below calls that workflow and
+# gets it too, which is the same job at a second cadence rather than a second
+# copy of it.
 
 on:
   push:
@@ -61,7 +65,7 @@ jobs:
           EOF
 
   from-nothing:
-    name: Linux and Windows, from nothing
+    name: every host, from nothing
     # ci.yml itself, with every cache restore skipped. The every-push run
     # restores third_party by prefix and trusts bootstrap.sh's version stamps to
     # notice a stale one, which cannot see a change to *how* Hermes is built.
@@ -69,77 +73,6 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       cold: true
-
-  macos:
-    name: macOS
-    runs-on: macos-15
-    timeout-minutes: 120
-    # The only CI macOS gets, and none of it has run on a hosted runner yet:
-    # the steps are the ones docs/HANDOFF.md records on a developer's Mac. The
-    # first run of this workflow is also the first test of this job.
-    #
-    # GTK is installed as well as AppKit, for two reasons. bootstrap.sh checks
-    # for gtk4 on every platform that is not Windows, Mac included. And a Mac
-    # with both is the one machine that can run compare_all.sh without WSL.
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read the React Native pin
-        id: pin
-        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Install dependencies
-        run: |
-          brew install gtk4 pango glib glog boost fmt double-conversion gflags \
-            openssl cmake ninja pkg-config
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Fetch React Native at the pinned release
-        run: |
-          mkdir -p react-native-src && cd react-native-src
-          git init -q
-          git remote add origin https://github.com/react/react-native
-          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
-          git checkout -q FETCH_HEAD
-
-      - name: Bootstrap
-        run: BUILD_JOBS=$(sysctl -n hw.ncpu) scripts/bootstrap.sh react-native-src
-
-      - name: Configure and build
-        run: |
-          cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-            -DRN_DIR=react-native-src/packages/react-native
-          cmake --build build -j "$(sysctl -n hw.ncpu)"
-
-      - name: Unit tests
-        # Needs neither a display nor a window: nothing in it is presented.
-        run: ./build/basalt_appkit_tests
-
-      - name: Build the JavaScript packages
-        # react-native-basalt is TypeScript and `main` points into its dist/,
-        # so nothing below can require it until this has run. The Linux job in
-        # ci.yml has had this step all along; this one did not, and nothing
-        # noticed until the release workflow first ran and the CLI tests threw
-        # on a dist/ that was never built.
-        run: ./scripts/build_ts.sh
-
-      - name: CLI tests
-        run: node --test scripts/test_cli.js
-
-      - name: Bundle the demo
-        run: scripts/bundle.sh react-native-src --prod --platform macos
-
-      - name: End-to-end tests
-        env:
-          BASALT_SKIP_FAST_REFRESH: "1"
-        run: python3 scripts/integration_test.py --platform macos
-
-      - name: GTK and AppKit, compared
-        # Every app in js/, through both hosts on this one runner.
-        run: scripts/compare_all.sh
 
   msbuild:
     name: the Windows view layer, with MSBuild
@@ -321,7 +254,7 @@ jobs:
   ready:
     name: ready to publish
     runs-on: ubuntu-24.04
-    needs: [versions, from-nothing, macos, msbuild, expo-install]
+    needs: [versions, from-nothing, msbuild, expo-install]
     # Runs for a hand-started run too, where `versions` is skipped rather than
     # failed; anything that actually failed still stops it.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}

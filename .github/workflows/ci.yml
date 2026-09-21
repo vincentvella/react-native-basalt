@@ -294,6 +294,137 @@ jobs:
           path: widget-tree.txt
           if-no-files-found: ignore
 
+  macos:
+    name: the AppKit host
+    runs-on: macos-15
+    timeout-minutes: 120
+    # Here rather than only in release.yml as of the day this repository went
+    # public. It lived there because macOS minutes bill at ten times Linux's
+    # and that was worth avoiding on a private repository; standard runners
+    # are free on a public one, so the reason expired.
+    #
+    # What that cost, before it expired: AppKit was the one first-class host
+    # with no per-push check, and the first time release.yml ran it found a
+    # scenario that had never passed on macOS -- LogBox's toast is at a
+    # different height there, and the tap that found it on Linux missed. That
+    # is the bug class this job exists to catch on the commit that causes it.
+    #
+    # GTK is installed as well as AppKit, for two reasons: bootstrap.sh checks
+    # for gtk4 on every platform that is not Windows, and a Mac with both is
+    # the one machine that can run compare_all.sh without WSL.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the React Native pin
+        id: pin
+        run: echo "ref=$(grep -v '^#' scripts/react-native.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          brew install gtk4 pango glib glog boost fmt double-conversion gflags \
+            openssl cmake ninja pkg-config ccache
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch React Native at the pinned release
+        run: |
+          mkdir -p react-native-src && cd react-native-src
+          git init -q
+          git remote add origin https://github.com/react/react-native
+          git fetch -q --depth 1 origin refs/tags/${{ steps.pin.outputs.ref }}
+          git checkout -q FETCH_HEAD
+
+      - name: Restore React Native's node_modules
+        id: node-modules
+        if: ${{ !inputs.cold }}
+        uses: actions/cache/restore@v4
+        with:
+          path: react-native-src/node_modules
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
+
+      - name: Restore third_party
+        id: third-party
+        if: ${{ !inputs.cold }}
+        uses: actions/cache/restore@v4
+        with:
+          # Hermes, as on Linux, and the same reasoning about the fallback key
+          # applies -- see the Linux job above.
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+          restore-keys: third-party-${{ runner.os }}-
+
+      - name: Restore ccache
+        if: ${{ !inputs.cold }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
+
+      - name: Bootstrap
+        id: bootstrap
+        run: BUILD_JOBS=$(sysctl -n hw.ncpu) scripts/bootstrap.sh react-native-src
+
+      - name: Save third_party
+        if: steps.bootstrap.outcome == 'success' && steps.third-party.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party
+          key: third-party-${{ runner.os }}-${{ hashFiles('packages/react-native-basalt/native/bootstrap.sh') }}-${{ steps.pin.outputs.ref }}
+
+      - name: Save React Native's node_modules
+        if: steps.bootstrap.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: react-native-src/node_modules
+          key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
+
+      - name: Configure and build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DRN_DIR=react-native-src/packages/react-native
+          cmake --build build -j "$(sysctl -n hw.ncpu)"
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+
+      - name: Unit tests
+        # Needs neither a display nor a window: nothing in it is presented.
+        run: ./build/basalt_appkit_tests
+
+      - name: Build the JavaScript packages
+        run: ./scripts/build_ts.sh
+
+      - name: CLI tests
+        run: node --test scripts/test_cli.js
+
+      - name: Bundle the demo
+        run: scripts/bundle.sh react-native-src --prod --platform macos
+
+      - name: End-to-end tests
+        env:
+          BASALT_SKIP_FAST_REFRESH: "1"
+        run: python3 scripts/integration_test.py --platform macos
+
+      - name: GTK and AppKit, compared
+        # Every app in js/, through both hosts on this one runner -- the check
+        # that the two desktops still produce the same tree, which no other
+        # job can make because no other has both.
+        run: scripts/compare_all.sh
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: widget-tree-macos
+          path: widget-tree.txt
+          if-no-files-found: ignore
+
   windows-full:
     name: the whole Windows stack
     runs-on: windows-2022

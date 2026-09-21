@@ -2,18 +2,17 @@
 
 Part of the [backlog](../BACKLOG.md). Not scheduled.
 
-**Open (10):**
+**Open (9):**
 
 1. No rendering assertions on GTK
 2. Nothing exercises the JS thread and the main thread concurrently
-3. CI builds and tests Linux and Windows on every push
-4. The Fast Refresh scenario is skipped in CI
-5. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
-6. Nothing tests tap-to-focus
-7. A `<TextInput>`'s wrapper is still an element of its own on Windows
-8. The hover scenario cannot assert its order on GTK-over-quartz
-9. One flaky end-to-end scenario
-10. An app build compiles this repository's test suites
+3. The Fast Refresh scenario is skipped in CI
+4. The GTK `<TextInput>` focus scenario flaked on a Mac, and nothing explains it
+5. Nothing tests tap-to-focus
+6. A `<TextInput>`'s wrapper is still an element of its own on Windows
+7. The hover scenario cannot assert its order on GTK-over-quartz
+8. One flaky end-to-end scenario
+9. An app build compiles this repository's test suites
 
 - **No rendering assertions on GTK.** The widget tree says a view has a colour
   and a frame, not that the right pixels reached the screen. This is not
@@ -46,9 +45,26 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   few points apart on each desktop. What is still hard-coded is the other
   apps' coordinates -- `js/hover.js`'s boxes, the devtools taps, the menu
   taps -- which are boxes rather than labels and have no text to find.
-- CI builds and tests Linux and Windows on every push. macOS is built only by
-  `release.yml`, which has not run yet, and otherwise by whoever is developing
-  on a Mac.
+- ~~CI builds and tests Linux and Windows on every push. macOS is built only
+  by `release.yml`, which has not run yet, and otherwise by whoever is
+  developing on a Mac.~~ macOS is a job in `ci.yml` now, running on every
+  push: build, unit tests, CLI tests, the end-to-end suite, and
+  `compare_all.sh`, which no other runner can do because no other has both
+  hosts.
+
+  It was in `release.yml` because macOS minutes bill at ten times Linux's,
+  which was worth avoiding on a private repository. Standard runners are free
+  on a public one, so the reason expired the day the repository went public
+  and the job moved. `release.yml` no longer defines its own: the cold build
+  calls `ci.yml`, so a release gets the same job rather than a second copy of
+  it.
+
+  What the gap cost, measured rather than guessed: `release.yml` ran for the
+  first time that same day and found a scenario that had never passed on
+  macOS -- LogBox's toast sits at a different height there, and the tap that
+  hit it on Linux missed by 22 points. AppKit had 257 unit tests and no
+  per-push check, and the only thing standing between a macOS regression and
+  a release was whoever happened to run the suite on a Mac.
 - **The Fast Refresh scenario is skipped in CI**, so nothing on a machine
   protects development mode. Metro on a GitHub runner never notices an edit:
   the file changes on disk with a fresh mtime, a newly requested bundle still

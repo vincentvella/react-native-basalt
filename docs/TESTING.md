@@ -620,9 +620,17 @@ suite.
 measurement takes a mutex, but nothing exercises the JS thread and the main
 thread concurrently.
 
-**macOS.** CI is Linux only, because that is the target and because every
-platform-specific bug so far has been a Linux one. Development happens on a Mac,
-so macOS is covered by whoever is working; it is not covered by a machine.
+**Nothing, as of the day this repository went public.** All three hosts are
+built and tested on every push: Linux and Windows have been for a while, and
+macOS joined when standard runners became free and the ten-times billing
+multiplier stopped being a reason to leave it out. The macOS job also runs
+`compare_all.sh`, which no other runner can, because no other has both hosts
+installed.
+
+This paragraph used to say "CI is Linux only ... macOS is covered by whoever
+is working; it is not covered by a machine", which was already wrong about
+Windows and stopped being true of macOS on the same day. Left here as the
+answer to the obvious question rather than deleted.
 
 ## CI
 
@@ -674,9 +682,17 @@ suite.
 measurement takes a mutex, but nothing exercises the JS thread and the main
 thread concurrently.
 
-**macOS.** CI is Linux only, because that is the target and because every
-platform-specific bug so far has been a Linux one. Development happens on a Mac,
-so macOS is covered by whoever is working; it is not covered by a machine.
+**Nothing, as of the day this repository went public.** All three hosts are
+built and tested on every push: Linux and Windows have been for a while, and
+macOS joined when standard runners became free and the ten-times billing
+multiplier stopped being a reason to leave it out. The macOS job also runs
+`compare_all.sh`, which no other runner can, because no other has both hosts
+installed.
+
+This paragraph used to say "CI is Linux only ... macOS is covered by whoever
+is working; it is not covered by a machine", which was already wrong about
+Windows and stopped being true of macOS on the same day. Left here as the
+answer to the obvious question rather than deleted.
 
 ## CI
 
