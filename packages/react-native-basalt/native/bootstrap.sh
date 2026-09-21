@@ -492,12 +492,33 @@ log "yarn $(yarn --version)"
 # cancelled by a newer push before it got this far; release.yml was green
 # throughout because a cold build restores no cache and always installs.
 RN_CODEGEN_LIB="$RN_DIR/packages/react-native-codegen/lib"
-if [ "$RN_LAYOUT" = checkout ] && {
-     [ ! -d "$RN_DIR/node_modules" ] ||
-     [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ] ||
-     [ ! -d "$RN_CODEGEN_LIB" ]; }; then
+if [ "$RN_LAYOUT" = checkout ] && { [ ! -d "$RN_DIR/node_modules" ] || [ -z "$(ls -A "$RN_DIR/node_modules" 2>/dev/null)" ]; }; then
   log "installing React Native's monorepo dependencies"
   (cd "$RN_DIR" && run_nice ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn install --network-timeout 600000)
+fi
+
+# And codegen's own JavaScript, which the install above does not build.
+#
+# `packages/react-native-codegen` declares `prepare: yarn run build`, and
+# yarn 1 does not run `prepare` for workspace children -- only for the root
+# package. So a plain `yarn install` leaves `lib/` absent, and
+# babel-plugin-codegen fails the first time Metro touches a file: "Cannot
+# find module '@react-native/codegen/lib/parsers/flow/parser'".
+#
+# Nothing noticed because the two things that build it both happen only on a
+# cold tree. The codegen step below shells out to React Native's own script,
+# which builds it on the way past; with a warm third_party/codegen that step
+# is skipped. So a machine with both caches warm had an installed checkout
+# that could compile and could not bundle -- six red Windows runs, and green
+# release runs throughout, because a release restores no cache at all.
+#
+# Its own check rather than folded into the install: the install is a
+# five-minute network operation and this is a 1.6-second transpile, and the
+# case that matters is precisely the one where the install is not needed.
+if [ "$RN_LAYOUT" = checkout ] && [ ! -d "$RN_CODEGEN_LIB" ]; then
+  log "building React Native's codegen"
+  (cd "$RN_DIR/packages/react-native-codegen" &&
+     run_nice ${NODE_RUN[@]+"${NODE_RUN[@]}"} yarn run build)
 fi
 
 # Codegen output belongs to one React Native version and to no other: the
