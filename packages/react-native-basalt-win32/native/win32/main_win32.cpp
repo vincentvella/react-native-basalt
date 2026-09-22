@@ -2210,6 +2210,11 @@ int main(int argc, char **argv) {
     SetTimer(
         gHost.main().window, kQuitAfterTimer, delay, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
           KillTimer(hwnd, id);
+          // The same line the other two hosts log, so a person reading three
+          // transcripts side by side sees the same shutdown in each. This
+          // host was silent about it, which is how a scenario came to assert
+          // on a string only two of them print.
+          std::fprintf(stderr, "BASALT_QUIT_AFTER_MS elapsed; quitting\n");
           // What WM_CLOSE does, without going through WM_CLOSE. This is the
           // harness ending the run, not a person closing a window, and an app
           // that intercepts its own close would otherwise refuse it -- a test

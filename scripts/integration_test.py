@@ -3081,31 +3081,41 @@ def test_quit_request(bundle: Path) -> None:
             tree = dump.read_text() if dump.exists() else ""
             return tree, result.stderr, elapsed
 
-    # Refused. Long enough for the ask, short enough that waiting for the
-    # timer is cheap.
-    tree, logged, _ = run(asks=1, run_ms=5000)
+    # Whether the refusal held is measured rather than read out of a log
+    # line. The first version of this grepped for "BASALT_QUIT_AFTER_MS
+    # elapsed", which only two of the three hosts print -- so on Windows it
+    # failed whatever the host did, and said "the process ended early" about
+    # something it had not timed. How long the process lived is the property
+    # actually under test, and every host has a clock.
+    refused_ms = 6000
+    tree, logged, elapsed = run(asks=1, run_ms=refused_ms)
     if "quit refused 1" not in logged:
         raise Failure(f"the app was never asked to quit:\n{logged[-1200:]}")
     if "quit allowed" in logged:
         raise Failure("the app agreed to a quit it was supposed to refuse")
     if 'text="refused 1"' not in tree:
         raise Failure(f"the refusal did not reach React:\n{tree[-1200:]}")
-    # The host's own timer ended it, which is what says the refusal held: a
-    # quit that went through would have ended the process seconds earlier.
-    if "BASALT_QUIT_AFTER_MS elapsed" not in logged:
-        raise Failure("the process ended early, so the quit was not refused")
+    # It had to live until its own timer. The ask lands about a second and a
+    # half in, so a quit that went through would end the process well short
+    # of this.
+    if elapsed < refused_ms / 1000 - 2:
+        raise Failure(
+            f"the process ended after {elapsed:.0f}s of a {refused_ms // 1000}s run, "
+            "so the quit was not refused"
+        )
 
     # Agreed. The timer is deliberately far away, so that ending before it is
     # evidence rather than a coincidence.
-    _, logged, elapsed = run(asks=2, run_ms=20000)
+    _, logged, elapsed = run(asks=2, run_ms=30000)
     if "quit refused 2" not in logged:
         raise Failure(f"the app was asked once rather than twice:\n{logged[-1200:]}")
     if "quit allowed" not in logged:
         raise Failure(f"the app never agreed to quit:\n{logged[-1200:]}")
-    if "BASALT_QUIT_AFTER_MS elapsed" in logged:
-        raise Failure("the timer ended the process, so quitting did not work")
-    if elapsed > 15:
-        raise Failure(f"the process took {elapsed:.0f}s to quit after agreeing")
+    if elapsed > 20:
+        raise Failure(
+            f"the process took {elapsed:.0f}s of a 30s run to quit after agreeing, "
+            "so its own timer is what ended it"
+        )
 
 
 def test_window_close_request(bundle: Path) -> None:
