@@ -447,6 +447,22 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+`BASALT_TEST_QUIT` is the same idea one level up: it asks the *application* to
+quit the way a person does -- Cmd-Q on macOS, the session ending on Linux --
+so a quit an app refuses can be driven from a script. A count rather than a
+flag, because one ask cannot show both halves: a refusal is proved by the
+process still being there afterwards, and the agreement that follows is proved
+by it going before its own timer.
+
+That the harness's shutdown is exempt is not a detail. `BASALT_QUIT_AFTER_MS`
+quits AppKit by calling `terminate:`, which arrives at the very handler an app
+uses to refuse -- so the demo for this feature would have refused the harness,
+and every scenario running it would have hung until its own timeout and
+reported something other than what it was testing. The same trap as the
+Windows one above, two years of API apart. GTK and Win32 need no exemption:
+their session signals are not on the path `g_application_quit` and
+`PostQuitMessage` take.
+
 `BASALT_DUMP_TREE` writes every window, each under a `--- window <n> ---`
 header, for the same reason it already appended the error inspector: they are
 separate trees on screen, and nesting one inside another would say something

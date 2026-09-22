@@ -47,6 +47,11 @@ export type {WindowProps} from './Window';
 // fills the screen, live bounds, and being asked before it closes. See
 // useWindow.js.
 export {useWindow, useCloseRequest, windowControl} from './useWindow';
+
+// Being asked before the *application* quits, which the window half above
+// does not cover: see src/quitRequest.ts.
+export {useQuitRequest, quit} from './quitRequest';
+export type {AllowQuit, QuitRequestHandler} from './quitRequest';
 export type {
   CloseRequestHandler,
   UseWindow,

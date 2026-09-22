@@ -75,3 +75,45 @@ TEST(close_a_request_with_nobody_listening_is_not_a_crash) {
 }
 
 } // namespace
+
+// --- Refusing to quit -------------------------------------------------------
+//
+// The same seam one level up: one application rather than one window. See
+// core/WindowHost.h for why both are a flag the host reads synchronously
+// rather than a callback it waits on.
+
+TEST(quit_is_not_intercepted_until_somebody_asks) {
+  // The default matters more here than in the window case: every application
+  // that never registers a handler must quit exactly as it did before, and
+  // there is only one flag to get wrong.
+  basalt::setHostQuitIntercepted(false);
+  EXPECT(!basalt::hostQuitIntercepted());
+}
+
+TEST(quit_interception_is_one_flag_for_the_application) {
+  basalt::setHostQuitIntercepted(true);
+  EXPECT(basalt::hostQuitIntercepted());
+  basalt::setHostQuitIntercepted(false);
+  EXPECT(!basalt::hostQuitIntercepted());
+}
+
+TEST(quit_a_request_reaches_the_listener) {
+  int asked = 0;
+  basalt::setHostQuitRequestListener([&asked]() { asked++; });
+
+  basalt::hostQuitRequested();
+  basalt::hostQuitRequested();
+  EXPECT_EQ((long)asked, 2L);
+
+  // Cleared the way the module clears it on the way out, for the same reason
+  // the close listener is: one that outlives the module holding its emitter
+  // is a use-after-free with a menu item in front of it.
+  basalt::setHostQuitRequestListener(nullptr);
+  basalt::hostQuitRequested();
+  EXPECT_EQ((long)asked, 2L);
+}
+
+TEST(quit_a_request_with_nobody_listening_is_not_a_crash) {
+  basalt::setHostQuitRequestListener(nullptr);
+  basalt::hostQuitRequested();
+}

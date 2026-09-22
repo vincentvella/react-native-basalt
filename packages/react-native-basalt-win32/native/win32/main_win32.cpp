@@ -1768,6 +1768,13 @@ facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
   return surfaceId;
 }
 
+// Ends the application. `PostQuitMessage` rather than `DestroyWindow` on
+// each: it stops the message loop whatever is open, which is what a person
+// choosing Quit means, and the ordinary teardown follows it.
+void quitHost() {
+  PostQuitMessage(0);
+}
+
 void closeHostWindow(facebook::react::SurfaceId surfaceId) {
   // The main window is not closed this way: destroying the surface an app is
   // running in is not the same thing as closing its window, and an app that

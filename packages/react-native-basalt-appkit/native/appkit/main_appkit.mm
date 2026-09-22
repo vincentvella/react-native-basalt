@@ -58,6 +58,7 @@
 #import "AppKitWindowModule.h"
 #include "DevBundle.h"
 
+#include <algorithm>
 #include <csignal>
 #include "ExpoModules.h"
 #include "GestureHandlerModule.h"
@@ -624,8 +625,8 @@ void shutdown() {
 // here and tells the app instead.
 //
 // Every window, including the app's own. What this does *not* cover is Cmd-Q:
-// terminating goes through applicationShouldTerminate: and never asks a window
-// whether it minds, which is its own piece of work; see docs/BACKLOG.md.
+// terminating goes through applicationShouldTerminate:, which never asks a
+// window whether it minds -- that is the handler further down.
 - (BOOL)windowShouldClose:(NSWindow *)sender {
   for (const auto &candidate : gHost.windows) {
     if (candidate->window != sender) {
@@ -723,9 +724,44 @@ void shutdown() {
                                          layoutContextFor(gHost.main().scaleFactor));
 }
 
+// Set by the BASALT_QUIT_AFTER_MS timer, read by applicationShouldTerminate:.
+// A file-scope bool rather than anything in core: it is about this host's
+// automation and means nothing to the platform.
+static bool gQuittingForTest = false;
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
   (void)sender;
   return YES;
+}
+
+// Somebody is trying to quit: Cmd-Q, the Quit menu item, or a logout. AppKit
+// asks the delegate and asks no window, which is why guarding every window is
+// not enough -- see core/WindowHost.h.
+//
+// `NSTerminateCancel` rather than `NSTerminateLater`. Later is the shape this
+// looks like it wants, and it obliges the app to call
+// `replyToApplicationShouldTerminate:` -- from the JavaScript thread, having
+// woken React, decided, and hopped back -- with AppKit holding a modal run
+// loop in the meantime. An app that is slow to answer, or that never answers
+// because its handler threw, leaves a process that cannot be quit by any
+// means short of kill. Cancel is a complete answer now, and the app quits
+// itself when it is ready, which is exactly the arrangement the window half
+// already uses.
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+  (void)sender;
+  // The automation timer is not refusable. BASALT_QUIT_AFTER_MS quits by
+  // calling terminate:, which arrives here -- so a demo that registers a quit
+  // handler would refuse the harness, and every scenario that runs it would
+  // hang until its own timeout and report something other than what it is
+  // testing. The scenario for this feature is exactly such a demo.
+  if (gQuittingForTest) {
+    return NSTerminateNow;
+  }
+  if (!basalt::hostQuitIntercepted()) {
+    return NSTerminateNow;
+  }
+  basalt::hostQuitRequested();
+  return NSTerminateCancel;
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
@@ -850,6 +886,17 @@ facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
     NSLog(@"opened window %d for module %s", (int)surfaceId, options.component.c_str());
     return surfaceId;
   }
+}
+
+// Ends the application.
+//
+// `terminate:` rather than `exit()`: it runs
+// `applicationWillTerminate:`, which is where shutdown() is, and it is what
+// the Quit menu item would have done had the app not refused it. The refusal
+// is the app's own flag, and an app calling this has already cleared it --
+// see the hook in src/quitRequest.ts -- so this is not refused a second time.
+void quitHost() {
+  [NSApp terminate:nil];
 }
 
 void closeHostWindow(facebook::react::SurfaceId surfaceId) {
@@ -1279,6 +1326,29 @@ int main(int argc, const char *argv[]) {
       scriptedDelayMs += 1000;
     }
 
+    // BASALT_TEST_QUIT: ask the application to quit the way Cmd-Q does, so a
+    // quit an app refuses can be driven from a script. Not the same thing as
+    // BASALT_QUIT_AFTER_MS, which is the harness ending the process and is
+    // deliberately not refusable -- this one goes through
+    // applicationShouldTerminate: and is.
+    //
+    // A count rather than a flag, because one ask cannot show the interesting
+    // half: an app that refuses is proved by the process still being here,
+    // and an app that then agrees is proved by it going. Asks are a second
+    // apart, like every other scripted instrument.
+    if (const char *asks = getenv("BASALT_TEST_QUIT")) {
+      const long times = std::max(1L, strtol(asks, nullptr, 10));
+      for (long ask = 0; ask < times; ask++) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, scriptedDelayMs * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(),
+                       ^{
+                         NSLog(@"BASALT_TEST_QUIT: asking the application to quit");
+                         [NSApp terminate:nil];
+                       });
+        scriptedDelayMs += 1000;
+      }
+    }
+
     // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`,
     // `shift-tab`, `activate`, `escape` and `devmenu`, each fired a second
     // apart.
@@ -1550,6 +1620,7 @@ int main(int argc, const char *argv[]) {
                        ^{
                          NSLog(@"BASALT_QUIT_AFTER_MS elapsed; quitting");
                          endAnyOpenSheets();
+                         gQuittingForTest = true;
                          [NSApp terminate:nil];
                        });
       }

@@ -64,6 +64,14 @@ facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options);
 // Called on the UI thread.
 void closeHostWindow(facebook::react::SurfaceId surfaceId);
 
+// Ends the application: `[NSApp terminate:]`, `g_application_quit`,
+// `PostQuitMessage`. What `quit()` reaches, and what a quit handler calls
+// when its answer is "go ahead" -- an app that intercepted the quit refused
+// the one the system asked for, so somebody has to ask again.
+//
+// Called on the UI thread.
+void quitHost();
+
 // Every window this host has open, main window first. For the tree dump, and
 // for an app asking what it has.
 std::vector<facebook::react::SurfaceId> hostWindows();
@@ -117,5 +125,34 @@ void setHostWindowCloseRequestListener(std::function<void(facebook::react::Surfa
 
 // The host's half: called on the UI thread, instead of closing.
 void hostWindowCloseRequested(facebook::react::SurfaceId surfaceId);
+
+// ## Refusing to quit
+//
+// The same question about the application rather than about one window, and
+// not answerable by the above: an app can guard every window it owns and
+// still lose the person's work to Cmd-Q. macOS routes quitting through
+// `applicationShouldTerminate:` and asks no window whether it minds; the
+// Windows and GNOME session-end signals do the same.
+//
+// A flag rather than a callback, for exactly the reason the close case is:
+// the system wants a synchronous yes or no and the answer lives in
+// JavaScript on another thread. An app that registers a quit handler marks
+// the application intercepted; the host then refuses the quit and reports
+// the attempt, and the app quits itself when it is ready.
+//
+// One flag rather than one per window, because quitting is one event no
+// matter how many windows are open -- and because the last window closing is
+// already a different thing that already works.
+void setHostQuitIntercepted(bool intercepted);
+
+// Whether the application refuses to quit. Called on the UI thread from
+// inside a terminate handler, which is why it may not hop to ask anybody.
+bool hostQuitIntercepted();
+
+// Somebody tried to quit an intercepted application, and it did not quit.
+void setHostQuitRequestListener(std::function<void()> listener);
+
+// The host's half: called on the UI thread, instead of quitting.
+void hostQuitRequested();
 
 } // namespace basalt

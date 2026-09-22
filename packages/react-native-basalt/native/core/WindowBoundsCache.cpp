@@ -156,6 +156,19 @@ std::function<void(facebook::react::SurfaceId)> &closeRequestListener() {
   return value;
 }
 
+// Quitting is one question about the application rather than one per window,
+// so this is a bool and not a set. See WindowHost.h for why it is a flag at
+// all rather than a callback the system waits on.
+bool &quitIntercepted() {
+  static bool value = false;
+  return value;
+}
+
+std::function<void()> &quitRequestListener() {
+  static std::function<void()> value;
+  return value;
+}
+
 } // namespace
 
 void setHostWindowClosedListener(std::function<void(facebook::react::SurfaceId)> listener) {
@@ -203,6 +216,39 @@ bool hostWindowCloseIntercepted(facebook::react::SurfaceId surfaceId) {
 void setHostWindowCloseRequestListener(std::function<void(facebook::react::SurfaceId)> listener) {
   const std::lock_guard<std::mutex> guard(lock());
   closeRequestListener() = std::move(listener);
+}
+
+// --- The application refusing to quit ---------------------------------------
+//
+// The same shape one level up, and here for the same reason. What differs
+// between the hosts is only which message means "the session is ending":
+// `applicationShouldTerminate:`, `WM_QUERYENDSESSION`, and GTK's session
+// manager.
+
+void setHostQuitIntercepted(bool value) {
+  const std::lock_guard<std::mutex> guard(lock());
+  quitIntercepted() = value;
+}
+
+bool hostQuitIntercepted() {
+  const std::lock_guard<std::mutex> guard(lock());
+  return quitIntercepted();
+}
+
+void setHostQuitRequestListener(std::function<void()> listener) {
+  const std::lock_guard<std::mutex> guard(lock());
+  quitRequestListener() = std::move(listener);
+}
+
+void hostQuitRequested() {
+  std::function<void()> toCall;
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    toCall = quitRequestListener();
+  }
+  if (toCall) {
+    toCall();
+  }
 }
 
 void hostWindowCloseRequested(facebook::react::SurfaceId surfaceId) {

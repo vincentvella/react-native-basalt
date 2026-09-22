@@ -3031,6 +3031,83 @@ def test_windows(bundle: Path) -> None:
         raise Failure(f"a window the person closed is still in the tree:\n{tree}")
 
 
+def test_quit_request(bundle: Path) -> None:
+    """Being asked before the *application* quits, and refusing.
+
+    `useCloseRequest` guards a window and is not enough: macOS routes Cmd-Q
+    through `applicationShouldTerminate:` and asks no window whether it
+    minds, and a session ending on Linux or Windows does the same. An app
+    with unsaved work that guarded only its windows would lose it.
+
+    Two runs, because a refusal alone proves half of it and the wrong half:
+
+      refused   the app says no and the process is still here afterwards,
+                which the host's own timer then ends. If interception did
+                nothing, this run would end early and the tree would be
+                missing.
+
+      agreed    the app refuses once, is asked again, and lets it through.
+                The process must end *before* its timer -- an app that could
+                refuse and never agree would be a process nobody can quit,
+                which is a worse bug than the one this feature prevents.
+    """
+    app = bundle_app(bundle.parent, "quit")
+
+    def run(asks: int, run_ms: int) -> tuple:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = str(run_ms)
+            # Asks the application to quit the way a person would: Cmd-Q on
+            # macOS, the session ending on Linux. Deliberately not the same
+            # thing as BASALT_QUIT_AFTER_MS, which is the harness ending the
+            # process and is not refusable -- without that exemption this
+            # demo would refuse the harness too and every run would hang.
+            env["BASALT_TEST_QUIT"] = str(asks)
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_FOCUS", "BASALT_TEST_CLOSE_WINDOW"):
+                env.pop(name, None)
+
+            started = time.monotonic()
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltQuit"],
+                cwd=REPO, env=env, capture_output=True, text=True,
+                timeout=run_ms / 1000 + 60,
+            )
+            elapsed = time.monotonic() - started
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            tree = dump.read_text() if dump.exists() else ""
+            return tree, result.stderr, elapsed
+
+    # Refused. Long enough for the ask, short enough that waiting for the
+    # timer is cheap.
+    tree, logged, _ = run(asks=1, run_ms=5000)
+    if "quit refused 1" not in logged:
+        raise Failure(f"the app was never asked to quit:\n{logged[-1200:]}")
+    if "quit allowed" in logged:
+        raise Failure("the app agreed to a quit it was supposed to refuse")
+    if 'text="refused 1"' not in tree:
+        raise Failure(f"the refusal did not reach React:\n{tree[-1200:]}")
+    # The host's own timer ended it, which is what says the refusal held: a
+    # quit that went through would have ended the process seconds earlier.
+    if "BASALT_QUIT_AFTER_MS elapsed" not in logged:
+        raise Failure("the process ended early, so the quit was not refused")
+
+    # Agreed. The timer is deliberately far away, so that ending before it is
+    # evidence rather than a coincidence.
+    _, logged, elapsed = run(asks=2, run_ms=20000)
+    if "quit refused 2" not in logged:
+        raise Failure(f"the app was asked once rather than twice:\n{logged[-1200:]}")
+    if "quit allowed" not in logged:
+        raise Failure(f"the app never agreed to quit:\n{logged[-1200:]}")
+    if "BASALT_QUIT_AFTER_MS elapsed" in logged:
+        raise Failure("the timer ended the process, so quitting did not work")
+    if elapsed > 15:
+        raise Failure(f"the process took {elapsed:.0f}s to quit after agreeing")
+
+
 def test_window_close_request(bundle: Path) -> None:
     """Being asked before a window closes, and refusing.
 
@@ -3162,6 +3239,7 @@ SCENARIOS = [
     ("a second window is a second React tree, and the two stay in step",
      test_windows),
     ("a window can refuse to close, and say so", test_window_close_request),
+    ("an application can refuse to quit, and then agree", test_quit_request),
     ("DevTools' overlay draws a highlight, and a trace update takes itself down",
      test_debugging_overlay),
     ("the developer menu reloads, and shows the element inspector", test_dev_menu),

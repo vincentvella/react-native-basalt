@@ -37,6 +37,8 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
   methodMap_["close"] = MethodMetadata{1, close};
   methodMap_["getWindows"] = MethodMetadata{0, getWindows};
   methodMap_["interceptClose"] = MethodMetadata{2, interceptClose};
+  methodMap_["interceptQuit"] = MethodMetadata{1, interceptQuit};
+  methodMap_["quit"] = MethodMetadata{0, quit};
   // What a NativeEventEmitter over this module calls; the event goes out as a
   // device event either way.
   methodMap_["addListener"] = MethodMetadata{1, noop};
@@ -60,6 +62,13 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
                       args.emplace_back(Value(static_cast<int>(surfaceId)));
                     });
   });
+
+  // And somebody trying to quit an application that asked to be asked. No
+  // argument: there is only one application.
+  setHostQuitRequestListener([this]() {
+    emitDeviceEvent(kQuitRequestedEvent,
+                    [](Runtime & /*runtime*/, std::vector<Value> & /*args*/) {});
+  });
 }
 
 DesktopWindowsModule::~DesktopWindowsModule() {
@@ -67,6 +76,7 @@ DesktopWindowsModule::~DesktopWindowsModule() {
   // arrangement the title bar has with its metrics listener.
   setHostWindowClosedListener(nullptr);
   setHostWindowCloseRequestListener(nullptr);
+  setHostQuitRequestListener(nullptr);
 }
 
 Value DesktopWindowsModule::noop(Runtime & /*runtime*/,
@@ -139,6 +149,28 @@ Value DesktopWindowsModule::interceptClose(Runtime & /*runtime*/,
     // reading a flag the app set several frames ago.
     setHostWindowCloseIntercepted(surfaceId, intercepted);
   }
+  return Value::undefined();
+}
+
+Value DesktopWindowsModule::quit(Runtime & /*runtime*/,
+                                 TurboModule & /*module*/,
+                                 const Value * /*args*/,
+                                 size_t /*count*/) {
+  // Hopped, unlike interceptQuit: this one ends the process through a
+  // toolkit call, and those belong on the thread that owns the toolkit.
+  postToUiThread([] { quitHost(); });
+  return Value::undefined();
+}
+
+Value DesktopWindowsModule::interceptQuit(Runtime & /*runtime*/,
+                                          TurboModule & /*module*/,
+                                          const Value *args,
+                                          size_t count) {
+  // No hop, for the reason interceptClose gives: this is read on the UI
+  // thread from inside a terminate handler that cannot wait for the
+  // JavaScript thread, and it is a flag behind a mutex rather than a toolkit
+  // call.
+  setHostQuitIntercepted(count >= 1 && args[0].isBool() && args[0].getBool());
   return Value::undefined();
 }
 

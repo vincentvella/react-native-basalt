@@ -51,6 +51,7 @@
 
 #include <gtk/gtk.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include "AppearanceModule.h"
@@ -168,6 +169,9 @@ struct Host {
   // The GtkApplication, so a window can be made after startup. A window must
   // belong to one, or GTK will not manage it.
   GtkApplication *application{nullptr};
+  // What `gtk_application_inhibit` handed back while an app was holding the
+  // session open, or 0. See the "query-end" handler.
+  guint quitInhibitCookie{0};
 
   std::shared_ptr<basalt::GtkMountingManager> mountingManager;
   std::shared_ptr<RunLoopObserverManager> runLoopObserverManager;
@@ -1385,6 +1389,32 @@ void onActivate(GtkApplication *app, gpointer data) {
         new PendingClose{host, surfaceId});
     scriptedDelayMs += 1000;
   }
+
+  // BASALT_TEST_QUIT: the session ending, which is what quitting means on this
+  // desktop -- there is no Cmd-Q for a GTK app to intercept. Emitting the
+  // signal directly rather than arranging a real logout, for the obvious
+  // reason; what it exercises is everything downstream of the signal, which is
+  // all of this platform's half.
+  //
+  // A count rather than a flag, for the reason the AppKit host gives: one ask
+  // cannot show both halves.
+  if (const char *asks = g_getenv("BASALT_TEST_QUIT")) {
+    const long times = std::max(1L, static_cast<long>(g_ascii_strtoll(asks, nullptr, 10)));
+    for (long ask = 0; ask < times; ask++) {
+      g_timeout_add(
+          scriptedDelayMs,
+          +[](gpointer data) -> gboolean {
+            auto *self = static_cast<Host *>(data);
+            g_message("BASALT_TEST_QUIT: ending the session");
+            if (self != nullptr && self->application != nullptr) {
+              g_signal_emit_by_name(self->application, "query-end");
+            }
+            return G_SOURCE_REMOVE;
+          },
+          host);
+      scriptedDelayMs += 1000;
+    }
+  }
   if (const char *focus = g_getenv("BASALT_TEST_FOCUS")) {
     scriptedDelayMs = scheduleTestFocus(host, focus, scriptedDelayMs);
   }
@@ -1561,6 +1591,32 @@ facebook::react::SurfaceId openHostWindow(const NewWindowOptions &options) {
   return surfaceId;
 }
 
+// Lets the session manager get on with it.
+//
+// Taken in the "query-end" handler and dropped here, so a logout an app
+// refused does not leave the session wedged if the app later quits by some
+// other route -- or never answers at all.
+void releaseQuitInhibit(Host *host) {
+  if (host == nullptr || host->application == nullptr || host->quitInhibitCookie == 0) {
+    return;
+  }
+  gtk_application_uninhibit(host->application, host->quitInhibitCookie);
+  host->quitInhibitCookie = 0;
+}
+
+// Ends the application. `g_application_quit` rather than closing every
+// window: it stops the main loop whatever is open, which is what a person
+// choosing Quit means, and it runs the "shutdown" handler on the way out.
+void quitHost() {
+  Host *host = gWindowHost;
+  if (host == nullptr || host->application == nullptr) {
+    return;
+  }
+  // Whatever the session manager was told to wait for, it is over.
+  releaseQuitInhibit(host);
+  g_application_quit(G_APPLICATION(host->application));
+}
+
 void closeHostWindow(facebook::react::SurfaceId surfaceId) {
   Host *host = gWindowHost;
   // The main window is not closed this way: destroying the surface an app is
@@ -1672,6 +1728,45 @@ int main(int argc, char **argv) {
   GtkApplication *app = gtk_application_new(applicationId, G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(onActivate), &host);
   g_signal_connect(app, "shutdown", G_CALLBACK(onShutdown), &host);
+
+  // The session ending -- logout, shutdown, reboot -- which is the only thing
+  // on this desktop that corresponds to macOS's Cmd-Q.
+  //
+  // What GTK does *not* have is an application-level quit gesture to
+  // intercept. There is no Cmd-Q: a GTK app ends when its last window closes,
+  // and that is a close-request on a window, which `useCloseRequest` already
+  // guards. So this handler is the whole of the difference between the two
+  // halves here, where on macOS the difference is most of the feature.
+  //
+  // `gtk_application_inhibit` is what actually holds the session back;
+  // answering the signal is not enough on its own, and an app that only
+  // listened would be told the session is ending and then lose to it. The
+  // cookie is taken when the app asks to intercept and dropped when it stops
+  // -- see quitInterceptionChanged below.
+  g_signal_connect(app,
+                   "query-end",
+                   G_CALLBACK(+[](GApplication * /*application*/, gpointer data) {
+                     if (!basalt::hostQuitIntercepted()) {
+                       return;
+                     }
+                     auto *self = static_cast<Host *>(data);
+                     // GTK's own documentation for this signal says to call
+                     // inhibit from inside the handler, which is why the
+                     // cookie is taken here rather than when the app
+                     // registered: answering the signal alone does not hold
+                     // the session, and an app that only listened would be
+                     // told the session is ending and then lose to it.
+                     if (self != nullptr && self->application != nullptr &&
+                         self->quitInhibitCookie == 0) {
+                       self->quitInhibitCookie =
+                           gtk_application_inhibit(self->application,
+                                                   gtk_application_get_active_window(self->application),
+                                                   GTK_APPLICATION_INHIBIT_LOGOUT,
+                                                   "the application has unsaved work");
+                     }
+                     basalt::hostQuitRequested();
+                   }),
+                   &host);
 
   const int status = g_application_run(G_APPLICATION(app), 1, argv);
   g_object_unref(app);

@@ -53,6 +53,20 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
                                              facebook::react::TurboModule &module,
                                              const facebook::jsi::Value *args,
                                              size_t count);
+
+  // `quit()` -- end the application. What a quit handler calls when it is
+  // ready, since intercepting refused the quit the system asked for.
+  static facebook::jsi::Value quit(facebook::jsi::Runtime &runtime,
+                                   facebook::react::TurboModule &module,
+                                   const facebook::jsi::Value *args,
+                                   size_t count);
+
+  // `interceptQuit(true)` -- the same for the application. One argument
+  // rather than two, because quitting is not about a particular window.
+  static facebook::jsi::Value interceptQuit(facebook::jsi::Runtime &runtime,
+                                            facebook::react::TurboModule &module,
+                                            const facebook::jsi::Value *args,
+                                            size_t count);
   static facebook::jsi::Value noop(facebook::jsi::Runtime &runtime,
                                    facebook::react::TurboModule &module,
                                    const facebook::jsi::Value *args,
@@ -67,5 +81,10 @@ inline constexpr const char *kWindowClosedEvent = "basaltWindowClosed";
 // window is still open, and the app decides. Only ever sent for a window that
 // asked to intercept.
 inline constexpr const char *kWindowCloseRequestedEvent = "basaltWindowCloseRequested";
+
+// The application, not a window: somebody tried to quit and the app asked to
+// be asked first. Carries no argument, because there is nothing to
+// distinguish -- see core/WindowHost.h.
+inline constexpr const char *kQuitRequestedEvent = "basaltQuitRequested";
 
 } // namespace basalt
