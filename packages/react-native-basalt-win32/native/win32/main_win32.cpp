@@ -101,6 +101,7 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
@@ -677,7 +678,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus, Close };
+  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus, Close, Quit };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -884,6 +885,20 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                    "BASALT_TEST_TYPE: \"%s\"%s\n",
                    action.text.c_str(),
                    typed ? "" : " -- no field has focus");
+      break;
+    }
+
+    case ScriptedInput::Kind::Quit: {
+      // The session ending, which is what "quit" means here: Windows has no
+      // application-level quit gesture either -- Alt+F4 is a window close,
+      // which is WM_CLOSE and useCloseRequest's business. So this sends the
+      // message a logout sends, and the handler for it is the whole of this
+      // host's half.
+      std::fprintf(stderr, "BASALT_TEST_QUIT: ending the session\n");
+      HWND main = gHost.windows.empty() ? nullptr : gHost.main().window;
+      if (main != nullptr) {
+        SendMessage(main, WM_QUERYENDSESSION, 0, ENDSESSION_CLOSEAPP);
+      }
       break;
     }
 
@@ -1550,6 +1565,23 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       return 0;
     }
 
+    // The session is ending -- logout, shutdown, reboot -- which is the only
+    // thing on Windows that corresponds to macOS's Cmd-Q. There is no
+    // application-level quit gesture to intercept: Alt+F4 is a window close,
+    // which arrives as WM_CLOSE below and is useCloseRequest's business.
+    //
+    // FALSE refuses the session end, which is what an app with unsaved work
+    // wants and is the whole of this host's half. Windows may end the session
+    // anyway -- a forced shutdown does not take no for an answer, and nothing
+    // here can change that -- so what this buys is the ordinary case, which is
+    // the one an app can act on.
+    case WM_QUERYENDSESSION:
+      if (basalt::hostQuitIntercepted()) {
+        basalt::hostQuitRequested();
+        return FALSE;
+      }
+      return TRUE;
+
     // Before DestroyWindow, which takes every <TextInput>'s peer with it. See
     // captureBeforeTeardown.
     //
@@ -2129,6 +2161,17 @@ int main(int argc, char **argv) {
         ScriptedInput{.kind = ScriptedInput::Kind::Close,
                       .surfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(closing))},
         scriptedDelayMs);
+  }
+
+  // BASALT_TEST_QUIT: ask the application to quit the way a person does. A
+  // count rather than a flag, for the reason the other hosts give: one ask
+  // cannot show both a refusal and the agreement after it.
+  if (const char *asks = std::getenv("BASALT_TEST_QUIT")) {
+    const int times = std::max(1, std::atoi(asks));
+    for (int ask = 0; ask < times; ask++) {
+      scriptedDelayMs = scheduleScriptedInput(
+          ScriptedInput{.kind = ScriptedInput::Kind::Quit}, scriptedDelayMs);
+    }
   }
 
   // BASALT_TEST_FOCUS: keyboard actions separated by ';' -- `tab`, `shift-tab`,

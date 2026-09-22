@@ -16,7 +16,12 @@
       handler threw, leaves a process nothing but kill can end. Cancel is a
       complete answer now, and the app quits itself when ready -- which is the
       arrangement the window half already uses
-- [ ] Win32: answer `WM_QUERYENDSESSION`, and keep Alt+F4 on the main window working
+- [x] Win32: answer `WM_QUERYENDSESSION`, and keep Alt+F4 on the main window
+      working -- untouched, because Alt+F4 is a window close and arrives as
+      `WM_CLOSE`, which is a different case in the same window proc. Like GTK,
+      Windows has no application-level quit gesture to intercept, so the
+      session end is the whole of it. A forced shutdown ends the session
+      regardless of the answer; what refusing buys is the ordinary case
 - [x] GTK: hook the session manager -- `GtkApplication::query-end`, taking a
       `gtk_application_inhibit` cookie from inside the handler, which is what
       GTK's own documentation for that signal says to do; answering alone does
