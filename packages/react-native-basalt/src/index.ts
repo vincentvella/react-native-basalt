@@ -51,6 +51,11 @@ export {useWindow, useCloseRequest, windowControl} from './useWindow';
 // Being asked before the *application* quits, which the window half above
 // does not cover: see src/quitRequest.ts.
 export {useQuitRequest, quit} from './quitRequest';
+
+// What screens the desktop has, which React Native's Dimensions does not
+// answer: see src/useDisplays.ts.
+export {useDisplays, displays, primaryDisplay, pointerPosition} from './useDisplays';
+export type {Display, PointerPosition} from './useDisplays';
 export type {AllowQuit, QuitRequestHandler} from './quitRequest';
 export type {
   CloseRequestHandler,

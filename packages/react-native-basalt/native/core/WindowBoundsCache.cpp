@@ -43,6 +43,60 @@ void setWindowBoundsListener(std::function<void(const WindowBounds &)> value) {
   listener() = std::move(value);
 }
 
+// --- The displays, changing -------------------------------------------------
+//
+// Only the listener lives here. The list itself is not cached, unlike the
+// window's bounds: bounds are read during render and must not hop, and a
+// display list is read when an app is deciding where to put something, which
+// is rare enough to afford the marshal -- and a stale display list is worse
+// than a slow one, because the thing it is wrong about is whether a screen
+// exists.
+
+std::function<void()> &displaysListener() {
+  static std::function<void()> value;
+  return value;
+}
+
+void setDisplaysListener(std::function<void()> listener) {
+  const std::lock_guard<std::mutex> guard(lock());
+  displaysListener() = std::move(listener);
+}
+
+namespace {
+std::vector<DisplayInfo> &displaysCache() {
+
+  static std::vector<DisplayInfo> value;
+  return value;
+}
+} // namespace
+
+std::vector<DisplayInfo> lastKnownDisplays() {
+  const std::lock_guard<std::mutex> guard(lock());
+  return displaysCache();
+}
+
+void notifyDisplaysChanged() {
+  // Asked on the UI thread, which is where this is called from, and stored
+  // where the JavaScript thread can read it -- exactly what
+  // notifyWindowBoundsChanged does with the window's bounds.
+  //
+  // Which is also why this must be called once at startup and not only on a
+  // change: an app that asks before any monitor has been unplugged should not
+  // get an empty list.
+  std::vector<DisplayInfo> found = displays();
+
+  std::function<void()> toCall;
+  {
+    const std::lock_guard<std::mutex> guard(lock());
+    displaysCache() = std::move(found);
+    toCall = displaysListener();
+  }
+  // Outside the lock, for the reason notifyWindowBoundsChanged gives.
+  if (toCall) {
+    toCall();
+  }
+}
+
 // --- How big it may be ------------------------------------------------------
 //
 // Stored here rather than three times, and stored at all rather than simply

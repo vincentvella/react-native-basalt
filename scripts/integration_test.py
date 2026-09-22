@@ -3031,6 +3031,84 @@ def test_windows(bundle: Path) -> None:
         raise Failure(f"a window the person closed is still in the tree:\n{tree}")
 
 
+def test_displays(bundle: Path) -> None:
+    """What screens the desktop has.
+
+    React Native's `Dimensions` reports the window, which is a different
+    question -- an app placing a window is asking about the screen it is on
+    and the ones beside it. The lookups already existed on every host, for
+    `center()` and full screen, and were simply not passed on.
+
+    What can be asserted on a machine nobody has described: that there is at
+    least one display, that exactly one of them is primary, that the scale
+    factor is a ratio rather than a DPI, and that the work area is *inside*
+    the bounds. The last is the one that catches a coordinate mistake: on
+    macOS the bounds are flipped from AppKit's upward-growing y and the work
+    area has to be flipped the same way, and a work area that escaped its own
+    display would be the symptom.
+    """
+    app = bundle_app(bundle.parent, "displays")
+
+    with tempfile.TemporaryDirectory() as directory:
+        dump = Path(directory) / "tree.txt"
+        env = dict(os.environ)
+        env["BASALT_DUMP_TREE"] = str(dump)
+        env["BASALT_QUIT_AFTER_MS"] = "4000"
+        for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                     "BASALT_TEST_FOCUS", "BASALT_TEST_QUIT"):
+            env.pop(name, None)
+
+        result = subprocess.run(
+            [str(HOST), str(app), "BasaltDisplays"],
+            cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+        )
+        _remember_output(result.stderr)
+        check_output(result.stderr, result.returncode)
+        tree = dump.read_text() if dump.exists() else ""
+        logged = result.stderr
+
+    # The count reaches React, which is what says the list crossed the bridge
+    # rather than merely existing in C++.
+    count = re.search(r'text="displays (\d+)"', tree)
+    if count is None:
+        raise Failure(f"the app never reported a display count:\n{tree[-1200:]}")
+    if int(count.group(1)) < 1:
+        raise Failure("the desktop reported no displays at all; the cache was "
+                      "read before the host primed it")
+
+    # From the tree rather than the log, which has one line per display and
+    # not one per render. The log repeats: the app reports the list whenever
+    # it changes, and it changes once between the first render and the effect
+    # that re-reads it -- so counting log lines counted that twice and said
+    # two displays claimed to be primary when one did, twice.
+    found = re.findall(
+        r'text="(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?) scale (\d+(?:\.\d+)?)( primary)?"',
+        tree,
+    )
+    if not found:
+        raise Failure(f"no displays in the tree:\n{tree[-1200:]}\n{logged[-600:]}")
+    if len(found) != int(count.group(1)):
+        raise Failure(
+            f"the app says {count.group(1)} displays and rendered {len(found)}"
+        )
+
+    primaries = 0
+    for width, height, scale, primary in found:
+        if float(width) <= 0 or float(height) <= 0:
+            raise Failure(f"a display measured {width}x{height}")
+        # A ratio, not a DPI: 96 here would mean the Windows host forgot to
+        # divide, which is the mistake that reads as plausible.
+        if not 0.5 <= float(scale) <= 8.0:
+            raise Failure(f"a scale factor of {scale} is a DPI rather than a ratio")
+        if primary:
+            primaries += 1
+
+    # Exactly one, on every desktop -- including the two whose toolkits have
+    # no notion of a primary display and report the first.
+    if primaries != 1:
+        raise Failure(f"{primaries} displays claim to be primary, out of {len(found)}")
+
+
 def test_quit_request(bundle: Path) -> None:
     """Being asked before the *application* quits, and refusing.
 
@@ -3249,6 +3327,7 @@ SCENARIOS = [
     ("a second window is a second React tree, and the two stay in step",
      test_windows),
     ("a window can refuse to close, and say so", test_window_close_request),
+    ("the desktop says what displays it has", test_displays),
     ("an application can refuse to quit, and then agree", test_quit_request),
     ("DevTools' overlay draws a highlight, and a trace update takes itself down",
      test_debugging_overlay),

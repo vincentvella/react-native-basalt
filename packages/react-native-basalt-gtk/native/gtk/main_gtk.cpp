@@ -1161,6 +1161,11 @@ void onActivate(GtkApplication *app, gpointer data) {
   // corrects it. See core/WindowBoundsCache.cpp.
   basalt::notifyWindowBoundsChanged();
 
+  // And the display list, for the same reason and off the same seam: an app
+  // asking which screens exist before anything has been plugged or unplugged
+  // should not be told there are none.
+  basalt::notifyDisplaysChanged();
+
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<basalt::GtkAnimationChoreographer>();
 
@@ -1728,6 +1733,20 @@ int main(int argc, char **argv) {
   GtkApplication *app = gtk_application_new(applicationId, G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(onActivate), &host);
   g_signal_connect(app, "shutdown", G_CALLBACK(onShutdown), &host);
+
+  // A monitor plugged in, unplugged or rearranged. The monitor list is a
+  // GListModel, so this is its "items-changed" rather than a signal of its
+  // own -- GTK 4 has no monitors-changed on GdkDisplay.
+  if (GdkDisplay *display = gdk_display_get_default()) {
+    if (GListModel *monitors = gdk_display_get_monitors(display)) {
+      g_signal_connect(monitors,
+                       "items-changed",
+                       G_CALLBACK(+[](GListModel *, guint, guint, guint, gpointer) {
+                         basalt::notifyDisplaysChanged();
+                       }),
+                       nullptr);
+    }
+  }
 
   // The session ending -- logout, shutdown, reboot -- which is the only thing
   // on this desktop that corresponds to macOS's Cmd-Q.

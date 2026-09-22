@@ -1575,6 +1575,13 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     // anyway -- a forced shutdown does not take no for an answer, and nothing
     // here can change that -- so what this buys is the ordinary case, which is
     // the one an app can act on.
+    // A monitor plugged in, unplugged, or a resolution change. Not handled
+    // -- DefWindowProc still gets it -- because this is a notification and
+    // nothing here is answering it.
+    case WM_DISPLAYCHANGE:
+      basalt::notifyDisplaysChanged();
+      break;
+
     case WM_QUERYENDSESSION:
       if (basalt::hostQuitIntercepted()) {
         basalt::hostQuitRequested();
@@ -1993,6 +2000,11 @@ int main(int argc, char **argv) {
   // app's first render sees a window of no size, and only a later resize
   // corrects it. See core/WindowBoundsCache.cpp.
   basalt::notifyWindowBoundsChanged();
+
+  // And the display list, for the same reason and off the same seam: an app
+  // asking which screens exist before anything has been plugged or unplugged
+  // should not be told there are none.
+  basalt::notifyDisplaysChanged();
 
   // Every <TextInput>'s EDIT peer is a child of this window. Set before the
   // first transaction, because a field that mounts without one gets no control

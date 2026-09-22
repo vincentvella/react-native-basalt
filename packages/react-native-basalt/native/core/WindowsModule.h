@@ -54,6 +54,21 @@ class DesktopWindowsModule : public facebook::react::TurboModule {
                                              const facebook::jsi::Value *args,
                                              size_t count);
 
+  // `getDisplays()` -- every display, primary first. Synchronous, off the
+  // cache the host keeps up to date; see core/WindowControl.h.
+  static facebook::jsi::Value getDisplays(facebook::jsi::Runtime &runtime,
+                                          facebook::react::TurboModule &module,
+                                          const facebook::jsi::Value *args,
+                                          size_t count);
+
+  // `getPointerPosition()` -- a promise, unlike the above: there is nothing
+  // to cache, because the answer changes whenever the pointer moves and
+  // nothing reports that.
+  static facebook::jsi::Value getPointerPosition(facebook::jsi::Runtime &runtime,
+                                                 facebook::react::TurboModule &module,
+                                                 const facebook::jsi::Value *args,
+                                                 size_t count);
+
   // `quit()` -- end the application. What a quit handler calls when it is
   // ready, since intercepting refused the quit the system asked for.
   static facebook::jsi::Value quit(facebook::jsi::Runtime &runtime,
@@ -86,5 +101,10 @@ inline constexpr const char *kWindowCloseRequestedEvent = "basaltWindowCloseRequ
 // be asked first. Carries no argument, because there is nothing to
 // distinguish -- see core/WindowHost.h.
 inline constexpr const char *kQuitRequestedEvent = "basaltQuitRequested";
+
+// A monitor plugged in, unplugged, or rearranged. No argument: an app that
+// cares re-reads the list, which is the only way to be right when several
+// changes arrive at once.
+inline constexpr const char *kDisplaysChangedEvent = "basaltDisplaysChanged";
 
 } // namespace basalt

@@ -12,9 +12,14 @@
 // which a window with a hidden title bar costs nothing for, so the same call
 // answers both cases.
 
+#include <vector>
 #include "WindowControl.h"
 
 #include <windows.h>
+
+// After windows.h, which it depends on: GetDpiForMonitor, for a per-display
+// scale factor. GetDpiForWindow would answer for the window's monitor only.
+#include <shellscalingapi.h>
 
 namespace basalt {
 
@@ -27,6 +32,72 @@ HWND window() {
 }
 
 } // namespace
+
+// Every monitor, through the callback API that is the only way to ask.
+//
+// `MONITORINFOEXW` carries both rectangles -- `rcMonitor` is the glass and
+// `rcWork` is what the taskbar leaves -- which is why the work area needs no
+// second call here and cannot be had at all on GTK.
+//
+// The coordinates are already what this platform means by desktop
+// coordinates: Windows anchors them at the primary monitor's top-left and
+// grows down, which is the convention the other two are converted into.
+std::vector<DisplayInfo> displays() {
+  std::vector<DisplayInfo> found;
+  EnumDisplayMonitors(
+      nullptr,
+      nullptr,
+      [](HMONITOR monitor, HDC, LPRECT, LPARAM data) -> BOOL {
+        auto *out = reinterpret_cast<std::vector<DisplayInfo> *>(data);
+        MONITORINFOEXW info{};
+        info.cbSize = sizeof(info);
+        if (!GetMonitorInfoW(monitor, &info)) {
+          return TRUE;
+        }
+
+        DisplayInfo entry;
+        entry.x = info.rcMonitor.left;
+        entry.y = info.rcMonitor.top;
+        entry.width = info.rcMonitor.right - info.rcMonitor.left;
+        entry.height = info.rcMonitor.bottom - info.rcMonitor.top;
+        entry.workX = info.rcWork.left;
+        entry.workY = info.rcWork.top;
+        entry.workWidth = info.rcWork.right - info.rcWork.left;
+        entry.workHeight = info.rcWork.bottom - info.rcWork.top;
+
+        // 96 DPI is 100%, which is what makes this a ratio rather than a
+        // number of dots. A display at 150% answers 144 and reports 1.5.
+        UINT dpiX = 96;
+        UINT dpiY = 96;
+        if (SUCCEEDED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX > 0) {
+          entry.scaleFactor = static_cast<double>(dpiX) / 96.0;
+        }
+        entry.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+        // Primary first, to match the order the other hosts report and the
+        // order the header promises. EnumDisplayMonitors does not guarantee
+        // one.
+        if (entry.primary) {
+          out->insert(out->begin(), entry);
+        } else {
+          out->push_back(entry);
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&found));
+  return found;
+}
+
+PointerPosition pointerPosition() {
+  PointerPosition where;
+  POINT point{};
+  if (GetCursorPos(&point)) {
+    where.x = point.x;
+    where.y = point.y;
+    where.known = true;
+  }
+  return where;
+}
 
 WindowBounds windowBounds() {
   WindowBounds bounds;

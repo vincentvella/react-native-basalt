@@ -747,6 +747,14 @@ static bool gQuittingForTest = false;
 // means short of kill. Cancel is a complete answer now, and the app quits
 // itself when it is ready, which is exactly the arrangement the window half
 // already uses.
+// A monitor plugged in, unplugged, or rearranged -- and also a resolution
+// change or the menu bar moving to another screen, which is why the name says
+// "screen parameters" rather than "screens".
+- (void)applicationDidChangeScreenParameters:(NSNotification *)notification {
+  (void)notification;
+  basalt::notifyDisplaysChanged();
+}
+
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
   (void)sender;
   // The automation timer is not refusable. BASALT_QUIT_AFTER_MS quits by
@@ -1151,6 +1159,12 @@ int main(int argc, const char *argv[]) {
     // app's first render sees a window of no size, and only a later resize
     // corrects it. See core/WindowBoundsCache.cpp.
     basalt::notifyWindowBoundsChanged();
+
+    // And the display list, which `getDisplays()` answers from. Same reason,
+    // and the same trap: the first version of this primed from
+    // windowDidResize, which is not startup -- an app that never resized its
+    // window was told the desktop had no screens.
+    basalt::notifyDisplaysChanged();
 
     // The two keys this host answers before anything else sees them.
     //

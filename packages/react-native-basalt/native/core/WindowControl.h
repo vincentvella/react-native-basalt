@@ -22,6 +22,7 @@
 #pragma once
 
 #include <functional>
+#include <vector>
 
 namespace basalt {
 
@@ -150,5 +151,85 @@ WindowCapabilities windowCapabilities();
 // All zeroes before the host has reported anything, which is what an app
 // reading bounds during its first render sees.
 WindowBounds lastKnownWindowBounds();
+
+// --- The displays the desktop has -------------------------------------------
+//
+// React Native's `Dimensions` reports the window, which is the right answer to
+// a different question: an app placing a window, or deciding how much it can
+// show, is asking about the screen it is on and the ones beside it.
+//
+// The lookups already existed -- `NSScreen`, `GdkMonitor` and
+// `MonitorFromWindow` are how `center()` and full screen work -- and were
+// simply not passed on.
+
+struct DisplayInfo {
+  // In the same logical pixels and the same desktop coordinates WindowBounds
+  // uses, so a bound and a display can be compared without converting either.
+  // Top-left origin on every host, which costs AppKit a flip: its own
+  // coordinates grow upwards from the primary screen.
+  double x{0.0};
+  double y{0.0};
+  double width{0.0};
+  double height{0.0};
+
+  // What is left after the desktop's own furniture -- a menu bar, a taskbar, a
+  // dock, a panel. Where a window should go; `bounds` is where the glass is.
+  // Equal to bounds on a desktop that reserves nothing.
+  double workX{0.0};
+  double workY{0.0};
+  double workWidth{0.0};
+  double workHeight{0.0};
+
+  // Physical pixels per logical pixel: 2 on a Retina display, 1 on an
+  // ordinary one, and fractional under Wayland or a Windows display set to
+  // 150%. Never zero -- a host that cannot answer reports 1, because a caller
+  // dividing by this should not have to check.
+  double scaleFactor{1.0};
+
+  // Exactly one display is primary, and it is the one the desktop's
+  // coordinates are anchored to.
+  bool primary{false};
+};
+
+// Every display, primary first.
+//
+// **Called on the UI thread only**, like everything above it: each host asks
+// its toolkit.
+std::vector<DisplayInfo> displays();
+
+// The last list the host reported, readable from any thread.
+//
+// The same arrangement `lastKnownWindowBounds` has, and for the same reason:
+// `displays()` asks the toolkit and a TurboModule method runs on the
+// JavaScript thread. Exact rather than approximate, because the host reports
+// every change -- and empty before the host has reported anything, which is
+// what an app asking during its first render sees.
+std::vector<DisplayInfo> lastKnownDisplays();
+
+// Where the pointer is, in the same coordinates the bounds above use.
+//
+// A display question rather than a window one: it may be over a different
+// display than the app's window, or over no window at all. All zeroes on a
+// host that cannot answer -- Wayland does not tell a client where the pointer
+// is unless it is over one of its own surfaces.
+struct PointerPosition {
+  double x{0.0};
+  double y{0.0};
+  // False where the desktop will not say, so that an app can tell "at the
+  // origin" from "not answered".
+  bool known{false};
+};
+
+PointerPosition pointerPosition();
+
+// A monitor plugged in, unplugged, or rearranged.
+//
+// No argument: an app that cares re-reads the list, which is the only way to
+// be right about several changes arriving together. Same shape as the window
+// bounds listener above, and set by the module for the same reason.
+void setDisplaysListener(std::function<void()> listener);
+
+// The host's half: called on the UI thread when the arrangement changes.
+void notifyDisplaysChanged();
 
 } // namespace basalt

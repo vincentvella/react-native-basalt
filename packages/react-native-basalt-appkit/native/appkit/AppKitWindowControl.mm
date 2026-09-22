@@ -11,6 +11,7 @@
 // distance from the wrong edge, which looks almost right on a large display and
 // entirely wrong on a small one.
 
+#include <vector>
 #include "WindowControl.h"
 
 #import <Cocoa/Cocoa.h>
@@ -33,6 +34,55 @@ CGFloat primaryHeight() {
 }
 
 } // namespace
+
+std::vector<DisplayInfo> displays() {
+  std::vector<DisplayInfo> found;
+  @autoreleasepool {
+    const CGFloat anchor = primaryHeight();
+    for (NSScreen *screen in NSScreen.screens) {
+      DisplayInfo info;
+      const NSRect frame = screen.frame;
+      const NSRect visible = screen.visibleFrame;
+
+      info.x = frame.origin.x;
+      // The same flip windowBounds does, and it has to be the same one: a
+      // display and a window are compared by apps that place windows, and two
+      // conventions in one API would be a bug nobody could see until a second
+      // monitor was above the first.
+      info.y = anchor - NSMaxY(frame);
+      info.width = frame.size.width;
+      info.height = frame.size.height;
+
+      // `visibleFrame` is what is left after the menu bar and the Dock, which
+      // is exactly what the work area means.
+      info.workX = visible.origin.x;
+      info.workY = anchor - NSMaxY(visible);
+      info.workWidth = visible.size.width;
+      info.workHeight = visible.size.height;
+
+      info.scaleFactor = screen.backingScaleFactor > 0.0 ? screen.backingScaleFactor : 1.0;
+      // `NSScreen.screens` is documented to put the primary first, and that is
+      // also the screen the coordinates above are anchored to -- so this is
+      // the same answer primaryHeight() relies on rather than a second one.
+      info.primary = found.empty();
+      found.push_back(info);
+    }
+  }
+  return found;
+}
+
+PointerPosition pointerPosition() {
+  PointerPosition where;
+  @autoreleasepool {
+    // Global, and available whether or not the pointer is over this app --
+    // which is the whole point of asking, and is not true on every desktop.
+    const NSPoint mouse = NSEvent.mouseLocation;
+    where.x = mouse.x;
+    where.y = primaryHeight() - mouse.y;
+    where.known = true;
+  }
+  return where;
+}
 
 WindowBounds windowBounds() {
   WindowBounds bounds;

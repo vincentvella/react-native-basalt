@@ -168,7 +168,7 @@ target_include_directories(basalt_win32_view PUBLIC win32)
 target_include_directories(basalt_win32_view PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../react-native-basalt/native/core)
 target_link_libraries(basalt_win32_view PUBLIC
-  d2d1 dwrite windowscodecs uiautomationcore ole32 oleaut32 user32)
+  d2d1 dwrite windowscodecs uiautomationcore ole32 oleaut32 user32 shcore)
 
 add_executable(demo_layout_win32 win32/demo_layout_win32.cpp)
 target_compile_options(demo_layout_win32 PRIVATE ${BASALT_WIN32_WARNINGS})

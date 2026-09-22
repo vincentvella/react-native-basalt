@@ -1,12 +1,14 @@
 #include "WindowsModule.h"
 
 #include "PlatformServices.h"
+#include "WindowControl.h"
 #include "WindowHost.h"
 
 #include <react/bridging/Bridging.h>
 #include <react/bridging/Promise.h>
 
 #include <string>
+#include <vector>
 #include <utility>
 
 namespace basalt {
@@ -39,6 +41,8 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
   methodMap_["interceptClose"] = MethodMetadata{2, interceptClose};
   methodMap_["interceptQuit"] = MethodMetadata{1, interceptQuit};
   methodMap_["quit"] = MethodMetadata{0, quit};
+  methodMap_["getDisplays"] = MethodMetadata{0, getDisplays};
+  methodMap_["getPointerPosition"] = MethodMetadata{0, getPointerPosition};
   // What a NativeEventEmitter over this module calls; the event goes out as a
   // device event either way.
   methodMap_["addListener"] = MethodMetadata{1, noop};
@@ -65,6 +69,14 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
 
   // And somebody trying to quit an application that asked to be asked. No
   // argument: there is only one application.
+  // A monitor plugged in, unplugged or rearranged. No payload: an app that
+  // cares re-reads the list, which is the only way to be right when several
+  // changes arrive together.
+  setDisplaysListener([this]() {
+    emitDeviceEvent(kDisplaysChangedEvent,
+                    [](Runtime & /*runtime*/, std::vector<Value> & /*args*/) {});
+  });
+
   setHostQuitRequestListener([this]() {
     emitDeviceEvent(kQuitRequestedEvent,
                     [](Runtime & /*runtime*/, std::vector<Value> & /*args*/) {});
@@ -77,6 +89,7 @@ DesktopWindowsModule::~DesktopWindowsModule() {
   setHostWindowClosedListener(nullptr);
   setHostWindowCloseRequestListener(nullptr);
   setHostQuitRequestListener(nullptr);
+  setDisplaysListener(nullptr);
 }
 
 Value DesktopWindowsModule::noop(Runtime & /*runtime*/,
@@ -150,6 +163,71 @@ Value DesktopWindowsModule::interceptClose(Runtime & /*runtime*/,
     setHostWindowCloseIntercepted(surfaceId, intercepted);
   }
   return Value::undefined();
+}
+
+namespace {
+
+// One display, as JavaScript sees it. Flat rather than nested rectangles:
+// `bounds` and `workArea` as objects would read better and would mean two
+// more allocations per display per call, and this is read while an app is
+// deciding where to put a window.
+Object displayObject(Runtime &runtime, const DisplayInfo &info) {
+  Object out(runtime);
+  out.setProperty(runtime, "x", Value(info.x));
+  out.setProperty(runtime, "y", Value(info.y));
+  out.setProperty(runtime, "width", Value(info.width));
+  out.setProperty(runtime, "height", Value(info.height));
+  out.setProperty(runtime, "workX", Value(info.workX));
+  out.setProperty(runtime, "workY", Value(info.workY));
+  out.setProperty(runtime, "workWidth", Value(info.workWidth));
+  out.setProperty(runtime, "workHeight", Value(info.workHeight));
+  out.setProperty(runtime, "scaleFactor", Value(info.scaleFactor));
+  out.setProperty(runtime, "primary", Value(info.primary));
+  return out;
+}
+
+} // namespace
+
+Value DesktopWindowsModule::getDisplays(Runtime &runtime,
+                                        TurboModule & /*module*/,
+                                        const Value * /*args*/,
+                                        size_t /*count*/) {
+  // Off the cache rather than the toolkit, so this needs no hop and can be
+  // read during render -- the same arrangement getBounds has. The host
+  // refreshes it at startup and on every change, so it is exact.
+  const std::vector<DisplayInfo> found = lastKnownDisplays();
+
+  Array result(runtime, found.size());
+  for (size_t i = 0; i < found.size(); i++) {
+    result.setValueAtIndex(runtime, i, displayObject(runtime, found[i]));
+  }
+  return result;
+}
+
+Value DesktopWindowsModule::getPointerPosition(Runtime &runtime,
+                                               TurboModule &module,
+                                               const Value * /*args*/,
+                                               size_t /*count*/) {
+  auto promise = std::make_shared<facebook::react::AsyncPromise<folly::dynamic>>(
+      runtime, static_cast<DesktopWindowsModule &>(module).jsInvoker_);
+
+  // A promise rather than a cached read, because there is nothing to cache:
+  // the answer changes whenever the pointer moves and no host reports that.
+  // So this is the one display question that has to go and ask.
+  postToUiThread([promise] {
+    const PointerPosition where = pointerPosition();
+    folly::dynamic out = folly::dynamic::object;
+    out["x"] = where.x;
+    out["y"] = where.y;
+    // So that an app can tell "at the origin" from "this desktop will not
+    // say" -- which GTK never will; see GtkWindowControl.cpp.
+    out["known"] = where.known;
+    promise->resolve(std::move(out));
+  });
+
+  return Value(runtime,
+               facebook::react::bridging::toJs(
+                   runtime, *promise, static_cast<DesktopWindowsModule &>(module).jsInvoker_));
 }
 
 Value DesktopWindowsModule::quit(Runtime & /*runtime*/,

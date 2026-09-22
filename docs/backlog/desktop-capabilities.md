@@ -7,7 +7,7 @@ An entry here is a gap, not a plan. When one is picked up it becomes a change in
 then on -- the entry stays, so the catalogue remains a complete answer to "what
 is missing", and gains a pointer. Three entries have one today.
 
-**Open (33):**
+**Open (32):**
 
 1. A second window's children do not see React context
 2. `useWindow()` inside a second window reports the active window
@@ -24,7 +24,7 @@ is missing", and gains a pointer. Three entries have one today.
 13. Drag and drop -- proposed
 14. Clipboard
 15. Shell integration
-16. Displays and screen -- proposed
+16. ~~Displays and screen~~ -- done
 17. Power and idle
 18. Global shortcuts
 19. Permissions
@@ -210,13 +210,20 @@ that boundary to place.
   URL delivered to an app that is *already running* is not reported -- which needs
   the single-instance lock above to be anywhere to deliver it to.
 
-- **Displays and screen** -- *partial, and not exposed at all*. The window controls
-  already ask about the display for `center()` and full screen -- `NSScreen`,
-  `MonitorFromWindow` -- so the platform knows. An app does not: there is no
-  display list, no per-display scale factor or work area, no pointer position, and
-  no event when a monitor is plugged in or the arrangement changes. React Native's
-  `Dimensions` reports the window, which is the right answer to a different
-  question. Proposed, as `openspec/changes/expose-displays`.
+- ~~**Displays and screen** -- *partial, and not exposed at all*.~~ Done:
+  `useDisplays()`, `displays()`, `primaryDisplay()` and `pointerPosition()`,
+  each display carrying its bounds, work area, scale factor and whether it is
+  primary, plus an event when the arrangement changes. The lookups did already
+  exist for `center()` and full screen; what this added was passing them on.
+
+  **Two of the four are unanswerable on GTK**, and not because nobody wrote
+  them. `gdk_monitor_get_workarea`, `gdk_display_get_primary_monitor` and
+  reading the pointer were all GTK 3 APIs, removed rather than overlooked:
+  Wayland has no protocol for a work area a client can read, no notion of a
+  primary output, and tells a client where the pointer is only while it is
+  over that client's own surfaces. So GTK reports the work area as the full
+  bounds, the first monitor as primary, and the pointer as unknown -- which is
+  why `PointerPosition` carries a `known` flag rather than a bare point.
 
 - **Power and idle** -- *absent*. Suspend, resume, lock, unlock, on-battery and
   battery level; how long the person has been idle; and asking the system not to

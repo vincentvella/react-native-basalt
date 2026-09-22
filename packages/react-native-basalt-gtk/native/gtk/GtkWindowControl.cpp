@@ -25,6 +25,7 @@
 // ship. A minimum *is* expressible, because it is a property of the widget
 // rather than a request to the compositor.
 
+#include <vector>
 #include "WindowControl.h"
 
 #include "GtkTitleBar.h"
@@ -65,6 +66,68 @@ GtkWindow *window() {
 }
 
 } // namespace
+
+// The displays, and the three things GTK 4 will not say about them.
+//
+// `gdk_monitor_get_workarea`, `gdk_display_get_primary_monitor` and any way to
+// ask where the pointer is were all in GTK 3 and are all gone -- not
+// overlooked, removed. Wayland has no protocol for a work area a client can
+// read, no notion of a primary output, and tells a client the pointer's
+// position only while it is over one of that client's surfaces. GTK 4 dropped
+// the X11-only versions rather than offer an API that answers on one display
+// server and not the other.
+//
+// So the work area is reported as the full bounds, the first monitor is
+// reported as primary, and the pointer is reported as unknown. Each is a
+// truthful answer to a question this desktop does not answer, which is the
+// same rule `WindowCapabilities` follows for position and always-on-top.
+std::vector<DisplayInfo> displays() {
+  std::vector<DisplayInfo> found;
+  GdkDisplay *display = gdk_display_get_default();
+  if (display == nullptr) {
+    return found;
+  }
+  GListModel *monitors = gdk_display_get_monitors(display);
+  if (monitors == nullptr) {
+    return found;
+  }
+  const guint count = g_list_model_get_n_items(monitors);
+  for (guint i = 0; i < count; i++) {
+    auto *monitor = static_cast<GdkMonitor *>(g_list_model_get_item(monitors, i));
+    if (monitor == nullptr) {
+      continue;
+    }
+    if (gdk_monitor_is_valid(monitor)) {
+      GdkRectangle geometry{};
+      gdk_monitor_get_geometry(monitor, &geometry);
+
+      DisplayInfo info;
+      info.x = geometry.x;
+      info.y = geometry.y;
+      info.width = geometry.width;
+      info.height = geometry.height;
+      // No work area to ask for; see above.
+      info.workX = info.x;
+      info.workY = info.y;
+      info.workWidth = info.width;
+      info.workHeight = info.height;
+      // `gdk_monitor_get_scale`, not `get_scale_factor`: the factor is an
+      // integer and a display at 150% is real, which is the case the integer
+      // rounds away.
+      const double scale = gdk_monitor_get_scale(monitor);
+      info.scaleFactor = scale > 0.0 ? scale : 1.0;
+      info.primary = found.empty();
+      found.push_back(info);
+    }
+    g_object_unref(monitor);
+  }
+  return found;
+}
+
+PointerPosition pointerPosition() {
+  // Unknown, and not a gap this host can fill: see above.
+  return {};
+}
 
 WindowBounds windowBounds() {
   WindowBounds bounds;
