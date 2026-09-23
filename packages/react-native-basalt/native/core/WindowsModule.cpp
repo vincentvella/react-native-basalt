@@ -1,6 +1,7 @@
 #include "WindowsModule.h"
 
 #include "PlatformServices.h"
+#include "DragAndDrop.h"
 #include "WindowControl.h"
 #include "WindowHost.h"
 
@@ -18,6 +19,7 @@ namespace {
 using facebook::jsi::Array;
 using facebook::jsi::Object;
 using facebook::jsi::Runtime;
+using facebook::jsi::String;
 using facebook::jsi::Value;
 using facebook::react::TurboModule;
 
@@ -77,6 +79,36 @@ DesktopWindowsModule::DesktopWindowsModule(std::shared_ptr<facebook::react::Call
                     [](Runtime & /*runtime*/, std::vector<Value> & /*args*/) {});
   });
 
+  // Something dragged onto a view that said it would take one.
+  setDropListener([this](const DropEvent &drop) {
+    emitDeviceEvent(kDropEvent, [drop](Runtime &runtime, std::vector<Value> &args) {
+      Object payload(runtime);
+      payload.setProperty(runtime, "tag", Value(static_cast<int>(drop.tag)));
+      payload.setProperty(
+          runtime,
+          "phase",
+          String::createFromUtf8(runtime,
+                                 drop.phase == DropPhase::Over      ? "over"
+                                     : drop.phase == DropPhase::Leave ? "leave"
+                                                                      : "drop"));
+      payload.setProperty(runtime, "x", Value(drop.x));
+      payload.setProperty(runtime, "y", Value(drop.y));
+
+      // Only a drop carries contents; see core/DragAndDrop.h for why an
+      // `over` deliberately does not.
+      Array files(runtime, drop.payload.files.size());
+      for (size_t i = 0; i < drop.payload.files.size(); i++) {
+        files.setValueAtIndex(
+            runtime, i, String::createFromUtf8(runtime, drop.payload.files[i]));
+      }
+      payload.setProperty(runtime, "files", files);
+      payload.setProperty(runtime, "text",
+                          String::createFromUtf8(runtime, drop.payload.text));
+
+      args.emplace_back(std::move(payload));
+    });
+  });
+
   setHostQuitRequestListener([this]() {
     emitDeviceEvent(kQuitRequestedEvent,
                     [](Runtime & /*runtime*/, std::vector<Value> & /*args*/) {});
@@ -90,6 +122,7 @@ DesktopWindowsModule::~DesktopWindowsModule() {
   setHostWindowCloseRequestListener(nullptr);
   setHostQuitRequestListener(nullptr);
   setDisplaysListener(nullptr);
+  setDropListener(nullptr);
 }
 
 Value DesktopWindowsModule::noop(Runtime & /*runtime*/,

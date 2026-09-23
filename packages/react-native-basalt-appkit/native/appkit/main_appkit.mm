@@ -54,6 +54,7 @@
 
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include "ColorScheme.h"
+#import "AppKitDropTarget.h"
 #import "AppKitTitleBar.h"
 #import "AppKitWindowModule.h"
 #include "DevBundle.h"
@@ -1159,6 +1160,11 @@ int main(int argc, const char *argv[]) {
     // app's first render sees a window of no size, and only a later resize
     // corrects it. See core/WindowBoundsCache.cpp.
     basalt::notifyWindowBoundsChanged();
+
+    // Accepting what the desktop drags onto this window. On the surface root
+    // rather than per view: AppKit asks the destination under the pointer,
+    // and which *app* view that is is core/DragAndDrop.h's question.
+    basalt::attachDropTarget(gHost.main().root);
 
     // And the display list, which `getDisplays()` answers from. Same reason,
     // and the same trap: the first version of this primed from

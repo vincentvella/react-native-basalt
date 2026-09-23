@@ -59,6 +59,7 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+#include "GtkDropTarget.h"
 #include "GtkTitleBar.h"
 // Which parts of an app-drawn header drag the window; see the gesture below.
 #include "GtkTitleBarLayout.h"
@@ -1165,6 +1166,11 @@ void onActivate(GtkApplication *app, gpointer data) {
   // asking which screens exist before anything has been plugged or unplugged
   // should not be told there are none.
   basalt::notifyDisplaysChanged();
+
+  // Accepting what the desktop drags onto this window. On the surface root
+  // rather than per view: GTK delivers a drop to the controller under the
+  // pointer, and which *app* view that is is core/DragAndDrop.h's question.
+  basalt::attachDropTarget(host->main().root);
 
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<basalt::GtkAnimationChoreographer>();

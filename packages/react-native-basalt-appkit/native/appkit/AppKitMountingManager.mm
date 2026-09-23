@@ -731,6 +731,13 @@ void AppKitMountingManager::applyProps(RnAppKitView *view, const ShadowView &sha
   [view setRnHidesBackFace:props->backfaceVisibility ==
                            facebook::react::BackfaceVisibility::Hidden];
 
+  // The app's nativeID, which marks a view for a behaviour React Native has
+  // no prop for -- a drop target today. See core/DragAndDrop.h, and
+  // core/TitleBarRegions.h for the older use of the same idea.
+  view.rnNativeId = props->nativeId.empty()
+      ? nil
+      : [NSString stringWithUTF8String:props->nativeId.c_str()];
+
   // Painting and hit testing only; see setRnZIndex:.
   [view setRnZIndex:(NSInteger)props->zIndex.value_or(0)];
 

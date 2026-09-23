@@ -184,6 +184,9 @@ if(TARGET basalt_core)
     appkit/AppKitImageLoader.mm
     # <TextInput>, over a real NSTextField.
     appkit/AppKitTextInput.mm
+    # Accepting a file or text dragged onto the window; see
+    # core/DragAndDrop.h for the model the three hosts share.
+    appkit/AppKitDropTarget.mm
     appkit/AppKitTitleBar.mm
     # A window's size, position and full-screen state; see core/WindowControl.h.
     appkit/AppKitWindowControl.mm

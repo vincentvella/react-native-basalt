@@ -172,6 +172,9 @@ if(TARGET basalt_core)
     # Whether a point drags the window: the geometry half, kept apart from the
     # title bar so it needs no toplevel. See the header.
     gtk/GtkTitleBarLayout.cpp
+    # Accepting a file or text dragged onto the window; see
+    # core/DragAndDrop.h for the model the three hosts share.
+    gtk/GtkDropTarget.cpp
     # A window's size and full-screen state; see core/WindowControl.h.
     gtk/GtkWindowControl.cpp
     # The application menu; see core/MenuModel.h for why the three differ.

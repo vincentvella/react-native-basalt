@@ -107,4 +107,9 @@ inline constexpr const char *kQuitRequestedEvent = "basaltQuitRequested";
 // changes arrive at once.
 inline constexpr const char *kDisplaysChangedEvent = "basaltDisplaysChanged";
 
+// Something dragged over, off, or onto a view that marked itself a drop
+// target. Carries the tag, the phase, the position and -- on a drop only --
+// what was dropped. See core/DragAndDrop.h.
+inline constexpr const char *kDropEvent = "basaltDrop";
+
 } // namespace basalt

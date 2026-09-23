@@ -327,6 +327,12 @@ typedef NS_ENUM(NSInteger, RnAppKitImageFit) {
 // accessibilityElementsHidden.
 - (void)setRnAccessibleHidden:(BOOL)hidden;
 
+// The app's `nativeID`, which this platform uses to mark a view for a native
+// behaviour it has no React Native prop for -- today, a drop target. See
+// core/DragAndDrop.h, and core/TitleBarRegions.h for the older use of the
+// same idea. Stored and never drawn.
+@property(nonatomic, copy, nullable) NSString *rnNativeId;
+
 // Set on the surface root. See RnAppKitInputHandler.
 @property(nonatomic, weak, nullable) id<RnAppKitInputHandler> rnInputHandler;
 
