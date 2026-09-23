@@ -54,6 +54,8 @@
 
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
 #include "ColorScheme.h"
+#include "DragAndDrop.h"
+
 #import "AppKitDropTarget.h"
 #import "AppKitTitleBar.h"
 #import "AppKitWindowModule.h"
@@ -1342,6 +1344,42 @@ int main(int argc, const char *argv[]) {
                          // would for a person.
                          [target->window performClose:nil];
                        }
+                     });
+      scriptedDelayMs += 1000;
+    }
+
+    // BASALT_TEST_DROP: "x,y:path" -- a file dropped at that point, reported
+    // the way the toolkit would report it. Entered below AppKit for the reason
+    // the GTK host gives: a real drag needs a source outside this process.
+    if (const char *drop = getenv("BASALT_TEST_DROP")) {
+      const std::string spec(drop);
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, scriptedDelayMs * NSEC_PER_MSEC),
+                     dispatch_get_main_queue(),
+                     ^{
+                       const size_t comma = spec.find(',');
+                       const size_t colon = spec.find(':', comma == std::string::npos ? 0 : comma);
+                       if (comma == std::string::npos || colon == std::string::npos) {
+                         NSLog(@"BASALT_TEST_DROP: expected x,y:path");
+                         return;
+                       }
+                       const double x = std::stod(spec.substr(0, comma));
+                       const double y = std::stod(spec.substr(comma + 1, colon - comma - 1));
+                       const std::string path = spec.substr(colon + 1);
+
+                       const facebook::react::Tag found = basalt::dropTargetAt(
+                           gHost.main().root, x, y, basalt::DropAcceptsFiles);
+                       NSLog(@"BASALT_TEST_DROP: %s at %g,%g onto tag %d",
+                             path.c_str(), x, y, (int)found);
+                       if (found == 0) {
+                         return;
+                       }
+                       basalt::DropEvent event;
+                       event.tag = found;
+                       event.phase = basalt::DropPhase::Drop;
+                       event.x = x;
+                       event.y = y;
+                       event.payload.files.push_back(path);
+                       basalt::reportDrop(event);
                      });
       scriptedDelayMs += 1000;
     }

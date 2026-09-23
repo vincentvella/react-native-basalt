@@ -3031,6 +3031,64 @@ def test_windows(bundle: Path) -> None:
         raise Failure(f"a window the person closed is still in the tree:\n{tree}")
 
 
+def test_drop_target(bundle: Path) -> None:
+    """A file dropped on the app reaches the view under the pointer.
+
+    React Native has no API for this, so what is being checked is this
+    platform's own: a view marks itself with a `nativeID`, the host hit-tests
+    the drop point, walks up to the nearest marked ancestor, and tells that
+    one. Two targets, one inside the other, because the rule that can be
+    wrong is *which* view is told.
+
+    The drag is entered below the toolkit, the way taps are. A real drag
+    needs a source outside the process and there is no way to conjure one
+    from a test -- so what this exercises is the hit test, the ancestor walk,
+    the accept check, the event and React's half, and not GtkDropTarget or
+    NSDraggingDestination themselves. Said plainly here because a scenario
+    that looks like it drives a real drag and does not is worse than one that
+    admits it.
+    """
+    app = bundle_app(bundle.parent, "drop")
+
+    def drop(spec: str) -> tuple:
+        with tempfile.TemporaryDirectory() as directory:
+            dump = Path(directory) / "tree.txt"
+            env = dict(os.environ)
+            env["BASALT_DUMP_TREE"] = str(dump)
+            env["BASALT_QUIT_AFTER_MS"] = "6000"
+            env["BASALT_TEST_DROP"] = spec
+            for name in ("BASALT_TEST_TAP", "BASALT_TEST_TYPE", "BASALT_TEST_HOVER",
+                         "BASALT_TEST_FOCUS", "BASALT_TEST_QUIT"):
+                env.pop(name, None)
+
+            result = subprocess.run(
+                [str(HOST), str(app), "BasaltDrop"],
+                cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
+            )
+            _remember_output(result.stderr)
+            check_output(result.stderr, result.returncode)
+            return (dump.read_text() if dump.exists() else ""), result.stderr
+
+    # Inside the inner target, which is inside the outer one. The innermost
+    # accepting view wins, so the outer must not be the one told.
+    tree, logged = drop("200,200:/tmp/hello.txt")
+    if "inner drop /tmp/hello.txt" not in logged:
+        raise Failure(f"the inner target was not told:\n{logged[-1500:]}")
+    if "outer drop" in logged:
+        raise Failure("both targets were told; the walk did not stop at the innermost")
+    if 'text="inner /tmp/hello.txt"' not in tree:
+        raise Failure(f"the drop did not reach React:\n{tree[-1200:]}")
+
+    # Inside the outer target and below the inner one. The same walk, one
+    # level up -- and the case that fails if the hit test answers with
+    # whatever is nearest rather than what is under the point.
+    tree, logged = drop("200,280:/tmp/outer.txt")
+    if "outer drop /tmp/outer.txt" not in logged:
+        raise Failure(f"the outer target was not told:\n{logged[-1500:]}")
+    if "inner drop" in logged:
+        raise Failure("the inner target was told about a drop outside it")
+
+
 def test_displays(bundle: Path) -> None:
     """What screens the desktop has.
 
@@ -3327,6 +3385,7 @@ SCENARIOS = [
     ("a second window is a second React tree, and the two stay in step",
      test_windows),
     ("a window can refuse to close, and say so", test_window_close_request),
+    ("a dropped file reaches the view under it", test_drop_target),
     ("the desktop says what displays it has", test_displays),
     ("an application can refuse to quit, and then agree", test_quit_request),
     ("DevTools' overlay draws a highlight, and a trace update takes itself down",

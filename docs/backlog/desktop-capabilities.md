@@ -184,13 +184,17 @@ that boundary to place.
   no jump list, and no standard About panel.
 
 
-- **Drag and drop** -- *absent*, in both directions. The largest single item here:
-  it needs a drop-target seam, hit testing against the drag position, and a
-  representation for what is being dragged, over `GtkDropTarget`,
-  `NSDraggingDestination` and OLE's `IDropTarget`. Dragging *out* is the half
-  people forget and the half a file manager needs. Proposed, as
-  `openspec/changes/add-drag-and-drop`.
+- **Drag and drop** -- *dropping in works on all three; dragging out is
+  absent*. A view marks itself with `nativeID` and is told what was dropped on
+  it, over `GtkDropTarget`, `NSDraggingDestination` and OLE's `IDropTarget`,
+  with the hit test and the "innermost marked view wins" rule in
+  `core/DragAndDrop.h`.
 
+  Dragging *out* is the half people forget and the half a file manager needs,
+  and it is still absent: `GdkContentProvider`, `NSPasteboardWriting` and
+  `DoDragDrop`. It is also the half no test can drive -- the system owns the
+  drag once it starts -- which is a reason to be careful with it rather than a
+  reason to skip it. See `openspec/changes/add-drag-and-drop`.
 - **Clipboard** -- *partial*. Text works, through React Native's own `Clipboard`.
   Images, HTML, RTF and a list of files are each a separate pasteboard type on
   each platform, and none is carried.

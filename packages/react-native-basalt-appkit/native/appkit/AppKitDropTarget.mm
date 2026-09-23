@@ -12,10 +12,16 @@ facebook::react::Tag dropTargetAt(RnAppKitView *root, double x, double y, std::u
   if (root == nil) {
     return 0;
   }
-  // AppKit's own hit test, which already answers with the deepest view. From
-  // there the walk up is ours, for the reason core/DragAndDrop.h gives: a
-  // label inside a drop target should not need marking.
-  NSView *hit = [root hitTest:NSMakePoint(x, y)];
+  // `RnAppKitHitTest`, not NSView's `hitTest:`. The platform's own is what
+  // touches use -- it honours pointer-events, clipping, transforms and z
+  // order the way this renderer means them -- and AppKit's stops at the first
+  // subview whose own hitTest: answers, which for these views is the page
+  // rather than the target inside it. Using the wrong one found a view two
+  // steps below the root and no marker anywhere above it.
+  //
+  // From there the walk up is ours, for the reason core/DragAndDrop.h gives:
+  // a label inside a drop target should not need marking.
+  RnAppKitView *hit = RnAppKitHitTest(root, x, y);
   for (NSView *view = hit; view != nil; view = view.superview) {
     if ([view isKindOfClass:[RnAppKitView class]]) {
       auto *candidate = (RnAppKitView *)view;

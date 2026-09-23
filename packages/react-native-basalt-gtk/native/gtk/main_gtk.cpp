@@ -59,6 +59,7 @@
 #include "CoreModules.h"
 #include "ColorScheme.h"
 #include "DevBundle.h"
+#include "DragAndDrop.h"
 #include "GtkDropTarget.h"
 #include "GtkTitleBar.h"
 // Which parts of an app-drawn header drag the window; see the gesture below.
@@ -1398,6 +1399,59 @@ void onActivate(GtkApplication *app, gpointer data) {
           return G_SOURCE_REMOVE;
         },
         new PendingClose{host, surfaceId});
+    scriptedDelayMs += 1000;
+  }
+
+  // BASALT_TEST_DROP: "x,y:path" -- a file dropped at that point, reported the
+  // way the toolkit would report it.
+  //
+  // Entered below GTK rather than through it, and the reason is the same one
+  // BASALT_TEST_TAP has: a real drag needs a source outside this process, and
+  // there is no way to conjure one from inside a test. What this does exercise
+  // is everything this platform owns -- the hit test, the ancestor walk, the
+  // accept check, the event, and React's half -- which is all of the code
+  // that could be wrong about *which view* is told and *what* it is told.
+  // What it does not exercise is GtkDropTarget itself.
+  if (const char *drop = g_getenv("BASALT_TEST_DROP")) {
+    struct PendingDrop {
+      Host *host;
+      std::string spec;
+    };
+    g_timeout_add(
+        scriptedDelayMs,
+        +[](gpointer data) -> gboolean {
+          std::unique_ptr<PendingDrop> pending{static_cast<PendingDrop *>(data)};
+          const std::string &spec = pending->spec;
+          const size_t comma = spec.find(',');
+          const size_t colon = spec.find(':', comma == std::string::npos ? 0 : comma);
+          if (comma == std::string::npos || colon == std::string::npos) {
+            g_message("BASALT_TEST_DROP: expected x,y:path");
+            return G_SOURCE_REMOVE;
+          }
+          const double x = g_ascii_strtod(spec.substr(0, comma).c_str(), nullptr);
+          const double y = g_ascii_strtod(spec.substr(comma + 1, colon - comma - 1).c_str(), nullptr);
+          const std::string path = spec.substr(colon + 1);
+
+          basalt::DragPayload payload;
+          payload.files.push_back(path);
+
+          const facebook::react::Tag found =
+              basalt::dropTargetAt(pending->host->main().root, x, y, basalt::DropAcceptsFiles);
+          g_message("BASALT_TEST_DROP: %s at %g,%g onto tag %d",
+                    path.c_str(), x, y, static_cast<int>(found));
+          if (found == 0) {
+            return G_SOURCE_REMOVE;
+          }
+          basalt::DropEvent event;
+          event.tag = found;
+          event.phase = basalt::DropPhase::Drop;
+          event.x = x;
+          event.y = y;
+          event.payload = payload;
+          basalt::reportDrop(event);
+          return G_SOURCE_REMOVE;
+        },
+        new PendingDrop{host, drop});
     scriptedDelayMs += 1000;
   }
 

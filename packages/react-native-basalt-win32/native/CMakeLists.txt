@@ -251,6 +251,9 @@ if(TARGET basalt_core)
     # The window's title bar: DWM's colours and dark mode, and the caption the
     # host draws when an app hides the system's. And BasaltWindow, the module
     # JavaScript reaches it through.
+    # Accepting a file or text dragged onto the window; see
+    # core/DragAndDrop.h for the model the three hosts share.
+    win32/Win32DropTarget.cpp
     win32/Win32TitleBar.cpp
     # A window's size, position and full-screen state; see core/WindowControl.h.
     win32/Win32WindowControl.cpp

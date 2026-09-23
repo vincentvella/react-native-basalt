@@ -447,6 +447,16 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+`BASALT_TEST_DROP` takes `x,y:path` and reports a file dropped at that point.
+It enters below the toolkit, the way `BASALT_TEST_TAP` does and for the same
+reason: a real drag needs a source outside the process, and no test can conjure
+one. So what it exercises is the hit test, the walk up to the nearest marked
+ancestor, the accept check, the event and React's half -- every part that could
+be wrong about *which view* is told and *what* it is told -- and not
+`GtkDropTarget` or `NSDraggingDestination` themselves. Worth stating, because a
+scenario that looks like it drives a real drag and does not is worse than one
+that admits it.
+
 `BASALT_TEST_QUIT` is the same idea one level up: it asks the *application* to
 quit the way a person does -- Cmd-Q on macOS, the session ending on Linux --
 so a quit an app refuses can be driven from a script. A count rather than a

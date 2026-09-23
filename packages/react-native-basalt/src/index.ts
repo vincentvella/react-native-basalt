@@ -55,6 +55,11 @@ export {useQuitRequest, quit} from './quitRequest';
 // What screens the desktop has, which React Native's Dimensions does not
 // answer: see src/useDisplays.ts.
 export {useDisplays, displays, primaryDisplay, pointerPosition} from './useDisplays';
+
+// Accepting a file or text dragged onto the app, which React Native has no
+// API for: see src/DropTarget.tsx.
+export {DropTarget, dropTargetId} from './DropTarget';
+export type {DropPayload, DropPoint, DropTargetProps} from './DropTarget';
 export type {Display, PointerPosition} from './useDisplays';
 export type {AllowQuit, QuitRequestHandler} from './quitRequest';
 export type {

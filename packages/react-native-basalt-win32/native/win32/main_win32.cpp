@@ -60,6 +60,7 @@
 #include "Win32Focus.h"
 #include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
+#include "Win32DropTarget.h"
 #include "Win32TitleBar.h"
 #include "Win32WindowModule.h"
 #include "RnWin32View.h"
@@ -1931,7 +1932,11 @@ int main(int argc, char **argv) {
   //
   // Apartment-threaded because this thread owns a window and pumps messages,
   // which is what an STA is for.
-  CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  // OleInitialize rather than CoInitializeEx: it initialises the same
+  // apartment and additionally the OLE machinery RegisterDragDrop needs. A
+  // thread that only called CoInitializeEx can open a URL and cannot accept a
+  // drop, and the failure is a DRAGDROP_E_NOTREGISTERED nobody looks for.
+  OleInitialize(nullptr);
 
   // Before anything posts: this is what makes postToUiThread marshal rather
   // than run inline, and the mounting manager depends on it. See
@@ -2005,6 +2010,11 @@ int main(int argc, char **argv) {
   // asking which screens exist before anything has been plugged or unplugged
   // should not be told there are none.
   basalt::notifyDisplaysChanged();
+
+  // Accepting what the desktop drags onto this window. Per window rather than
+  // per view: OLE registers a target against an HWND, and which *app* view is
+  // under the pointer is core/DragAndDrop.h's question.
+  basalt::attachDropTarget(gHost.main().window, gHost.main().root);
 
   // Every <TextInput>'s EDIT peer is a child of this window. Set before the
   // first transaction, because a field that mounts without one gets no control
@@ -2241,9 +2251,16 @@ int main(int argc, char **argv) {
   // See win32/Win32RunLoopObserver.h.
   const int exitCode = basalt::runMessageLoopWithBeat(gHost.runLoopObserverManager);
 
+  // Before the window goes: OLE holds a reference to the drop target, and a
+  // revoked target is one it can release. Leaving it registered would leave
+  // OLE pointing at a destroyed HWND.
+  basalt::detachDropTarget(gHost.windows.empty() ? nullptr : gHost.main().window);
+
   shutdown();
   // After shutdown, which is where the last WIC bitmap is released.
-  CoUninitialize();
+  // OleUninitialize rather than CoUninitialize, to match the OleInitialize
+  // above: it undoes both halves.
+  OleUninitialize();
   return exitCode;
 }
 
