@@ -4,6 +4,10 @@
 
 #include <objidl.h>
 #include <ole2.h>
+// HDROP and DragQueryFileW, which are shellapi's and not shlobj's -- shlobj
+// includes it on some SDK configurations and not this one, which is the kind
+// of difference only a real Windows compile finds.
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <string>
