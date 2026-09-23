@@ -21,7 +21,7 @@ is missing", and gains a pointer. Three entries have one today.
 10. Windows notifications carry no identity of their own
 11. Cursor control
 12. Application lifecycle -- refusing to quit is proposed
-13. Drag and drop -- proposed
+13. Drag and drop -- dropping in works; dragging out is open
 14. Clipboard
 15. Shell integration
 16. ~~Displays and screen~~ -- done
