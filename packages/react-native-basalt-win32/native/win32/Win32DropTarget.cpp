@@ -21,7 +21,9 @@ namespace {
 // clipping, hidden views and pointer events, which is exactly the kind of
 // duplication that drifts. Finding the path costs one traversal of a tree
 // that is already small enough to hit-test on every mouse move.
-bool pathTo(RnWin32View *view, RnWin32View *target, std::vector<RnWin32View *> &path) {
+bool pathTo(win32::RnWin32View *view,
+            win32::RnWin32View *target,
+            std::vector<win32::RnWin32View *> &path) {
   if (view == nullptr) {
     return false;
   }
@@ -29,7 +31,7 @@ bool pathTo(RnWin32View *view, RnWin32View *target, std::vector<RnWin32View *> &
   if (view == target) {
     return true;
   }
-  for (RnWin32View *child : view->children()) {
+  for (win32::RnWin32View *child : view->children()) {
     if (pathTo(child, target, path)) {
       return true;
     }
@@ -125,7 +127,7 @@ DragPayload payloadFrom(IDataObject *data) {
 // to run before the window is destroyed.
 class DropTarget : public IDropTarget {
  public:
-  DropTarget(HWND window, RnWin32View *root) : window_(window), root_(root) {}
+  DropTarget(HWND window, win32::RnWin32View *root) : window_(window), root_(root) {}
 
   // --- IUnknown ---
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override {
@@ -259,7 +261,7 @@ class DropTarget : public IDropTarget {
 
   ULONG references_{1};
   HWND window_{nullptr};
-  RnWin32View *root_{nullptr};
+  win32::RnWin32View *root_{nullptr};
   IDataObject *data_{nullptr};
   std::uint16_t offered_{DropAcceptsNone};
   facebook::react::Tag current_{0};
@@ -267,16 +269,20 @@ class DropTarget : public IDropTarget {
 
 } // namespace
 
-facebook::react::Tag dropTargetAt(RnWin32View *root, double x, double y, std::uint16_t accepts) {
+facebook::react::Tag dropTargetAt(win32::RnWin32View *root,
+                                  double x,
+                                  double y,
+                                  std::uint16_t accepts) {
   if (root == nullptr) {
     return 0;
   }
-  RnWin32View *hit = hitTest(root, static_cast<float>(x), static_cast<float>(y));
+  win32::RnWin32View *hit =
+      win32::hitTest(root, static_cast<float>(x), static_cast<float>(y));
   if (hit == nullptr) {
     return 0;
   }
 
-  std::vector<RnWin32View *> path;
+  std::vector<win32::RnWin32View *> path;
   if (!pathTo(root, hit, path)) {
     return 0;
   }
@@ -290,7 +296,7 @@ facebook::react::Tag dropTargetAt(RnWin32View *root, double x, double y, std::ui
   return 0;
 }
 
-void attachDropTarget(HWND window, RnWin32View *root) {
+void attachDropTarget(HWND window, win32::RnWin32View *root) {
   if (window == nullptr || root == nullptr) {
     return;
   }
