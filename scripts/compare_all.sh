@@ -168,6 +168,20 @@ for entry in "${APPS[@]}"; do
     printf "  %-12s identical, frames ignored\n" "$name"
   else
     printf "  %-12s DIFFERS\n" "$name"
+    # And say how, here, now. Telling somebody to rerun it locally is advice
+    # that only works when the disagreement is reproducible -- and the one
+    # occurrence of this so far was not: `image` differed on a CI run, passed on
+    # a rerun of the same commit, and passes locally. The evidence was thrown
+    # away by the redirection above, so there was nothing to diagnose and
+    # nothing to do but guess.
+    #
+    # Frames ignored, because that is the comparison that failed: the run above
+    # it is allowed to differ on geometry. Re-run rather than captured from the
+    # earlier invocation so the diff is of the same comparison that decided.
+    echo "  --- how they differ ---"
+    BASALT_COMPARE_IGNORE_FRAMES=1 BASALT_COMPARE_QUIT_AFTER_MS="$quit_after" \
+      scripts/compare_hosts.sh "$name" "$module" 2>&1 | sed 's/^/  /' || true
+    echo "  --- end ---"
     failures=$((failures + 1))
   fi
 done
@@ -176,6 +190,6 @@ echo
 if [[ $failures -eq 0 ]]; then
   echo "the ${#platforms[@]} hosts agree on all $compared apps"
 else
-  echo "$failures of $compared disagree; rerun that one through compare_hosts.sh for the diff" >&2
+  echo "$failures of $compared disagree; each diff is printed above" >&2
 fi
 exit $failures

@@ -15,6 +15,16 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
 9. An app build compiles this repository's test suites
 10. A cancelled job reads as a job that ran
 
+- **The `image` comparison flaked once and nobody can say why.** It differed on
+  one CI run, passed on a rerun of the same commit, and passes locally -- run
+  with the right module, which is a trap of its own: `compare_hosts.sh image`
+  defaults to `BasaltViews`, mounts nothing on either host, and compares two
+  empty trees. The diff CI produced was discarded by `compare_all.sh`, which
+  said "rerun that one through compare_hosts.sh" -- advice that cannot work for
+  something that does not reproduce. It prints the diff now, so the next
+  occurrence is diagnosable; until then there is nothing to fix and guessing
+  would be inventing a cause.
+
 - **No rendering assertions on GTK.** The widget tree says a view has a colour
   and a frame, not that the right pixels reached the screen. This is not
   theoretical -- GTK's cairo renderer mangled every transform in the demo and no
