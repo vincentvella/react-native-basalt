@@ -856,10 +856,12 @@ the thing is built is `docs/ARCHITECTURE.md`.
    The other half is that CI sets `BASALT_SKIP_FAST_REFRESH` on all three jobs,
    because Metro on a GitHub runner never notices an edit -- the file changes
    with a fresh mtime, a freshly requested bundle still carries the old text,
-   and Metro logs nothing. So what stands between a working feature and a
-   guarded one is a runner whose file watching works, or an assertion split so
-   the host half is guarded regardless. `docs/BACKLOG.md` has what is left to
-   try. In progress, as `openspec/changes/test-fast-refresh-on-windows`.
+   and Metro logs nothing. That variable now drops the *edit* rather than the
+   scenario, so CI does guard the host half: dev mode, the dev server helper,
+   the websocket, `DevSettings`, and a bundle served by Metro rather than read
+   off disk. What is left is the edit itself, which needs a runner whose file
+   watching works; `docs/BACKLOG.md` has what remains to try. In progress, as
+   `openspec/changes/test-fast-refresh-on-windows`.
 2. **A first release run.** `release.yml` has never run: its macOS job, Linux
    and Windows built from nothing, and the Expo install job are all unproven on
    hosted runners. Deliberately not yet. Windows belongs in the install job

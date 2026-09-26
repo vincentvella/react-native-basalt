@@ -156,8 +156,10 @@ and none of it is a missing half.
   from an argument nothing passed, React Native's `start` command needs
   `@react-native/metro-config` in the app, and every host reported a dev script
   URL naming `linux`, so Metro sent Windows HMR updates for a Linux graph. What
-  is still off in CI is `BASALT_SKIP_FAST_REFRESH`, on all three jobs, for a
-  reason that is Metro's file watching rather than Windows'.
+  is still off in CI is the *edit*, through `BASALT_SKIP_FAST_REFRESH` on all
+  three jobs, for a reason that is Metro's file watching rather than Windows'.
+  Everything before the edit runs on Windows now, including the developer menu
+  scenario, which skipped here for the same shell-script reason.
 - ~~**CI does not build the Windows host.**~~ It does, as `windows-full`:
   vcpkg, Hermes from source, React Native's core under clang-cl, every Windows
   test, the demo bundle and the end-to-end suite. Green on its first run, and
