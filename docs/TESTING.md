@@ -474,6 +474,28 @@ The AppKit job is 26.8 minutes, of which 9.6 is the suite and another 8.8 is
 the cross-host comparison. So both of those shard, and the build does not need
 to.
 
+Measuring it again afterwards is what found the next thing. Three macOS shards
+came in at 13.4, 14.9 and 14.5 minutes against an unsharded 27.7 -- a clean
+1.9x, but a long way off the others, and the step breakdown said why: 5.9
+minutes of it was `Configure and build`, against 14 seconds for the same build
+on Linux. That job installed ccache, restored a ccache and saved a ccache, and
+never passed `CMAKE_CXX_COMPILER_LAUNCHER`. **A cache that is never written
+restores in 0 seconds and saves in 0 seconds, and both steps report success** --
+so the only visible symptom was a slow build, which looks like a Mac being a
+Mac. It also cached `~/Library/Caches/ccache` while ccache's directory is not
+reliably that; the job names `CCACHE_DIR` now, so the two cannot disagree.
+
+Which is the answer to "build once and hand the binary to every shard": ccache
+already is that, and it is cheaper, because it is content-addressed and skips
+exactly the work that is unchanged. An artifact would need its own build job
+per operating system -- three more jobs, each repeating the checkout, the
+dependency install and the React Native fetch -- and then an upload and a
+download of a build tree with debug info in it, to save the 24 seconds that
+`Configure` and `Build` actually cost on a warm cache. Every other fixed cost a
+shard pays, it pays regardless: it installs GTK and Pango to *run* the hosts,
+fetches React Native to bundle the demo, and bundles the demo because the suite
+runs against it.
+
 Striding rather than slicing: `scenarios[i - 1 :: n]`. The list is in the order
 things were written, so neighbours cost about the same -- the scroll scenarios
 sit together, and so do the two that wait twelve seconds for a window. A

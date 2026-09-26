@@ -339,9 +339,15 @@ jobs:
       # Three, as on Linux, and this job has a second thing to split: the
       # cross-host comparison is another nine minutes over eighteen
       # independent apps. Both shard on the same index, so each shard runs a
-      # third of each -- which matters more here than anywhere, because this
-      # is the only job that pays five and a half minutes to build and pays it
-      # again per shard.
+      # third of each.
+      #
+      # This said the build was five and a half minutes and that each shard
+      # paid it again, which was true and was a bug rather than a fact: see
+      # Configure and build. With ccache actually enabled the build is not the
+      # reason this job is the slow one, and whether more than three shards
+      # would help should be re-measured rather than argued from these numbers.
+      # Note that a Free or Pro account gets five concurrent macOS jobs, so six
+      # shards would run in two waves and be slower than three.
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
@@ -352,6 +358,17 @@ jobs:
       # open a display, and every host it starts produces an empty tree. The
       # first run of this job reported all eighteen apps disagreeing, which
       # is what a comparison says when one side never rendered.
+      #
+      # ccache's directory named rather than assumed. Its default differs
+      # between platforms and versions -- ~/.cache/ccache on Linux,
+      # ~/Library/Caches/ccache on some Mac builds -- and this job cached a path
+      # ccache was not writing to for as long as it existed: a 0-second restore,
+      # a 0-second save, and a full six-minute compile every run.
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      # The same bound the Windows job explains: a repository gets 10GB of cache
+      # in all and the oldest entry is evicted first, so an unbounded ccache
+      # would push out third_party and node_modules, which cost more to replace.
+      CCACHE_MAXSIZE: 2G
       #
       # `macos` and not `quartz`: GTK 4 renamed that backend, and GTK 3's name
       # matches nothing compiled in -- which fails exactly like inheriting
@@ -425,7 +442,7 @@ jobs:
         if: ${{ !inputs.cold }}
         uses: actions/cache/restore@v6
         with:
-          path: ~/Library/Caches/ccache
+          path: ${{ github.workspace }}/ccache
           key: ccache-${{ runner.os }}-${{ github.sha }}
           restore-keys: ccache-${{ runner.os }}-
 
@@ -448,16 +465,26 @@ jobs:
           key: rn-node-modules-${{ runner.os }}-${{ steps.pin.outputs.ref }}
 
       - name: Configure and build
+        # The two LAUNCHER flags are the point. This job installed ccache,
+        # restored a ccache and saved a ccache, but never told CMake to use one
+        # -- it was carried over from release.yml, where a release build wants a
+        # cold compiler -- so the compile cost 5.9 of this job's 15 minutes on
+        # every run, while the same build on Linux took 14 seconds. Nothing
+        # failed, and the cache steps reported success both ways: a cache that
+        # is never written restores in 0 seconds and saves in 0 seconds.
         run: |
+          ccache --zero-stats
           cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DRN_DIR=react-native-src/packages/react-native
           cmake --build build -j "$(sysctl -n hw.ncpu)"
+          ccache --show-stats
 
       - name: Save ccache
         if: always()
         uses: actions/cache/save@v6
         with:
-          path: ~/Library/Caches/ccache
+          path: ${{ github.workspace }}/ccache
           key: ccache-${{ runner.os }}-${{ github.sha }}
 
       - name: Unit tests
