@@ -485,6 +485,29 @@ so the only visible symptom was a slow build, which looks like a Mac being a
 Mac. It also cached `~/Library/Caches/ccache` while ccache's directory is not
 reliably that; the job names `CCACHE_DIR` now, so the two cannot disagree.
 
+The cache listing settled it beyond argument: Linux and Windows had a ccache
+entry for every commit going back weeks, and macOS had **none at all**, ever.
+With the launcher flags in place the build went from 350 seconds to **29**, at a
+555/555 hit rate, and the job from 14.3 minutes to 9.8 -- so the AppKit job is
+27.7 minutes unsharded and 9.8 sharded, which is most of what this whole
+exercise was worth and none of it was the sharding.
+
+**Which changes the arithmetic for adding shards, in favour of it.** The
+non-shardable part of that job was 434 seconds and is now 128, because 355 of it
+was the broken build. So `128s + 1380s/N`:
+
+| shards | AppKit job |
+| ------ | ---------- |
+| 3      | 9.8m *(measured)* |
+| 4      | 7.9m |
+| 5      | 6.7m |
+| many   | 2.1m floor |
+
+Five is where it stops, and not for a reason about diminishing returns: a Free
+or Pro account gets **five concurrent macOS jobs**, so six shards run in two
+waves and finish slower than three. Five saturates the limit and leaves nothing
+for `release.yml`, which also wants a Mac. Four is the one with headroom.
+
 `scripts/test_harness.py` checks the harness's own waits, and exists because of
 a bug in one. The Fast Refresh scenario waited for Metro to serve the running
 app a bundle by counting `BUNDLE` lines in Metro's log -- but `prewarm` is

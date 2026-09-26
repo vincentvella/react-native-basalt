@@ -349,11 +349,13 @@ jobs:
       #
       # This said the build was five and a half minutes and that each shard
       # paid it again, which was true and was a bug rather than a fact: see
-      # Configure and build. With ccache actually enabled the build is not the
-      # reason this job is the slow one, and whether more than three shards
-      # would help should be re-measured rather than argued from these numbers.
-      # Note that a Free or Pro account gets five concurrent macOS jobs, so six
-      # shards would run in two waves and be slower than three.
+      # Configure and build. Measured since, warm: the build is 29 seconds, the
+      # job 9.8 minutes against 27.7 unsharded, and what does not shard is 128
+      # seconds rather than 434 -- so `128s + 1380s/N`, and a fourth shard is
+      # worth about two minutes. Five is the ceiling and not because of
+      # diminishing returns: a Free or Pro account gets five concurrent macOS
+      # jobs, so six run in two waves and finish slower than three, and five
+      # leaves nothing for release.yml, which also wants a Mac.
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
