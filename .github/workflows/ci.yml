@@ -207,6 +207,7 @@ jobs:
         run: |
           cmake --build build -j "$(nproc)"
           ccache --show-stats
+          scripts/check_ccache.py
 
       - name: Save ccache
         # Even from a build that failed: every object it did compile is still
@@ -479,6 +480,7 @@ jobs:
             -DRN_DIR=react-native-src/packages/react-native
           cmake --build build -j "$(sysctl -n hw.ncpu)"
           ccache --show-stats
+          python3 scripts/check_ccache.py
 
       - name: Save ccache
         if: always()
@@ -783,6 +785,8 @@ jobs:
           $status = $LASTEXITCODE
           ccache --show-stats
           if ($status -ne 0) { throw "build failed" }
+          python scripts/check_ccache.py
+          if ($LASTEXITCODE -ne 0) { throw "ccache was not in the compile" }
 
       - name: Save ccache
         if: always() && steps.build.outcome != 'skipped'

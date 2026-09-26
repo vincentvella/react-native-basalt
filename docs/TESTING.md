@@ -485,6 +485,16 @@ so the only visible symptom was a slow build, which looks like a Mac being a
 Mac. It also cached `~/Library/Caches/ccache` while ccache's directory is not
 reliably that; the job names `CCACHE_DIR` now, so the two cannot disagree.
 
+`scripts/check_ccache.py` now runs after every build, on all three jobs, and
+fails when ccache saw **no cacheable compiles at all** -- which is what a
+missing launcher flag looks like from the inside. It deliberately does not
+assert a hit *rate*: a cold cache legitimately misses everything, and a check
+that cries wolf gets deleted. The distinction it draws is "ccache was not in
+the compile", which is always a workflow bug, against "ccache ran and missed",
+which is a fact about the cache. Tested against five stubbed ccache states,
+including a renamed field, which it reports as a version difference rather than
+as zero -- reading it as zero would point the next person at the wrong fix.
+
 Which is the answer to "build once and hand the binary to every shard": ccache
 already is that, and it is cheaper, because it is content-addressed and skips
 exactly the work that is unchanged. An artifact would need its own build job
