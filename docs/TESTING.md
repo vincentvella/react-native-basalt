@@ -508,6 +508,32 @@ or Pro account gets **five concurrent macOS jobs**, so six shards run in two
 waves and finish slower than three. Five saturates the limit and leaves nothing
 for `release.yml`, which also wants a Mac. Four is the one with headroom.
 
+**To run the edit half on Windows**, from a Windows machine, with a React
+Native checkout in place:
+
+```
+python scripts\integration_test.py --platform windows -k "Fast Refresh"
+```
+
+Leave `BASALT_SKIP_FAST_REFRESH` unset -- that is the whole point -- and expect
+it to take about ninety seconds. There the host is given a quit budget and the
+scenario waits it out, rather than being killed when the refresh lands. A kill
+would be `TerminateProcess`, which no host can handle, and Win32 writes the tree
+in `captureBeforeTeardown` off `WM_CLOSE`; measured on a Mac, where both signals
+are available, SIGTERM exits 0 and writes 8293 bytes while SIGKILL writes
+nothing. So a killed host on Windows fails the last assertion with "host wrote
+no widget tree" whether or not Fast Refresh worked -- a harness artefact dressed
+as a platform bug.
+
+The ninety seconds is the price of a graceful exit, and it buys back to zero the
+moment there is a portable way to ask a host to quit *now*. `BASALT_QUIT_AFTER_MS`
+is decided before launch, and the edit loop's own deadline is 150 seconds, so the
+budget cannot be short enough to be quick and long enough to be safe. A
+`BASALT_TEST_QUIT_FILE` the host polls for -- on the timer each host already has
+for `BASALT_QUIT_AFTER_MS` -- would fix it on all three at once. Not built:
+nothing else needs it yet, and an instrument goes on all three hosts or not at
+all.
+
 `scripts/test_harness.py` checks the harness's own waits, and exists because of
 a bug in one. The Fast Refresh scenario waited for Metro to serve the running
 app a bundle by counting `BUNDLE` lines in Metro's log -- but `prewarm` is

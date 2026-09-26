@@ -867,9 +867,24 @@ def test_fast_refresh(bundle: Path):
         log = Path(directory) / "host.log"
         env = dict(os.environ)
         env["BASALT_DUMP_TREE"] = str(dump)
-        # A backstop, not the schedule: the host is asked to quit by signal as
-        # soon as the refresh shows up.
-        env["BASALT_QUIT_AFTER_MS"] = "180000"
+        # On Windows this is the schedule rather than a backstop, and the
+        # scenario waits it out. Everywhere else the host is asked to quit by
+        # signal as soon as the refresh shows up.
+        #
+        # Because the tree is dumped on the way out and a kill never gets there.
+        # `Popen.terminate()` on Windows is `TerminateProcess`, which no host can
+        # handle, and Win32 dumps in `captureBeforeTeardown` off `WM_CLOSE`.
+        # Measured on a Mac, where both are available: SIGTERM exits 0 and writes
+        # 8293 bytes, SIGKILL exits -9 and writes nothing. So killing the host on
+        # Windows would fail the final assertion with "host wrote no widget tree"
+        # whether or not Fast Refresh had worked -- a harness artefact wearing the
+        # costume of a platform bug.
+        #
+        # Only the edit path needs this. The skip path never reads the dump, so it
+        # keeps the long backstop and is killed the moment it has what it came
+        # for, which is what CI runs and what keeps the Windows shard quick.
+        self_quits = PLATFORM == "windows" and not skip_edit
+        env["BASALT_QUIT_AFTER_MS"] = "90000" if self_quits else "180000"
         env["BASALT_DEV"] = "1"
         env["BASALT_DEV_PORT"] = str(METRO_PORT)
         env.pop("BASALT_TEST_TAP", None)
@@ -989,7 +1004,15 @@ def test_fast_refresh(bundle: Path):
 
                 # Rendering follows the reload; the tree is dumped on the way out.
                 time.sleep(3)
-                meaningful = stop_host(process)
+                if self_quits:
+                    # Its own timer takes it through WM_CLOSE, so the dump
+                    # happens and the exit code is the app's. Costs the rest of
+                    # the budget, which is the price of a graceful exit until
+                    # there is a portable way to ask for one.
+                    process.wait(timeout=180)
+                    meaningful = True
+                else:
+                    meaningful = stop_host(process)
             finally:
                 source.write_text(original)
                 if process.poll() is None:
