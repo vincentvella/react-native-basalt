@@ -48,12 +48,50 @@ const {withDesktopPlatforms} = require('../packages/react-native-basalt/dist/met
 const expoApp = process.env.BASALT_EXPO_APP;
 const expoModules = {};
 if (expoApp != null && expoApp !== '') {
-  for (const name of ['expo', 'expo-modules-core', 'expo-notifications']) {
+  // @shopify/react-native-skia alongside them. The variable is named for Expo
+  // and the mechanism is not: it borrows named packages from a real app, which is
+  // the only way this directory -- which installs nothing -- can bundle something
+  // that imports one. Skia is borrowed rather than vendored for the same reason
+  // its C++ is; see cmake/Skia.cmake.
+  for (const name of ['expo', 'expo-modules-core', 'expo-notifications',
+                      '@shopify/react-native-skia']) {
     const candidate = path.join(expoApp, 'node_modules', name);
     if (fs.existsSync(candidate)) {
       expoModules[name] = candidate;
     }
   }
+}
+
+// One React and one React Native, for every module including a borrowed one.
+//
+// `extraNodeModules` below is not enough on its own: it is a fallback, consulted
+// only when ordinary resolution fails. A package borrowed out of somebody else's
+// app has that app's `node_modules` above it, so its own `require('react')`
+// succeeds there and never reaches the fallback -- and the app ends up with two
+// Reacts. The symptom is not a resolution error but
+// `Cannot read property 'useRef' of null` from inside the borrowed package,
+// which reads as a bug in that package.
+//
+// Measured: bundling @shopify/react-native-skia out of an app failed exactly
+// that way until this existed.
+const pinned = {
+  react: path.join(rnDir, 'node_modules', 'react'),
+  'react-native': path.join(rnDir, 'node_modules', 'react-native'),
+};
+
+function resolvePinned(context, moduleName, platform) {
+  for (const [name, dir] of Object.entries(pinned)) {
+    if (moduleName === name || moduleName.startsWith(`${name}/`)) {
+      // Resolved as though the request came from that copy, so its own
+      // subpath exports and conditions apply rather than the borrower's.
+      return context.resolveRequest(
+        {...context, originModulePath: path.join(dir, 'package.json')},
+        moduleName,
+        platform,
+      );
+    }
+  }
+  return context.resolveRequest(context, moduleName, platform);
 }
 
 module.exports = withDesktopPlatforms(mergeConfig(getDefaultConfig(__dirname), {
@@ -74,6 +112,8 @@ module.exports = withDesktopPlatforms(mergeConfig(getDefaultConfig(__dirname), {
     healthCheck: {enabled: true},
   },
   resolver: {
+    // See resolvePinned: one React for every module, borrowed or not.
+    resolveRequest: resolvePinned,
     nodeModulesPaths: [path.join(rnDir, 'node_modules')],
     // Without this, two copies of React can end up in the graph -- one
     // resolved from here and one from a transitive dependency inside the

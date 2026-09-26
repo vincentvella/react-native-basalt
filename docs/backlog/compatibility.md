@@ -25,9 +25,18 @@ Found by bundling and running a real application.
   Setting
   `globalThis.RN$TurboInterop = true` before the bundle evaluates fixes it and
   is verified; installing `__turboModuleProxy` is the better answer and belongs
-  upstream in ReactCxxPlatform. 0.87.1 works without any of this, so the
-  supported range starts there; see `docs/PORTING.md`. Extending
-  it downwards means testing each version, not just setting the flag.
+  upstream in ReactCxxPlatform.
+
+  **"0.87.1 works without any of this" is wrong, and the flag is needed on
+  `main` too.** Measured 2026-09-26 against React Native `main`, bundling
+  `js/skia.js`: without the flag, `getEnforcing('RNSkiaModule')` fails exactly as
+  it does on 0.81; with it, the module resolves and Skia installs. So this is not
+  an old-version curiosity -- **every third-party TurboModule reached through
+  `getEnforcing` needs it**, on every version this supports. React Native's own
+  modules are unaffected because they are asked for differently, which is why
+  nothing noticed. That makes `__turboModuleProxy` the load-bearing upstream item
+  rather than a tidiness one, and it is the single largest gap between this
+  platform and "install the package and it works".
 - React Native 0.83 through 0.86 are refused rather than untested-but-allowed.
   Each would need building against and both suites run; see
   `docs/PORTING.md` and `supported-versions.json`.

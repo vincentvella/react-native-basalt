@@ -235,6 +235,8 @@ if(DEFINED RN_DIR)
     # Quitting gracefully when the harness says so, rather than on a budget
     # fixed before launch; see the header.
     core/TestQuitFile.cpp
+    # What a <Canvas> from @shopify/react-native-skia mounts; see the header.
+    core/SkiaPictureViewComponent.cpp
     core/StatusBarModule.cpp
     core/ReanimatedModule.cpp
     core/UIManagerAccess.cpp

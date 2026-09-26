@@ -20,6 +20,8 @@
 #include "ExpoImageComponent.h"
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
+
+#include "SkiaPictureViewComponent.h"
 #include <react/renderer/components/FBReactNativeSpec/ComponentDescriptors.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/iostextinput/TextInputComponentDescriptor.h>
@@ -59,6 +61,11 @@ ComponentRegistryFactory getDefaultComponentRegistryFactory() {
       // through a TextLayoutManager, which here is the Core Text one.
       // Android's needs fbjni. Its component name is "TextInput".
       registry->add(concreteComponentDescriptorProvider<TextInputComponentDescriptor>());
+      // @shopify/react-native-skia's <Canvas>. Registered whether or not the
+      // build has Skia in it, for the reason the Expo one below gives: it costs
+      // a name in a registry. Without Skia the view mounts and stays empty, and
+      // an app that draws has already failed at getEnforcing('RNSkiaModule').
+      registry->add(concreteComponentDescriptorProvider<SkiaPictureViewComponentDescriptor>());
       // expo-image's view. Registered whether or not the build has Expo in it:
       // the descriptor is ordinary Fabric C++, and an app that never renders
       // one pays a registry entry. See core/ExpoImageComponent.h.

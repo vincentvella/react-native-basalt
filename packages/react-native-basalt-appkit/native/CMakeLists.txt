@@ -215,7 +215,8 @@ if(TARGET basalt_core)
     # platform context it hands to Skia. See appkit/AppKitSkiaModule.h.
     target_sources(basalt_appkit_mounting PRIVATE
       appkit/AppKitSkiaModule.mm
-      appkit/AppKitSkiaContext.mm)
+      appkit/AppKitSkiaContext.mm
+      appkit/AppKitSkiaPeer.mm)
     # That Skia renders rather than merely links; see the file. Appended here so
     # it is compiled only when there is a Skia to render with.
     list(APPEND BASALT_APPKIT_TEST_SOURCES tests/test_appkit_skia.mm)

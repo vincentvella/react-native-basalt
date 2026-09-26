@@ -7,6 +7,9 @@
 
 #include "ComponentRegistry.h"
 #include "ExpoImageComponent.h"
+#ifdef BASALT_HAS_SKIA
+#include "AppKitSkiaPeer.h"
+#endif
 #include "UIManagerAccess.h"
 
 #include <react/renderer/components/view/AccessibilityProps.h>
@@ -262,6 +265,13 @@ void AppKitMountingManager::forgetTag(Tag tag) {
   textInputs_.remove(tag);
   imageUris_.erase(tag);
   switchValues_.erase(tag);
+#ifdef BASALT_HAS_SKIA
+  // Unregisters the canvas and takes its layer off the view. This is the one
+  // moment a view is known to be finished with, which matters more here than
+  // elsewhere: a canvas left registered keeps a Metal layer and a GPU surface
+  // alive for a tag nothing will draw again.
+  forgetSkiaCanvas(tag);
+#endif
 }
 
 namespace {
@@ -454,6 +464,14 @@ void AppKitMountingManager::updateView(RnAppKitView *view, const ShadowView &sha
   // needed the same swap for the same reason.
   applyTextInput(view, shadowView);
   applyAccessibility(view, shadowView);
+#ifdef BASALT_HAS_SKIA
+  // After applyProps, which is what puts nativeID on the view -- a canvas
+  // registers itself by that id and cannot be attached before it is there. And
+  // before applyLayoutMetrics only incidentally: the size it reads comes from the
+  // shadow view rather than from the frame this is about to set, so the order
+  // does not matter here the way it does for a <TextInput>'s peer.
+  applySkiaCanvas(view, shadowView);
+#endif
   applyLayoutMetrics(view, shadowView);
   // Last: the scroll manager clamps its offset against the frame it was just
   // given, and iOS documents the same ordering requirement -- layout before
