@@ -260,13 +260,18 @@ jobs:
         # and once: it cannot answer differently on another platform.
         run: node --test scripts/test_platform_js.js
 
-      - name: Shard arithmetic
-        # That every scenario lands in exactly one shard, for every shard
-        # count. Cheap, host-independent, and the bug it guards against points
-        # towards green: a boundary that dropped a scenario would make this
-        # suite pass while running less of it.
+      - name: The harness's own checks
+        # Shard arithmetic -- that every scenario lands in exactly one shard, for
+        # every shard count -- and the waits the scenarios are built out of.
+        # Cheap, host-independent, and both guard bugs that point towards green:
+        # a boundary that dropped a scenario would make the suite pass while
+        # running less of it, and a wait that cannot fail reports the thing it
+        # was watching for as having happened. One of each has already been
+        # found, so neither is hypothetical.
         if: matrix.shard == 1
-        run: python3 scripts/test_shards.py
+        run: |
+          python3 scripts/test_shards.py
+          python3 scripts/test_harness.py
 
       - name: Include hygiene
         # Once per job, not once per shard: these read the same files and

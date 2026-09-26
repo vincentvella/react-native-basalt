@@ -786,14 +786,46 @@ def is_subsequence(wanted: list, got: list) -> bool:
     return all(item in iterator for item in wanted)
 
 
-def wait_for_log(log: Path, needle: str, count: int, timeout: float) -> bool:
-    """Waits until `needle` has appeared in `log` at least `count` times."""
+def wait_for_log(log: Path, needle: str, count: int, timeout: float,
+                 start: int = 0) -> bool:
+    """Waits until `needle` has appeared in `log` at least `count` times.
+
+    `start` is a byte offset to begin reading at, for the case where the log
+    already contains what is being waited for and what matters is a *new*
+    occurrence. Counting from the beginning silently succeeds there, and a wait
+    that cannot fail is worse than no wait: it reports the thing it was watching
+    for as having happened.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if log.exists() and log.read_text().count(needle) >= count:
-            return True
+        if log.exists():
+            with log.open("rb") as handle:
+                handle.seek(start)
+                text = handle.read().decode("utf-8", "replace")
+            if text.count(needle) >= count:
+                return True
         time.sleep(0.5)
     return False
+
+
+def stop_host(process: subprocess.Popen) -> bool:
+    """Ends a host that is still running. Says whether its exit code means anything.
+
+    GTK and AppKit both install a SIGTERM handler that shuts the runtime down
+    and exits 0, so `terminate()` there is a request and the code is worth
+    checking. Windows has no SIGTERM: `Popen.terminate()` is `TerminateProcess`,
+    a hard kill that sets the exit code to 1, and no host can be written to
+    return 0 from it. So on Windows the code belongs to our own kill rather than
+    to the app, and asserting on it reports the kill as a crash -- which is
+    exactly what it did the first time the Fast Refresh scenario ran there,
+    against a host that had started perfectly well.
+
+    The JS-error scan in `check_output` is unaffected and still runs: it reads
+    what the host logged, which a kill does not change.
+    """
+    process.terminate()
+    process.wait(timeout=60)
+    return PLATFORM != "windows"
 
 
 def test_fast_refresh(bundle: Path):
@@ -868,6 +900,10 @@ def test_fast_refresh(bundle: Path):
 
         with Metro(metro_log) as metro, log.open("w") as sink:
             metro.prewarm()
+            # Where Metro's log had got to before the host existed. Everything
+            # past this point was provoked by the host and nothing else.
+            time.sleep(1)
+            served = metro_log.stat().st_size
             process = subprocess.Popen(
                 [str(HOST), str(bundle), MODULE],
                 cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=sink, text=True,
@@ -881,27 +917,36 @@ def test_fast_refresh(bundle: Path):
                 # perfectly well on the stale one.
                 #
                 # Asked of Metro rather than of the host: Metro logs a BUNDLE
-                # line when it serves one, and that is a direct statement that
-                # the app fetched it. The previous version watched the host's
-                # log for `Failed to load TurboModule: LogBox`, which said the
-                # same thing only for as long as LogBox was unimplemented --
-                # once it worked, the line stopped appearing and this scenario
-                # failed on every machine, for a reason that had nothing to do
-                # with Fast Refresh.
-                if not wait_for_log(metro_log, "BUNDLE", 1, timeout=30):
+                # line when it serves one, and the host logs nothing at all when
+                # it falls back to the bundle on disk. The previous version
+                # watched the host's log for `Failed to load TurboModule:
+                # LogBox`, which said the same thing only for as long as LogBox
+                # was unimplemented -- once it worked, the line stopped
+                # appearing and this scenario failed on every machine, for a
+                # reason that had nothing to do with Fast Refresh.
+                #
+                # From `served` onwards, which is the whole of the check.
+                # `prewarm` is itself a request and Metro logs two BUNDLE lines
+                # for it, so counting from the start of the log matched before
+                # the host had done anything -- this returned in about a
+                # hundredth of a second and could not fail. It had been that way
+                # since it was written, on every platform; what hid it is that
+                # the edit assertion below carried the scenario, and the edit
+                # only works where Metro's file watching does.
+                if not wait_for_log(metro_log, "BUNDLE", 1, timeout=60,
+                                    start=served):
                     raise diagnose(
                         "the app is running the on-disk release bundle, not Metro's"
                     )
 
                 if skip_edit:
                     # Everything above ran: dev mode, the dev server helper, the
-                    # websocket, and a bundle fetched from Metro rather than the
-                    # release one on disk. The edit is what this machine cannot
-                    # do, so stop here rather than fail at it.
-                    process.terminate()
-                    process.wait(timeout=60)
+                    # websocket, and a bundle Metro is now on record as having
+                    # served to this process. The edit is what this machine
+                    # cannot do, so stop here rather than fail at it.
+                    meaningful = stop_host(process)
                     stderr = log.read_text()
-                    check_output(stderr, process.returncode)
+                    check_output(stderr, process.returncode if meaningful else 0)
                     if "Failed to load TurboModule: DevSettings" in stderr:
                         raise Failure(
                             "DevSettings was not served, so no __DEV__ bundle can run"
@@ -944,8 +989,7 @@ def test_fast_refresh(bundle: Path):
 
                 # Rendering follows the reload; the tree is dumped on the way out.
                 time.sleep(3)
-                process.terminate()
-                process.wait(timeout=60)
+                meaningful = stop_host(process)
             finally:
                 source.write_text(original)
                 if process.poll() is None:
@@ -953,7 +997,7 @@ def test_fast_refresh(bundle: Path):
                     process.wait(timeout=15)
 
         stderr = log.read_text()
-        check_output(stderr, process.returncode)
+        check_output(stderr, process.returncode if meaningful else 0)
 
         # The exact line, not "DevSettings" anywhere: the module logs its own
         # name at INFO when it works, and plenty of other TurboModules fail to

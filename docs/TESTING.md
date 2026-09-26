@@ -485,6 +485,25 @@ so the only visible symptom was a slow build, which looks like a Mac being a
 Mac. It also cached `~/Library/Caches/ccache` while ccache's directory is not
 reliably that; the job names `CCACHE_DIR` now, so the two cannot disagree.
 
+`scripts/test_harness.py` checks the harness's own waits, and exists because of
+a bug in one. The Fast Refresh scenario waited for Metro to serve the running
+app a bundle by counting `BUNDLE` lines in Metro's log -- but `prewarm` is
+itself a request and Metro logs two for it, so the count was already satisfied
+before the host started. **The wait returned in about a hundredth of a second,
+on every platform, and could not fail.** It had been that way since it was
+written; what hid it is that the edit assertion after it carried the scenario on
+the machines where Metro's file watching works. `wait_for_log` takes a byte
+offset now, and the check is on what happened *after* the host existed.
+
+It was found by making the scenario run on Windows, where the edit is skipped
+and so nothing was left to carry it. The same run found the second thing
+`test_harness.py` guards: `terminate()` is a SIGTERM that GTK and AppKit handle
+and exit 0 from, and on Windows it is `TerminateProcess`, which sets the exit
+code to 1 unconditionally. Asserting on that code reported our own kill as the
+app crashing. `stop_host` says which of the two happened, so the exit code is
+checked where it means something and the log is scanned for JS errors either
+way.
+
 `scripts/check_ccache.py` now runs after every build, on all three jobs, and
 fails when ccache saw **no cacheable compiles at all** -- which is what a
 missing launcher flag looks like from the inside. It deliberately does not
