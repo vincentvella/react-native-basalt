@@ -132,6 +132,7 @@ if(DEFINED RN_DIR)
   # which that file is what sets up.
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Worklets.cmake)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Reanimated.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Skia.cmake)
 
   # ---------------------------------------------------------------------------
   # basalt_core — everything that is not about a particular toolkit.

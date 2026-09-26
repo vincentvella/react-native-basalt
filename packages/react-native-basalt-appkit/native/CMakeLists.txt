@@ -197,6 +197,21 @@ if(TARGET basalt_core)
   target_include_directories(basalt_appkit_mounting PUBLIC appkit)
   target_link_libraries(basalt_appkit_mounting PUBLIC basalt_appkit_view basalt_core)
   target_link_libraries(basalt_appkit_mounting PUBLIC "-framework CoreText" "-framework ImageIO")
+
+  # @shopify/react-native-skia, when the build was pointed at an app that has it.
+  # See ../../react-native-basalt/native/cmake/Skia.cmake.
+  #
+  # Here and not on basalt_core, which is where it went first. Skia's Apple half
+  # reaches NSScreen, NSColorSpace and NSApplication, and basalt_core_probe links
+  # the core with no toolkit on purpose -- it exists so that what a new desktop
+  # has to provide is a link error rather than a discovery. It failed on exactly
+  # those three symbols, which is the probe doing its job: this is a host's
+  # dependency, not a portable one.
+  if(TARGET skia_core)
+    target_link_libraries(basalt_appkit_mounting PUBLIC skia_core "-framework AppKit")
+    target_sources(basalt_appkit_mounting PUBLIC $<TARGET_OBJECTS:skia_core>)
+    target_compile_definitions(basalt_appkit_mounting PUBLIC BASALT_HAS_SKIA=1)
+  endif()
   # UserNotifications, for AppKitNotifications.mm. Safe to link into every
   # build: the framework is present since 10.14 and the code behind it refuses
   # to run at all without a bundle identifier, which is the thing that actually
