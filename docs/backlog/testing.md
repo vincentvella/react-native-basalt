@@ -66,8 +66,15 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   hit it on Linux missed by 22 points. AppKit had 257 unit tests and no
   per-push check, and the only thing standing between a macOS regression and
   a release was whoever happened to run the suite on a Mac.
-- **The Fast Refresh scenario is skipped in CI**, so nothing on a machine
-  protects development mode. Metro on a GitHub runner never notices an edit:
+- **The Fast Refresh *edit* is skipped in CI.** Not the scenario: it runs on
+  all three platforms and guards the host half of development mode -- dev mode,
+  the dev server helper, the websocket, `DevSettings`, and a bundle Metro is on
+  record as having served this process. What is unguarded is narrower than this
+  entry used to claim, and one thing it used to claim was never true: the check
+  that the app fetched from Metro counted `BUNDLE` lines from the start of
+  Metro's log, which `prewarm` had already written two of, so it matched before
+  the host started and could not fail. Fixed, and guarded by
+  `scripts/test_harness.py`. Metro on a GitHub runner never notices an edit:
   the file changes on disk with a fresh mtime, a newly requested bundle still
   carries the old text, and Metro logs nothing. Ruled out already: `fs.watch`
   sees the same edit on the same runner; the inotify limits are 655360 watches
