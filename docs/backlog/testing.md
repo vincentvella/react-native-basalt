@@ -273,15 +273,19 @@ Part of the [backlog](../BACKLOG.md). Not scheduled.
   host package's CMakeLists is what an app configures. Left undone deliberately
   rather than folded into a change about the init command.
 
-- **A cancelled job reads as a job that ran.** `concurrency` with
-  `cancel-in-progress` is right -- a superseded push should not hold a runner
-  -- but a run of several quick commits leaves the long jobs cancelled every
-  time, and a cancelled job is not a failed one, so nothing says so. The Linux
-  job was cancelled on five consecutive pushes while Windows was failing on
-  every one of them, and the only reason anybody looked was that a *sixth*
-  push added a macOS job and its failure was assumed to be new.
+- ~~**A cancelled job reads as a job that ran.**~~ Both halves are fixed.
 
-  What would help: a scheduled or on-merge run that cannot be cancelled, or
-  reading the *last completed* run of a job rather than the last run, which is
-  what `gh run list` shows and what misled here. The twice-weekly schedule
-  already exists for cache warmth and would serve, if anything read it.
+  `cancel-in-progress` is now `${{ github.ref != 'refs/heads/main' }}`:
+  cancelling is right for a branch, where nobody needs the result for a commit
+  that has been replaced, and wrong for main, where it loses the only record
+  that a commit was tested. The cost is that quick pushes to main queue instead
+  of cancelling, which on a public repository is patience rather than money.
+
+  And `scripts/ci_status.py` reads the last run that reached a *verdict* per
+  job, rather than the last run, with the count of newer runs that did not --
+  which is the size of the blind spot, and on the day this entry describes would
+  have read 5. Shards fold together, and a job with one cancelled shard is
+  undecided rather than green, because three green shards and one cancelled is
+  not a tested commit. `scripts/test_ci_status.py` checks that logic against the
+  exact history above, because a bug in this tool would point the same
+  comfortable way the original problem did.

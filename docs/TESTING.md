@@ -461,6 +461,40 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+## Knowing whether CI actually passed
+
+`scripts/ci_status.py` says what each job last *decided*, which is not what `gh
+run list` shows. `gh` shows the latest run; when that run was cancelled by a
+newer push there is no verdict in it, and nothing distinguishes "not tested" from
+"tested and fine" -- a cancelled job is not a failed one.
+
+That cost five runs once. The Linux job was cancelled on five consecutive pushes
+to main while Windows failed on every one of them, and what exposed it was a
+sixth push adding a macOS job, whose failure was then assumed to be new. Five red
+runs read as four cancellations and a mystery.
+
+```
+  build and test           success   ace5dd3  2026-09-26T06:25:27Z
+  the AppKit host          success   ace5dd3  2026-09-26T06:25:27Z
+  the whole Windows stack  success   ace5dd3  2026-09-26T06:25:27Z
+```
+
+Each row is the newest run that job reached a verdict in, and a row gains `<- and
+N newer run(s) never finished, so this is older than it looks` when there are
+later runs it said nothing in. That count is the blind spot, and it is the number
+that would have exposed the day above.
+
+Shards fold together -- `the AppKit host (shard 2)` is the AppKit host -- and a
+job counts as decided for a run only when *every* shard decided. Three green
+shards and one cancelled is not a tested commit. It exits non-zero when any job's
+last verdict was a failure, so it works as a check and not only a report.
+
+The root cause is fixed too: `cancel-in-progress` is now
+`${{ github.ref != 'refs/heads/main' }}`, so main never loses a result and
+branches still free their runners. `scripts/test_ci_status.py` checks the logic
+against that five-run history, because a bug in a tool like this points the same
+comfortable way as the problem it was written for.
+
 ## Sharding
 
 `--shard I/N` runs the Ith of N shards of the end-to-end suite, and
