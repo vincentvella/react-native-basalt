@@ -77,6 +77,12 @@ class AppKitTouchDispatcher {
   void dispatchTouchEnd(double x, double y, basalt::PointerButton button);
   void dispatchTouchCancel();
 
+  // Starts a drag out of the window if the press began on a view marked as a
+  // drag source. True when it did, and the caller should then cancel the
+  // touch: AppKit owns the gesture from that point and the touch will never
+  // end. See core/DragAndDrop.h.
+  bool beginDragOut(double x, double y);
+
   // The hover half. Separate from dispatchTouchMove because the two answer
   // different questions about the same motion: the touch model asks which view
   // the finger went down on, and hover asks which views the cursor is inside

@@ -9,6 +9,11 @@
  * one is told: the innermost accepting view under the pointer, so a target
  * inside a target wins and a label inside one needs no marking of its own.
  *
+ * And one <DragSource>, for the other direction. Nothing automated drives it:
+ * once a drag begins the system owns it, and no instrument can put a file
+ * manager on the other end. Drag the green row into one and see what lands --
+ * that is the whole of its verification, which is why it is here at all.
+ *
  * @format
  */
 
@@ -16,7 +21,7 @@
 
 import * as React from 'react';
 import {AppRegistry, Platform, StyleSheet, Text, View} from 'react-native';
-import {DropTarget} from 'react-native-basalt';
+import {DragSource, DropTarget} from 'react-native-basalt';
 
 console.log(`Platform.OS is ${Platform.OS}`);
 
@@ -27,6 +32,7 @@ const styles = StyleSheet.create({
   outer: {height: 260, backgroundColor: '#1a1e28', padding: 24},
   inner: {height: 120, backgroundColor: '#2b3140', padding: 16},
   over: {backgroundColor: '#4285f4'},
+  draggable: {height: 44, backgroundColor: '#56c98a', padding: 12, marginTop: 16},
 });
 
 function App() {
@@ -58,6 +64,9 @@ function App() {
           <Text style={styles.line}>inner {inner}</Text>
         </DropTarget>
       </DropTarget>
+      <DragSource file="/tmp/dragged-out.txt" style={styles.draggable}>
+        <Text style={styles.line}>drag me out</Text>
+      </DragSource>
     </View>
   );
 }

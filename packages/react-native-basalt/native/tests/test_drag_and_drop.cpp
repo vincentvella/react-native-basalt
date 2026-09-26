@@ -88,3 +88,56 @@ TEST(drop_the_marker_round_trips) {
     EXPECT_EQ((int)basalt::dropAcceptsFrom(basalt::dropTargetIdFor(accepts)), (int)accepts);
   }
 }
+
+// --- Dragging out -----------------------------------------------------------
+
+TEST(drag_an_unmarked_native_id_carries_nothing) {
+  EXPECT(basalt::dragPayloadFrom("").empty());
+  EXPECT(basalt::dragPayloadFrom("my-view").empty());
+  // A drop marker is not a drag marker, which matters because a view may be
+  // both and the two prefixes must not collide.
+  EXPECT(basalt::dragPayloadFrom("basalt-drop:files").empty());
+}
+
+TEST(drag_a_marker_says_what_it_is) {
+  const DragPayload files = basalt::dragPayloadFrom("basalt-drag:files:/tmp/one.txt");
+  EXPECT_EQ((int)files.files.size(), 1);
+  EXPECT_EQ(files.files.empty() ? std::string{} : files.files[0], std::string("/tmp/one.txt"));
+  EXPECT(!files.hasText());
+
+  const DragPayload text = basalt::dragPayloadFrom("basalt-drag:text:hello");
+  EXPECT_EQ(text.text, std::string("hello"));
+  EXPECT(!text.hasFiles());
+}
+
+TEST(drag_a_value_may_contain_a_colon) {
+  // Only the first two colons are structure. A Windows path and a URL both
+  // depend on this, and splitting on every colon would quietly truncate them.
+  const DragPayload url = basalt::dragPayloadFrom("basalt-drag:text:https://example.com/a");
+  EXPECT_EQ(url.text, std::string("https://example.com/a"));
+
+  const DragPayload windows = basalt::dragPayloadFrom("basalt-drag:files:C:\\Users\\a.txt");
+  EXPECT_EQ(windows.files.empty() ? std::string{} : windows.files[0],
+            std::string("C:\\Users\\a.txt"));
+}
+
+TEST(drag_an_empty_or_unknown_marker_carries_nothing) {
+  EXPECT(basalt::dragPayloadFrom("basalt-drag:text:").empty());
+  EXPECT(basalt::dragPayloadFrom("basalt-drag:files:").empty());
+  EXPECT(basalt::dragPayloadFrom("basalt-drag:html:<b>").empty());
+  // No kind at all, which is what a half-written marker looks like.
+  EXPECT(basalt::dragPayloadFrom("basalt-drag:").empty());
+}
+
+TEST(drag_the_marker_round_trips) {
+  DragPayload files;
+  files.files.push_back("/tmp/one.txt");
+  DragPayload text;
+  text.text = "hello world";
+
+  for (const DragPayload &payload : {files, text}) {
+    const DragPayload back = basalt::dragPayloadFrom(basalt::dragSourceIdFor(payload));
+    EXPECT_EQ(back.files.size(), payload.files.size());
+    EXPECT_EQ(back.text, payload.text);
+  }
+}

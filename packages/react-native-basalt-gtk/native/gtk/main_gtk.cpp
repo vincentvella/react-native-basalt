@@ -1173,6 +1173,11 @@ void onActivate(GtkApplication *app, gpointer data) {
   // pointer, and which *app* view that is is core/DragAndDrop.h's question.
   basalt::attachDropTarget(host->main().root);
 
+  // And dragging out of it. A separate controller on the same widget: GTK
+  // keeps the two directions apart and so does the marker -- a view may be
+  // both, and most are neither.
+  basalt::attachDragSource(host->main().root);
+
   host->runLoopObserverManager = std::make_shared<RunLoopObserverManager>();
   host->choreographer = std::make_shared<basalt::GtkAnimationChoreographer>();
 

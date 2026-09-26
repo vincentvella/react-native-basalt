@@ -124,6 +124,204 @@ DragPayload payloadFrom(IDataObject *data) {
   return payload;
 }
 
+// What OLE asks while a drag this app started is in flight.
+class DragSource : public IDropSource {
+ public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override {
+    if (out == nullptr) {
+      return E_POINTER;
+    }
+    if (riid == IID_IUnknown || riid == IID_IDropSource) {
+      *out = static_cast<IDropSource *>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG left = --references_;
+    if (left == 0) {
+      delete this;
+    }
+    return left;
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escapePressed, DWORD keys) override {
+    if (escapePressed) {
+      return DRAGDROP_S_CANCEL;
+    }
+    // The button coming up is the drop. Left only: this platform starts a
+    // drag from a primary press and nothing else.
+    if ((keys & MK_LBUTTON) == 0) {
+      return DRAGDROP_S_DROP;
+    }
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD /*effect*/) override {
+    // The system's own cursors, which is what every other application shows.
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+  }
+
+ private:
+  ULONG references_{1};
+};
+
+// A data object carrying one thing.
+//
+// Hand-written because OLE has no simple one: even a single string needs an
+// IDataObject, an IEnumFORMATETC to advertise it, and an HGLOBAL to hold it.
+// GTK asks for a GValue and AppKit for an id<NSPasteboardWriting>; this is the
+// same idea, three interfaces deep.
+class SingleFormatData : public IDataObject {
+ public:
+  SingleFormatData(CLIPFORMAT format, HGLOBAL medium) : format_(format), medium_(medium) {}
+
+  ~SingleFormatData() {
+    if (medium_ != nullptr) {
+      GlobalFree(medium_);
+    }
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override {
+    if (out == nullptr) {
+      return E_POINTER;
+    }
+    if (riid == IID_IUnknown || riid == IID_IDataObject) {
+      *out = static_cast<IDataObject *>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG left = --references_;
+    if (left == 0) {
+      delete this;
+    }
+    return left;
+  }
+
+  HRESULT STDMETHODCALLTYPE GetData(FORMATETC *request, STGMEDIUM *out) override {
+    if (request == nullptr || out == nullptr) {
+      return E_POINTER;
+    }
+    if (request->cfFormat != format_ || (request->tymed & TYMED_HGLOBAL) == 0) {
+      return DV_E_FORMATETC;
+    }
+    // A copy: the receiver owns what it is given, and this object may be
+    // asked again.
+    const SIZE_T size = GlobalSize(medium_);
+    HGLOBAL copy = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (copy == nullptr) {
+      return E_OUTOFMEMORY;
+    }
+    void *from = GlobalLock(medium_);
+    void *to = GlobalLock(copy);
+    if (from != nullptr && to != nullptr) {
+      memcpy(to, from, size);
+    }
+    GlobalUnlock(medium_);
+    GlobalUnlock(copy);
+
+    out->tymed = TYMED_HGLOBAL;
+    out->hGlobal = copy;
+    out->pUnkForRelease = nullptr;
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC *, STGMEDIUM *) override {
+    return E_NOTIMPL;
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC *request) override {
+    if (request == nullptr) {
+      return E_POINTER;
+    }
+    return (request->cfFormat == format_ && (request->tymed & TYMED_HGLOBAL) != 0)
+        ? S_OK
+        : DV_E_FORMATETC;
+  }
+
+  HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC *, FORMATETC *out) override {
+    if (out != nullptr) {
+      out->ptd = nullptr;
+    }
+    return E_NOTIMPL;
+  }
+
+  HRESULT STDMETHODCALLTYPE SetData(FORMATETC *, STGMEDIUM *, BOOL) override {
+    return E_NOTIMPL;
+  }
+
+  HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD direction, IEnumFORMATETC **out) override {
+    if (out == nullptr) {
+      return E_POINTER;
+    }
+    *out = nullptr;
+    if (direction != DATADIR_GET) {
+      return E_NOTIMPL;
+    }
+    FORMATETC format{format_, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    // SHCreateStdEnumFmtEtc rather than a fourth hand-written interface.
+    return SHCreateStdEnumFmtEtc(1, &format, out);
+  }
+
+  HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC *, DWORD, IAdviseSink *, DWORD *) override {
+    return OLE_E_ADVISENOTSUPPORTED;
+  }
+  HRESULT STDMETHODCALLTYPE DUnadvise(DWORD) override { return OLE_E_ADVISENOTSUPPORTED; }
+  HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA **) override {
+    return OLE_E_ADVISENOTSUPPORTED;
+  }
+
+ private:
+  ULONG references_{1};
+  CLIPFORMAT format_{0};
+  HGLOBAL medium_{nullptr};
+};
+
+IDataObject *makeTextDataObject(const std::string &text) {
+  const std::wstring wide = widen(text);
+  const SIZE_T bytes = (wide.size() + 1) * sizeof(wchar_t);
+  HGLOBAL medium = GlobalAlloc(GMEM_MOVEABLE, bytes);
+  if (medium == nullptr) {
+    return nullptr;
+  }
+  auto *out = static_cast<wchar_t *>(GlobalLock(medium));
+  if (out != nullptr) {
+    memcpy(out, wide.c_str(), bytes);
+    GlobalUnlock(medium);
+  }
+  return new SingleFormatData(CF_UNICODETEXT, medium);
+}
+
+IDataObject *makeFileDataObject(const std::string &path) {
+  const std::wstring wide = widen(path);
+  // DROPFILES, then the paths, then a second NUL to end the list. The shell's
+  // own format, which is what makes another application receive a file rather
+  // than a string that looks like one.
+  const SIZE_T bytes = sizeof(DROPFILES) + (wide.size() + 2) * sizeof(wchar_t);
+  HGLOBAL medium = GlobalAlloc(GMEM_MOVEABLE, bytes);
+  if (medium == nullptr) {
+    return nullptr;
+  }
+  auto *drop = static_cast<DROPFILES *>(GlobalLock(medium));
+  if (drop != nullptr) {
+    ZeroMemory(drop, bytes);
+    drop->pFiles = sizeof(DROPFILES);
+    drop->fWide = TRUE;
+    auto *names = reinterpret_cast<wchar_t *>(reinterpret_cast<char *>(drop) + sizeof(DROPFILES));
+    memcpy(names, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
+    GlobalUnlock(medium);
+  }
+  return new SingleFormatData(CF_HDROP, medium);
+}
+
 // The OLE drop target for one window.
 //
 // Reference counted because OLE holds it: `RegisterDragDrop` takes a
@@ -298,6 +496,56 @@ facebook::react::Tag dropTargetAt(win32::RnWin32View *root,
     }
   }
   return 0;
+}
+
+DragPayload dragPayloadAt(win32::RnWin32View *root, double x, double y) {
+  if (root == nullptr) {
+    return {};
+  }
+  win32::RnWin32View *hit =
+      win32::hitTest(root, static_cast<float>(x), static_cast<float>(y));
+  if (hit == nullptr) {
+    return {};
+  }
+  std::vector<win32::RnWin32View *> path;
+  if (!pathTo(root, hit, path)) {
+    return {};
+  }
+  // Deepest first, the same rule the drop side applies.
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    const DragPayload payload = dragPayloadFrom((*it)->nativeId());
+    if (!payload.empty()) {
+      return payload;
+    }
+  }
+  return {};
+}
+
+bool beginDragIfMarked(win32::RnWin32View *root, double x, double y) {
+  const DragPayload payload = dragPayloadAt(root, x, y);
+  if (payload.empty()) {
+    return false;
+  }
+
+  IDataObject *data = nullptr;
+  if (payload.hasFiles()) {
+    data = makeFileDataObject(payload.files.front());
+  } else {
+    data = makeTextDataObject(payload.text);
+  }
+  if (data == nullptr) {
+    return false;
+  }
+
+  auto *source = new DragSource();
+  DWORD effect = DROPEFFECT_NONE;
+  // Modal: this does not return until the drop or the cancel. Which is why
+  // the caller has to treat the gesture as gone -- everything that would have
+  // continued the press happens inside here, to OLE.
+  DoDragDrop(data, source, DROPEFFECT_COPY, &effect);
+  source->Release();
+  data->Release();
+  return true;
 }
 
 void attachDropTarget(HWND window, win32::RnWin32View *root) {

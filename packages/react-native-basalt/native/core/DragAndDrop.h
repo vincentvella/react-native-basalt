@@ -136,6 +136,61 @@ inline std::string dropTargetIdFor(std::uint16_t accepts) {
   return id;
 }
 
+// --- Dragging out -----------------------------------------------------------
+//
+// The other direction, and marked the same way -- except that a drag source
+// declares *what it is*, not what it takes, so the marker carries a value:
+// `basalt-drag:text:hello`, `basalt-drag:files:/tmp/one.txt`.
+//
+// Declared in advance rather than produced on demand, because every toolkit
+// owns the gesture: GtkDragSource, `beginDraggingSessionWithItems:` and
+// `DoDragDrop` all start the drag themselves and ask what is being dragged
+// synchronously, on the UI thread. An app asked at that moment would have to
+// answer from JavaScript on another thread, which is the same problem
+// refusing to close has, and it is solved the same way -- say it beforehand.
+inline constexpr const char *kDragSourceIdPrefix = "basalt-drag:";
+
+// What a marked view represents, or an empty payload for any other nativeID.
+//
+// Everything after the second colon is the value, so a path or a line of text
+// containing a colon survives: only the first two are structure.
+inline DragPayload dragPayloadFrom(const std::string &nativeId) {
+  DragPayload payload;
+  const std::string prefix(kDragSourceIdPrefix);
+  if (nativeId.rfind(prefix, 0) != 0) {
+    return payload;
+  }
+  const size_t kindEnd = nativeId.find(':', prefix.size());
+  if (kindEnd == std::string::npos) {
+    return payload;
+  }
+  const std::string kind = nativeId.substr(prefix.size(), kindEnd - prefix.size());
+  const std::string value = nativeId.substr(kindEnd + 1);
+  if (value.empty()) {
+    return payload;
+  }
+  if (kind == "files") {
+    payload.files.push_back(value);
+  } else if (kind == "text") {
+    payload.text = value;
+  }
+  return payload;
+}
+
+// The inverse, so a test can round-trip it and JavaScript has one authority
+// to match. Files win where a payload somehow carries both: a desktop
+// dragging a file offers its name as text anyway.
+inline std::string dragSourceIdFor(const DragPayload &payload) {
+  std::string id(kDragSourceIdPrefix);
+  if (payload.hasFiles()) {
+    return id + "files:" + payload.files.front();
+  }
+  if (payload.hasText()) {
+    return id + "text:" + payload.text;
+  }
+  return id;
+}
+
 // What happened over a drop target.
 //
 // One struct and a kind rather than three callbacks, because the host reports

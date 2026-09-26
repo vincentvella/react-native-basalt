@@ -8,6 +8,8 @@
 
 #import "RnAppKitView.h"
 
+#include "DragAndDrop.h"
+
 #include <cstdint>
 
 #include <react/renderer/core/ReactPrimitives.h>
@@ -20,5 +22,13 @@ facebook::react::Tag dropTargetAt(RnAppKitView *root, double x, double y, std::u
 
 // Makes the surface root accept files and text dragged onto it.
 void attachDropTarget(RnAppKitView *root);
+
+// The payload a marked view under this point represents, or an empty one.
+DragPayload dragPayloadAt(RnAppKitView *root, double x, double y);
+
+// Begins a drag out of the window, if the press at this point started on a
+// marked view. Answers whether it did -- a caller that hears yes should stop
+// treating the gesture as a press, because AppKit now owns it.
+bool beginDragIfMarked(RnAppKitView *root, double x, double y);
 
 } // namespace basalt

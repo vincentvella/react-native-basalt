@@ -116,6 +116,68 @@ facebook::react::Tag dropTargetAt(RnView *root, double x, double y, std::uint16_
   return 0;
 }
 
+DragPayload dragPayloadAt(RnView *root, double x, double y) {
+  if (root == nullptr || !RN_IS_VIEW(root)) {
+    return {};
+  }
+  GtkWidget *const rootWidget = GTK_WIDGET(root);
+  GtkWidget *widget = gtk_widget_pick(rootWidget, x, y, GTK_PICK_DEFAULT);
+
+  // The same walk the drop side makes, and the same reason: a label inside a
+  // draggable view should be draggable without being marked itself.
+  for (; widget != nullptr; widget = gtk_widget_get_parent(widget)) {
+    if (RN_IS_VIEW(widget)) {
+      const char *id = rn_view_get_native_id(RN_VIEW(widget));
+      if (id != nullptr) {
+        const DragPayload payload = dragPayloadFrom(id);
+        if (!payload.empty()) {
+          return payload;
+        }
+      }
+    }
+    if (widget == rootWidget) {
+      break;
+    }
+  }
+  return {};
+}
+
+void attachDragSource(RnView *root) {
+  if (root == nullptr || !RN_IS_VIEW(root)) {
+    return;
+  }
+
+  GtkDragSource *source = gtk_drag_source_new();
+  gtk_drag_source_set_actions(source, GDK_ACTION_COPY);
+
+  // "prepare" is asked once, when the gesture has gone far enough to be a
+  // drag, and its answer *is* the drag: returning NULL means this point is not
+  // draggable and the gesture becomes an ordinary press again. Which is why
+  // the payload has to be known already -- there is nowhere to wait here.
+  g_signal_connect(source,
+                   "prepare",
+                   G_CALLBACK(+[](GtkDragSource *, double x, double y, gpointer data)
+                                  -> GdkContentProvider * {
+                     auto *rootView = static_cast<RnView *>(data);
+                     const DragPayload payload = dragPayloadAt(rootView, x, y);
+                     if (payload.hasFiles()) {
+                       GFile *file = g_file_new_for_path(payload.files.front().c_str());
+                       GdkContentProvider *provider =
+                           gdk_content_provider_new_typed(G_TYPE_FILE, file);
+                       g_object_unref(file);
+                       return provider;
+                     }
+                     if (payload.hasText()) {
+                       return gdk_content_provider_new_typed(
+                           G_TYPE_STRING, payload.text.c_str());
+                     }
+                     return nullptr;
+                   }),
+                   root);
+
+  gtk_widget_add_controller(GTK_WIDGET(root), GTK_EVENT_CONTROLLER(source));
+}
+
 void attachDropTarget(RnView *root) {
   if (root == nullptr || !RN_IS_VIEW(root)) {
     return;

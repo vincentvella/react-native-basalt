@@ -59,6 +59,8 @@ export {useDisplays, displays, primaryDisplay, pointerPosition} from './useDispl
 // Accepting a file or text dragged onto the app, which React Native has no
 // API for: see src/DropTarget.tsx.
 export {DropTarget, dropTargetId} from './DropTarget';
+export {DragSource, dragSourceId} from './DragSource';
+export type {DragSourceProps} from './DragSource';
 export type {DropPayload, DropPoint, DropTargetProps} from './DropTarget';
 export type {Display, PointerPosition} from './useDisplays';
 export type {AllowQuit, QuitRequestHandler} from './quitRequest';

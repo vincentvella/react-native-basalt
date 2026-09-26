@@ -1,5 +1,7 @@
 #import "AppKitTouchDispatcher.h"
 
+#import "AppKitDropTarget.h"
+
 #include "Gestures.h"
 
 #include <react/renderer/components/view/PointerEvent.h>
@@ -10,22 +12,44 @@
 // The bridge between AppKit's protocol and the C++ dispatcher. A C++ object
 // cannot conform to an Objective-C protocol, and the root holds its handler
 // weakly, so this exists and the dispatcher owns it.
-@interface RnAppKitInputTarget : NSObject <RnAppKitInputHandler>
+@interface RnAppKitInputTarget : NSObject <RnAppKitInputHandler> {
+  // Whether this press has already been offered as a drag. See
+  // rnMouseDraggedTo:.
+  BOOL _dragAsked;
+}
 @property(nonatomic, assign) basalt::AppKitTouchDispatcher *dispatcher;
 @end
 
 @implementation RnAppKitInputTarget
 
 - (void)rnMouseDownAt:(NSPoint)point button:(int)button {
+  // A new press: the drag question is open again.
+  _dragAsked = NO;
   if (_dispatcher != nullptr) {
     _dispatcher->dispatchTouchStart(point.x, point.y, static_cast<basalt::PointerButton>(button));
   }
 }
 
 - (void)rnMouseDraggedTo:(NSPoint)point {
-  if (_dispatcher != nullptr) {
-    _dispatcher->dispatchTouchMove(point.x, point.y);
+  if (_dispatcher == nullptr) {
+    return;
   }
+  // A drag out of the window, if the press started on a marked view. Asked
+  // here rather than on mouseDown: a press is not a drag until it moves, and
+  // asking on the way down would turn every press on a draggable view into
+  // one.
+  //
+  // Answered once per press: `beginDraggingSessionWithItems:` takes the
+  // gesture, and AppKit runs its own loop until the drop -- so the touch that
+  // started it never ends, and it is cancelled rather than left hanging.
+  if (!_dragAsked) {
+    _dragAsked = YES;
+    if (_dispatcher->beginDragOut(point.x, point.y)) {
+      _dispatcher->dispatchTouchCancel();
+      return;
+    }
+  }
+  _dispatcher->dispatchTouchMove(point.x, point.y);
 }
 
 - (void)rnMouseUpAt:(NSPoint)point button:(int)button {
@@ -140,6 +164,10 @@ void AppKitTouchDispatcher::synthesiseDrag(double fromX, double fromY, double to
 // ---------------------------------------------------------------------------
 // Hit testing
 // ---------------------------------------------------------------------------
+
+bool AppKitTouchDispatcher::beginDragOut(double x, double y) {
+  return beginDragIfMarked(surfaceRoot_, x, y);
+}
 
 Tag hitTestTag(RnAppKitView *root, double x, double y) {
   RnAppKitView *hit = RnAppKitHitTest(root, x, y);

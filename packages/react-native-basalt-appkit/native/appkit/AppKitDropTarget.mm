@@ -42,6 +42,98 @@ facebook::react::Tag dropTargetAt(RnAppKitView *root, double x, double y, std::u
 
 } // namespace basalt
 
+// What AppKit asks about the drag while it is in flight.
+//
+// A class of its own because RnAppKitView does not conform to
+// NSDraggingSource, and should not: a view is a drag source only while a drag
+// it started is running, and that is a session's lifetime rather than a
+// view's.
+@interface RnDragSource : NSObject <NSDraggingSource>
+@end
+
+@implementation RnDragSource
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session
+    sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+  (void)session;
+  // Copy in both contexts. This platform has no notion of a drag that moves
+  // or links, and offering one it cannot honour would be a cursor promising
+  // something the drop does not do -- the same rule the drop side applies.
+  (void)context;
+  return NSDragOperationCopy;
+}
+
+@end
+
+namespace basalt {
+namespace {
+
+// Alive for as long as the session is. AppKit holds the source weakly, and a
+// source collected mid-drag is a drag that stops answering.
+RnDragSource *gDragSource = nil;
+
+} // namespace
+
+DragPayload dragPayloadAt(RnAppKitView *root, double x, double y) {
+  if (root == nil) {
+    return {};
+  }
+  RnAppKitView *hit = RnAppKitHitTest(root, x, y);
+  // The same walk the drop side makes: a label inside a draggable view should
+  // be draggable without being marked itself.
+  for (NSView *view = hit; view != nil; view = view.superview) {
+    if ([view isKindOfClass:[RnAppKitView class]]) {
+      NSString *identifier = ((RnAppKitView *)view).rnNativeId;
+      if (identifier != nil) {
+        const DragPayload payload = dragPayloadFrom(identifier.UTF8String);
+        if (!payload.empty()) {
+          return payload;
+        }
+      }
+    }
+    if (view == root) {
+      break;
+    }
+  }
+  return {};
+}
+
+bool beginDragIfMarked(RnAppKitView *root, double x, double y) {
+  const DragPayload payload = dragPayloadAt(root, x, y);
+  if (payload.empty()) {
+    return false;
+  }
+
+  // What the rest of the desktop will receive. A file URL for a file and a
+  // string for text, which are the two every other application understands.
+  id<NSPasteboardWriting> item = nil;
+  if (payload.hasFiles()) {
+    item = [NSURL fileURLWithPath:[NSString stringWithUTF8String:payload.files.front().c_str()]];
+  } else {
+    item = [NSString stringWithUTF8String:payload.text.c_str()];
+  }
+
+  NSDraggingItem *dragged =
+      [[NSDraggingItem alloc] initWithPasteboardWriter:item];
+  // Something to see while dragging. A plain rectangle where the view is,
+  // rather than a snapshot: a snapshot means rendering the view again into an
+  // image, and the drag has to start on this event or not at all.
+  const NSRect frame = NSMakeRect(x - 40, y - 20, 80, 40);
+  [dragged setDraggingFrame:frame contents:nil];
+
+  NSEvent *event = NSApp.currentEvent;
+  if (event == nil) {
+    return false;
+  }
+  if (gDragSource == nil) {
+    gDragSource = [[RnDragSource alloc] init];
+  }
+  [root beginDraggingSessionWithItems:@[ dragged ] event:event source:gDragSource];
+  return true;
+}
+
+} // namespace basalt
+
 // The dragging destination itself.
 //
 // On a view of its own, layered over the surface root, rather than on

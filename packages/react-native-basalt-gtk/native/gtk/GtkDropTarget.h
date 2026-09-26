@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "DragAndDrop.h"
 #include "RnView.h"
 
 #include <gtk/gtk.h>
@@ -27,5 +28,13 @@ facebook::react::Tag dropTargetAt(RnView *root, double x, double y, std::uint16_
 // Attaches a GtkDropTarget to the surface root, so the window accepts files
 // and text dragged onto it from anywhere on the desktop.
 void attachDropTarget(RnView *root);
+
+// The payload a marked view under this point represents, or an empty one.
+// The other direction: see core/DragAndDrop.h.
+DragPayload dragPayloadAt(RnView *root, double x, double y);
+
+// Attaches a GtkDragSource, so a marked view can be dragged out of the window
+// to anywhere on the desktop.
+void attachDragSource(RnView *root);
 
 } // namespace basalt

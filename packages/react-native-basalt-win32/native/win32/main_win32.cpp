@@ -168,6 +168,9 @@ struct HostWindow {
   facebook::react::SurfaceId surfaceId{0};
   HWND window{nullptr};
   RnWin32View *root{nullptr};
+  // Whether this press has already been offered as a drag out; see
+  // WM_MOUSEMOVE.
+  bool dragAsked{false};
   ComPtr<ID2D1HwndRenderTarget> target;
   std::unique_ptr<basalt::Win32TouchDispatcher> touchDispatcher;
   std::unique_ptr<basalt::Win32FocusManager> focusManager;
@@ -1314,6 +1317,8 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       if (self == nullptr || self->touchDispatcher == nullptr) {
         break;
       }
+      // A new press: the drag question is open again.
+      self->dragAsked = false;
       const basalt::PointerButton button = message == WM_LBUTTONDOWN
           ? basalt::PointerButton::Primary
           : (message == WM_RBUTTONDOWN ? basalt::PointerButton::Secondary
@@ -1342,6 +1347,20 @@ LRESULT CALLBACK hostProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         // dispatcher drops it; the check here is only to keep an idle mouse
         // from walking the view tree sixty times a second.
         if (self->touchDispatcher->isDown()) {
+          // A drag out of the window, if the press began on a marked view.
+          // Asked once per press and here rather than on the button going
+          // down: a press is not a drag until it moves.
+          //
+          // DoDragDrop runs its own modal loop until the drop, so the touch
+          // that started this never ends -- it is cancelled rather than left
+          // hanging, the same arrangement the AppKit host uses.
+          if (!self->dragAsked) {
+            self->dragAsked = true;
+            if (basalt::beginDragIfMarked(self->root, GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam))) {
+              self->touchDispatcher->dispatchTouchCancel();
+              return 0;
+            }
+          }
           self->touchDispatcher->dispatchTouchMove(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
         } else {
           // Hover, which is a different question about the same message. Views

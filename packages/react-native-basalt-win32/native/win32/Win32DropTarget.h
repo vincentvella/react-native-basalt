@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "DragAndDrop.h"
 #include "RnWin32View.h"
 
 #include <windows.h>
@@ -28,5 +29,14 @@ facebook::react::Tag dropTargetAt(win32::RnWin32View *root,
 // is destroyed while registered leaves OLE holding a pointer to it.
 void attachDropTarget(HWND window, win32::RnWin32View *root);
 void detachDropTarget(HWND window);
+
+// The payload a marked view under this point represents, or an empty one.
+DragPayload dragPayloadAt(win32::RnWin32View *root, double x, double y);
+
+// Begins a drag out of the window if the press began on a marked view. True
+// when it did -- and DoDragDrop runs its own modal loop until the drop, so a
+// caller that hears yes has already lost the gesture and should cancel the
+// touch it was tracking.
+bool beginDragIfMarked(win32::RnWin32View *root, double x, double y);
 
 } // namespace basalt

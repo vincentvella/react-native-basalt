@@ -14,14 +14,16 @@
 
 ## 2. GTK
 
-Dragging *out* is deliberately left for later on all three hosts: it is the
-harder direction, and it is the one a test cannot drive at all, since the
-system owns the drag once it starts. Dropping *in* is the half the proposal
-leads with -- "an app here cannot take a file from the file manager".
+Both directions are implemented. Dragging *out* is the harder one and the one
+no test can drive: the system owns the drag once it starts, and no instrument
+can put a file manager on the other end. Its verification is the demo's green
+row and a person dragging it somewhere, which is stated in the demo and in
+docs/TESTING.md rather than left for somebody to discover.
 
 
 - [x] Attach a `GtkDropTarget` to the surface root and route its signals
-- [ ] Implement dragging out with a `GdkContentProvider`
+- [x] Implement dragging out with a `GdkContentProvider`, from a
+      `GtkDragSource` whose `prepare` signal answers with the payload
 
 ## 3. AppKit
 
@@ -29,14 +31,22 @@ leads with -- "an app here cannot take a file from the file manager".
       surface root, not on `RnAppKitView`. Every view would otherwise be a
       destination and AppKit would ask the deepest, which is the opposite of
       the rule: the deepest *marked* view decides
-- [ ] Implement dragging out with `NSPasteboardWriting`
+- [x] Implement dragging out with `NSPasteboardWriting` -- an `NSURL` for a
+      file, an `NSString` for text -- begun from the touch dispatcher's
+      `mouseDragged`, with a separate `NSDraggingSource` object because a view
+      is a drag source only while a drag it started is running
 
 ## 4. Win32
 
 - [x] Register an `IDropTarget` per window and route its methods, with
       `OleInitialize` in place of `CoInitializeEx` -- a thread that only called
       the latter can open a URL and cannot accept a drop
-- [ ] Implement dragging out with `DoDragDrop`
+- [x] Implement dragging out with `DoDragDrop`, which needed the most of the
+      three by far: OLE has no simple data object, so one thing being dragged
+      means a hand-written `IDataObject`, an `IDropSource`, and
+      `SHCreateStdEnumFmtEtc` to advertise the single format. A file goes as
+      `CF_HDROP` with a `DROPFILES` header, which is what makes another
+      application receive a file rather than a string that looks like one
 
 ## 5. JavaScript and tests
 
@@ -65,3 +75,19 @@ leads with -- "an app here cannot take a file from the file manager".
       matches nothing looks exactly like an event for another view.
 - [x] AppKit stored no `nativeID` at all. GTK and Win32 did; nothing on that
       host had needed it.
+
+## 7. What dragging out needed that dropping in did not
+
+- [x] The payload declared in advance rather than asked for. Every toolkit
+      owns the gesture -- `GtkDragSource`,
+      `beginDraggingSessionWithItems:` and `DoDragDrop` all start the drag and
+      ask what is being dragged synchronously, on the UI thread. An app asked
+      then would have to answer from JavaScript on another thread, which is
+      the problem `useCloseRequest` has and is solved the same way.
+- [x] A per-press "already asked" flag on two hosts. A press is not a drag
+      until it moves, so the question is asked on the first move rather than
+      on the way down -- and exactly once, because the modal drag loop means
+      the touch that began it never ends and has to be cancelled.
+- [x] No automated coverage, said plainly. The gesture tests passing proves
+      only that a drag source is inert when nothing is marked, which is worth
+      knowing and is not the same as proving a drag works.

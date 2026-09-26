@@ -21,7 +21,7 @@ is missing", and gains a pointer. Three entries have one today.
 10. Windows notifications carry no identity of their own
 11. Cursor control
 12. Application lifecycle -- refusing to quit is proposed
-13. Drag and drop -- dropping in works; dragging out is open
+13. ~~Drag and drop~~ -- both directions; dragging out is untestable and says so
 14. Clipboard
 15. Shell integration
 16. ~~Displays and screen~~ -- done
@@ -190,11 +190,18 @@ that boundary to place.
   with the hit test and the "innermost marked view wins" rule in
   `core/DragAndDrop.h`.
 
-  Dragging *out* is the half people forget and the half a file manager needs,
-  and it is still absent: `GdkContentProvider`, `NSPasteboardWriting` and
-  `DoDragDrop`. It is also the half no test can drive -- the system owns the
-  drag once it starts -- which is a reason to be careful with it rather than a
-  reason to skip it. See `openspec/changes/add-drag-and-drop`.
+  Dragging *out* works too, through `GdkContentProvider`,
+  `NSPasteboardWriting` and `DoDragDrop`. It needed the payload declared in
+  advance rather than asked for, because every toolkit owns the gesture and
+  asks what is being dragged synchronously on the UI thread -- the same
+  constraint refusing to close has.
+
+  It has no automated coverage and cannot: the system owns the drag once it
+  starts, and no instrument can put a file manager on the other end. What is
+  proven is that a drag source is inert when nothing is marked; the rest is
+  the demo and a person. Windows needed by far the most code -- OLE has no
+  simple data object, so one dragged file means a hand-written `IDataObject`,
+  an `IDropSource` and `SHCreateStdEnumFmtEtc`.
 - **Clipboard** -- *partial*. Text works, through React Native's own `Clipboard`.
   Images, HTML, RTF and a list of files are each a separate pasteboard type on
   each platform, and none is carried.

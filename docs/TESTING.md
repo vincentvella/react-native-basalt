@@ -447,6 +447,14 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+**Dragging *out* has no automated coverage at all**, and cannot have: once a
+drag begins the system owns it, and no instrument can put a file manager on the
+other end to receive the drop. What the suite does prove is that a drag source
+is *inert* when no view is marked -- every press, scroll and context-menu
+scenario passes with one attached -- which is worth knowing and is not the same
+as proving a drag works. The verification is `js/drop.js`'s green row and a
+person dragging it somewhere.
+
 **An instrument goes on all three hosts, or the scenario that uses it skips
 where it is missing.** Written down because it has been got wrong twice, the
 same way both times: `BASALT_TEST_QUIT` and then `BASALT_TEST_DROP` were added
