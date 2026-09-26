@@ -631,6 +631,53 @@ Windows one above, two years of API apart. GTK and Win32 need no exemption:
 their session signals are not on the path `g_application_quit` and
 `PostQuitMessage` take.
 
+`BASALT_QUIT_WHEN_SETTLED=<ms>` ends a run when there is nothing left to wait
+for, rather than on a budget chosen before the process started. **Settled** means
+the first mount has been applied and any scripted input has been delivered, plus
+a short settle for React's next commit. `BASALT_QUIT_AFTER_MS` stays as the
+backstop, so nothing can get slower and a host that never settles still ends.
+
+Measured on the whole macOS suite: **445s to 210s**, twice, to the second. The
+developer menu scenario went from 39.5s to 8.2s, `test_controls` from 43.1s, the
+application menu from 7.6s to 1.0s.
+
+The first mount is recorded in `MountingWalk::applyMutations`, which is the one
+place all three hosts mount through -- so this is one code site rather than
+three, for the reason `core/TestQuitFile.h` gives about shared spellings. Only
+the *first* mount counts: taking the latest would push the settle out on every
+commit, and an app that re-renders steadily would never settle at all.
+
+**The first version saved nothing on the scenarios it was written for.** It
+measured 2.96s against a 3s budget, because the hosts report their scripted
+schedule whether or not any input was asked for, and that total is never zero --
+it starts at 1500ms so a tap has a window to land on. Core ignores an empty
+schedule now, which is what took the no-input case to 1.4s. Deciding whether a
+schedule is real needs a list of the instruments that make one, and that list
+must be *scheduled* instruments: `BASALT_TEST_MENU` and `BASALT_TEST_DIALOG` look
+like they belong and do not, because they answer something when it appears rather
+than being laid out on a timer. That error was caught by the check in
+`scripts/test_harness.py`, which holds the list against what the three host mains
+actually read, in both directions.
+
+**Which scenarios opt in is a list of scenarios that have been run, not of
+scenarios that looked fine.** Every one was opted in at once and the suite run;
+seven failed, and all seven for the same reason -- work after the last input with
+nothing scheduling it. An animation *is* time. A refusal followed by an agreement
+is two events deliberately separated by time. A trace update that takes itself
+down again is measuring a decay. A settle cannot stand in for a duration that is
+the thing under test, and those keep their budgets. The list and each exclusion's
+failure text live in `scripts/integration_test.py`.
+
+Guessing is only safe because getting it wrong fails loudly: everything opted in
+asserts on the dumped tree or a logged line, so quitting early produces a missing
+assertion rather than a quiet success. `BASALT_NO_SETTLE=1` turns the whole thing
+off, which is how the saving was measured and how to tell "this scenario is
+broken" from "this scenario needed longer than it was given".
+
+The suite also prints each scenario's duration now. Its cost is the thing most
+often being worked on here and was only ever visible as a total, which is why
+every estimate in this area had been a guess.
+
 `BASALT_TEST_QUIT_FILE` is how the harness ends a run at a moment it picks,
 rather than on a budget fixed before launch. The host polls for the path and
 shuts down as soon as it exists, through exactly the path `BASALT_QUIT_AFTER_MS`

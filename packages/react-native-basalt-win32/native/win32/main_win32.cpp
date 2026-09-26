@@ -44,6 +44,7 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "TestQuitFile.h"
+#include "TestSettle.h"
 #include "Win32MountingManager.h"
 
 #include <react/io/ImageLoaderModule.h>
@@ -2305,6 +2306,11 @@ int main(int argc, char **argv) {
         ScriptedInput{.kind = ScriptedInput::Kind::Type, .text = text}, scriptedDelayMs);
   }
 
+  // What the schedule above came to, so BASALT_QUIT_WHEN_SETTLED waits for the
+  // last of it rather than only for the first mount. Said once, after everything
+  // that moves the total. See core/TestSettle.h.
+  basalt::noteScriptedInputEndsInMs(scriptedDelayMs);
+
   // BASALT_QUIT_AFTER_MS, so an automated run terminates without anyone
   // clicking anything. The same escape hatch both other hosts have.
   if (const char *quitAfter = std::getenv("BASALT_QUIT_AFTER_MS")) {
@@ -2334,16 +2340,26 @@ int main(int argc, char **argv) {
   // scenarios that read the tree could not be run here at all.
   //
   // See core/TestQuitFile.h.
-  if (basalt::testQuitFilePath().has_value()) {
+  //
+  // Two instruments, one timer, because they want the same thing at different
+  // moments: the quit file is the harness deciding, BASALT_QUIT_WHEN_SETTLED is
+  // the app noticing it has nothing left to do. One timer is also one id, and
+  // SetTimer replaces silently on a collision. See core/TestSettle.h.
+  if (basalt::testQuitFilePath().has_value() || basalt::quitWhenSettledMs().has_value()) {
     SetTimer(gHost.main().window,
              kQuitFileTimer,
              basalt::kTestQuitFilePollMs,
              [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
-               if (!basalt::testQuitFileAppeared()) {
+               const char *why = nullptr;
+               if (basalt::testQuitFileAppeared()) {
+                 why = basalt::kTestQuitFileMessage;
+               } else if (basalt::hasSettled()) {
+                 why = basalt::kQuitWhenSettledMessage;
+               } else {
                  return;
                }
                KillTimer(hwnd, id);
-               std::fprintf(stderr, "%s\n", basalt::kTestQuitFileMessage);
+               std::fprintf(stderr, "%s\n", why);
                captureBeforeTeardown();
                DestroyWindow(hwnd);
              });

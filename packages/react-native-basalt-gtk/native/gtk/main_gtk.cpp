@@ -27,6 +27,7 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "TestQuitFile.h"
+#include "TestSettle.h"
 #include "GtkMountingManager.h"
 
 #include <react/io/ImageLoaderModule.h>
@@ -298,11 +299,21 @@ gboolean quitAfterTimeout(gpointer data) {
 // runs and the widget tree is dumped -- which is the whole point of asking
 // rather than killing. See core/TestQuitFile.h.
 gboolean quitWhenTestFileAppears(gpointer data) {
-  if (!basalt::testQuitFileAppeared()) {
+  // Two instruments, one poll, because they want the same thing at different
+  // moments: BASALT_TEST_QUIT_FILE is the harness deciding, and
+  // BASALT_QUIT_WHEN_SETTLED is the app noticing it has nothing left to do. A
+  // second timer would be a second id to collide and a second place to forget
+  // the shutdown ordering.
+  const char *why = nullptr;
+  if (basalt::testQuitFileAppeared()) {
+    why = basalt::kTestQuitFileMessage;
+  } else if (basalt::hasSettled()) {
+    why = basalt::kQuitWhenSettledMessage;
+  } else {
     return G_SOURCE_CONTINUE;
   }
   auto *app = static_cast<GApplication *>(data);
-  g_message("%s", basalt::kTestQuitFileMessage);
+  g_message("%s", why);
   g_application_quit(app);
   return G_SOURCE_REMOVE;
 }
@@ -1510,6 +1521,11 @@ void onActivate(GtkApplication *app, gpointer data) {
   if (const char *text = g_getenv("BASALT_TEST_TYPE")) {
     g_timeout_add(scriptedDelayMs, fireTestType, new PendingType{host, text});
   }
+
+  // What the schedule above came to, so that BASALT_QUIT_WHEN_SETTLED waits for
+  // the last of it rather than only for the first mount. Said once, here, after
+  // everything that moves the total. See core/TestSettle.h.
+  basalt::noteScriptedInputEndsInMs(scriptedDelayMs);
   g_unix_signal_add(SIGINT, quitOnSignal, app);
   g_unix_signal_add(SIGTERM, quitOnSignal, app);
 
@@ -1520,10 +1536,10 @@ void onActivate(GtkApplication *app, gpointer data) {
     }
   }
 
-  // BASALT_TEST_QUIT_FILE, polled. Registered unconditionally when the variable
-  // is set, so a path whose file never appears leaves a harmless timer rather
-  // than changing how the app behaves.
-  if (basalt::testQuitFilePath().has_value()) {
+  // BASALT_TEST_QUIT_FILE and BASALT_QUIT_WHEN_SETTLED, polled together.
+  // Registered only when one of them is set, so a path whose file never appears
+  // leaves a harmless timer rather than changing how the app behaves.
+  if (basalt::testQuitFilePath().has_value() || basalt::quitWhenSettledMs().has_value()) {
     g_timeout_add(basalt::kTestQuitFilePollMs, quitWhenTestFileAppears, app);
   }
 }

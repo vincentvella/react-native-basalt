@@ -26,6 +26,7 @@ Usage:  scripts/test_harness.py
 
 import importlib.util
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -113,6 +114,50 @@ def main() -> int:
     else:
         check("a signalled process on POSIX reports the signal",
               sleeper.returncode < 0, True)
+
+    # The instrument list in core/TestSettle.h against the instruments the hosts
+    # actually read. BASALT_QUIT_WHEN_SETTLED decides a scenario is finished once
+    # the scripted input has been delivered, and it works out *whether any was
+    # asked for* from that list -- so an input instrument missing from it settles
+    # its scenario before the input lands. That fails rather than passes, because
+    # everything opted in asserts on the mounted tree, but it fails a long way
+    # from the instrument that was added, which is why this is checked here and
+    # not left to a comment.
+    #
+    # Done in Python because the question is about three C++ source files, which
+    # a C++ unit test cannot read portably. test_settle.cpp checks the list's
+    # contents; this checks it is still the right list.
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    header = (repo / "packages/react-native-basalt/native/core/TestSettle.h").read_text()
+    listed = set(re.findall(r'"(BASALT_TEST_[A-Z_]+)"', header))
+
+    hosts = [
+        "packages/react-native-basalt-gtk/native/gtk/main_gtk.cpp",
+        "packages/react-native-basalt-appkit/native/appkit/main_appkit.mm",
+        "packages/react-native-basalt-win32/native/win32/main_win32.cpp",
+    ]
+    read_by_hosts = set()
+    for host in hosts:
+        read_by_hosts |= set(re.findall(r'"(BASALT_TEST_[A-Z_]+)"', (repo / host).read_text()))
+
+    # Not scripted input, and deliberately not in the list. Each is here with a
+    # reason rather than silently skipped.
+    NOT_INPUT = {
+        # Ends the run; it does not deliver anything into the app.
+        "BASALT_TEST_QUIT_FILE",
+        # A modifier on BASALT_TEST_TYPE's timing, not an instrument of its own.
+        "BASALT_TEST_TYPE_AFTER_MS",
+    }
+
+    unlisted = read_by_hosts - listed - NOT_INPUT
+    check("every input instrument the hosts read is in scriptedInputVars",
+          sorted(unlisted), [])
+
+    # And nothing in the list that no host reads, which would mean a rename left
+    # a dead entry behind and the real name unguarded.
+    stale = listed - read_by_hosts
+    check("no instrument in scriptedInputVars is unknown to every host",
+          sorted(stale), [])
 
     if failures:
         print("harness checks failed:", file=sys.stderr)

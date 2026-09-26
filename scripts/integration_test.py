@@ -808,6 +808,80 @@ def wait_for_log(log: Path, needle: str, count: int, timeout: float,
     return False
 
 
+# Scenarios that may quit as soon as the host has settled, rather than waiting
+# out a budget chosen for the slowest machine that will ever run them. See
+# core/TestSettle.h: settled means the first mount was applied and any scripted
+# input was delivered, plus a short settle for React's next commit.
+#
+# An opt-in list rather than a flag on every scenario, and rather than opting
+# *out*: what this cannot know about is work that happens after the last input
+# with nothing scheduling it -- a promise resolving, an animation running, a
+# dialog being answered. Those need their own budget, and there is no way to tell
+# them apart by reading the code. So a scenario joins this list once it has been
+# run and seen to pass, and the ones absent from it are not all unsafe -- most
+# are simply unexamined.
+#
+# Getting it wrong fails rather than passes: every scenario here asserts on the
+# dumped tree or on a log line, so quitting early produces a missing assertion
+# and not a quiet success. That is the only reason an empirical list is
+# acceptable here.
+# Which scenarios are absent, and why, because that is the part worth knowing.
+# Every scenario was opted in at once and the suite run; these seven failed, and
+# each failure is the same shape -- work that happens after the last scripted
+# input with nothing scheduling it, so "settled" is true before the scenario is
+# finished:
+#
+#   test_scrollbar_can_be_turned_off  scrollTo from JavaScript after mount;
+#   test_content_inset               "the list never scrolled", "rested at 0.0"
+#   test_animated_scroll              an animation, which is time by definition
+#   test_click_focuses_a_field        a real mouse, driven from outside the process
+#   test_logbox                       a console error and the toast it raises
+#   test_quit_request                 a refusal, then an agreement, which is two
+#                                     events separated by time on purpose
+#   test_debugging_overlay            a trace update that takes itself down again
+#   test_fast_refresh                 an edit arriving from another process
+#
+# Those keep their budgets, and should: a settle cannot stand in for a duration
+# that is the thing under test. Everything else here was run and seen to pass.
+#
+# Guessing is safe only because getting it wrong fails loudly -- each of these
+# asserts on the dumped tree or a logged line, so quitting early produces a
+# missing assertion rather than a quiet success. It is still a list of scenarios
+# that have been *run*, not of scenarios that looked fine.
+SETTLES_EARLY = {
+    "test_initial_render",
+    "test_initial_url",
+    "test_share",
+    "test_alert",
+    "test_notifications",
+    "test_controls",
+    "test_dev_menu",
+    "test_file_dialogs",
+    "test_windows",
+    "test_window_close_request",
+    "test_press_location",
+    "test_image_get_size",
+    "test_displays",
+    "test_application_menu",
+    "test_context_menu",
+    "test_pointer_events",
+    "test_hover",
+    "test_keyboard_focus",
+    "test_text_input",
+    "test_scroll_round_trip",
+    "test_scroll_to_end",
+    "test_window",
+    "test_window_limits",
+    "test_drop_target",
+}
+
+# How long after settling to go. A guess about one React commit and the frame
+# that draws it, rather than about a whole scenario -- which is the difference
+# that matters, because this one is bounded by the runtime and the other was
+# bounded by the machine.
+SETTLE_MS = "600"
+
+
 def stop_host(process: subprocess.Popen, quit_file: Path = None) -> bool:
     """Ends a host that is still running. Says whether its exit code means anything.
 
@@ -3679,13 +3753,26 @@ def main() -> int:
     failed = 0
     skipped = 0
     for name, scenario in wanted:
+        # Set here rather than in each scenario: the runner is the one place that
+        # knows which scenario is about to run, so opting in costs a line in one
+        # set instead of an edit in twenty function bodies.
+        # BASALT_NO_SETTLE turns the whole thing off, which is how the saving was
+        # measured and how to tell "this scenario is broken" from "this scenario
+        # needed longer than it was given".
+        if scenario.__name__ in SETTLES_EARLY and not os.environ.get("BASALT_NO_SETTLE"):
+            os.environ["BASALT_QUIT_WHEN_SETTLED"] = SETTLE_MS
+        else:
+            os.environ.pop("BASALT_QUIT_WHEN_SETTLED", None)
+        started = time.time()
         try:
             # A scenario may return a note: something it could not check on this
             # machine, where the rest of it still ran. Silence would be the
             # alternative, and a scenario that quietly checks less than its name
             # says is worse than one that skips outright.
             note = scenario(bundle)
-            print(f"  ok    {name}")
+            # The duration, because this suite's cost is the thing most often
+            # being worked on and it was previously only visible as a total.
+            print(f"  ok    {name}  [{time.time() - started:.1f}s]")
             if note:
                 print(f"        {note}")
         except Skipped as reason:

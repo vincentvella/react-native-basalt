@@ -40,6 +40,7 @@
 #include "DebuggingOverlay.h"
 #include "DesktopControls.h"
 #include "HoverTracker.h"
+#include "TestSettle.h"
 #include "PlatformServices.h"
 #include "PullToRefresh.h"
 
@@ -235,6 +236,12 @@ class MountingWalk {
   void applyMutations(const facebook::react::ShadowViewMutationList &mutations) {
     assert(std::this_thread::get_id() == mainThreadId_ &&
            "mutations must be applied on the platform's main thread");
+
+    // That React has produced a tree and a host has put it on screen. The one
+    // place all three mount through, which is why BASALT_QUIT_WHEN_SETTLED needs
+    // this in one file rather than in three. Only the first is kept; see
+    // core/TestSettle.h.
+    noteMountApplied();
 
     for (const auto &mutation : mutations) {
       switch (mutation.type) {

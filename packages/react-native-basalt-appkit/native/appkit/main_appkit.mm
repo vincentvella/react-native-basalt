@@ -42,6 +42,7 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "TestQuitFile.h"
+#include "TestSettle.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
@@ -1614,6 +1615,21 @@ int main(int argc, const char *argv[]) {
                      });
     }
 
+    // What the schedule above came to, so BASALT_QUIT_WHEN_SETTLED waits for the
+    // last of it rather than only for the first mount. The typing is the one
+    // instrument here that does not fold into scriptedDelayMs -- it has its own
+    // default and its own override -- so the total is the later of the two.
+    // See core/TestSettle.h.
+    {
+      int64_t scriptedEndsIn = scriptedDelayMs;
+      if (getenv("BASALT_TEST_TYPE") != nullptr) {
+        const char *typeAfter = getenv("BASALT_TEST_TYPE_AFTER_MS");
+        const int64_t typeAt = typeAfter != nullptr ? strtoll(typeAfter, nullptr, 10) : 2500;
+        scriptedEndsIn = std::max(scriptedEndsIn, typeAt);
+      }
+      basalt::noteScriptedInputEndsInMs(scriptedEndsIn);
+    }
+
     // BASALT_SNAPSHOT: render what is actually on screen to a PNG on the way
     // out. The tree dump above says what was mounted; this says what it looks
     // like, and the two fail differently -- a correct tree can still paint
@@ -1693,15 +1709,24 @@ int main(int argc, const char *argv[]) {
     // gQuittingForTest for the reason the timed quit sets it: this is the
     // harness ending the run, and an app that intercepts its own quit would
     // otherwise refuse it and hang. See applicationShouldTerminate:.
-    if (basalt::testQuitFilePath().has_value()) {
+    //
+    // Two instruments, one timer, because they want the same thing at different
+    // moments: the quit file is the harness deciding, BASALT_QUIT_WHEN_SETTLED is
+    // the app noticing it has nothing left to do. See core/TestSettle.h.
+    if (basalt::testQuitFilePath().has_value() || basalt::quitWhenSettledMs().has_value()) {
       [NSTimer scheduledTimerWithTimeInterval:(double)basalt::kTestQuitFilePollMs / 1000.0
                                      repeats:YES
                                        block:^(NSTimer *timer) {
-                                         if (!basalt::testQuitFileAppeared()) {
+                                         const char *why = nullptr;
+                                         if (basalt::testQuitFileAppeared()) {
+                                           why = basalt::kTestQuitFileMessage;
+                                         } else if (basalt::hasSettled()) {
+                                           why = basalt::kQuitWhenSettledMessage;
+                                         } else {
                                            return;
                                          }
                                          [timer invalidate];
-                                         NSLog(@"%s", basalt::kTestQuitFileMessage);
+                                         NSLog(@"%s", why);
                                          endAnyOpenSheets();
                                          gQuittingForTest = true;
                                          [NSApp terminate:nil];
