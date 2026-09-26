@@ -216,6 +216,9 @@ if(TARGET basalt_core)
     target_sources(basalt_appkit_mounting PRIVATE
       appkit/AppKitSkiaModule.mm
       appkit/AppKitSkiaContext.mm)
+    # That Skia renders rather than merely links; see the file. Appended here so
+    # it is compiled only when there is a Skia to render with.
+    list(APPEND BASALT_APPKIT_TEST_SOURCES tests/test_appkit_skia.mm)
   endif()
   # UserNotifications, for AppKitNotifications.mm. Safe to link into every
   # build: the framework is present since 10.14 and the code behind it refuses

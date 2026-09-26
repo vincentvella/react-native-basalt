@@ -461,6 +461,35 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+## Skia, where the tests do not run in CI
+
+`tests/test_appkit_skia.mm` is compiled only when the build was pointed at an app
+that has `@shopify/react-native-skia`, because the package is borrowed from the
+app rather than vendored -- so these run on a developer's machine and never in
+CI, which has no app. That is a real gap and is the price of not vendoning a
+300MB dependency; the rest of the suite is unaffected either way, and
+`BASALT_SKIA` unset means none of it is compiled.
+
+What they assert is pixels, not objects. `RNSkiaModule: Skia installed` says the
+bindings were constructed, and that is a long way from a pixel: a Metal device
+that fails to create, a `GrDirectContext` that comes back null, a surface wrapping
+a texture nothing can read -- each installs perfectly well and then draws nothing.
+So a known shape goes into an offscreen surface and the pixels come back out,
+which is also the path an app rendering frames for export takes.
+
+Verified falsifiable by drawing the rectangle somewhere else, which failed both
+halves at once:
+
+```
+expected inside.describe()  == "rgba(255,0,0,255)" but got rgba(0,0,0,0)
+expected outside.describe() == "rgba(0,0,0,0)"     but got rgba(255,0,0,255)
+```
+
+"Drew something" and "drew it where it was asked to" are separate claims, and
+that is the pair that tells them apart. Corners rather than edges, for the reason
+`test_appkit_image.mm` gives: antialiasing puts a boundary half a pixel either
+way and pinning it fails on a future Skia for no useful reason.
+
 ## Knowing whether CI actually passed
 
 `scripts/ci_status.py` says what each job last *decided*, which is not what `gh
