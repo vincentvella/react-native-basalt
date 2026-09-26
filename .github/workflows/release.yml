@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compare
         # All four at once, and the platform packages' dependency on the shared
@@ -83,7 +83,7 @@ jobs:
     # the Visual Studio generator, which is what someone opening the project in
     # Visual Studio gets, and MSBuild finding its own toolchain with no vcvars.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
@@ -121,7 +121,7 @@ jobs:
       DISPLAY: ":99"
       GDK_BACKEND: x11
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: basalt
 
@@ -135,7 +135,7 @@ jobs:
             libdouble-conversion-dev libgflags-dev libssl-dev libcurl4-openssl-dev \
             libgl1-mesa-dri xvfb x11-utils
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -160,7 +160,7 @@ jobs:
 
       - name: Restore React Native's node_modules
         id: node-modules
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: react-native-src/node_modules
           # The same key ci.yml uses, so this shares that cache rather than
@@ -189,7 +189,7 @@ jobs:
         # needs a React Native checkout -- core's `prepack` typechecks -- and
         # that job has none; giving it one would be a third copy of the same
         # three steps to keep in step with the other two.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tarballs
           path: tarballs/
@@ -259,10 +259,10 @@ jobs:
     # failed; anything that actually failed still stops it.
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Collect the tarballs the Expo job installed
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: tarballs
           path: tarballs
