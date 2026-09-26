@@ -42,6 +42,9 @@
 #include "MenuModule.h"
 #include "WindowsModule.h"
 #include "TestQuitFile.h"
+#ifdef BASALT_HAS_SKIA
+#include "AppKitSkiaModule.h"
+#endif
 #include "TestSettle.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
@@ -368,6 +371,14 @@ facebook::react::TurboModuleProviders makeTurboModuleProviders(
         if (name == basalt::DesktopGestureHandlerModule::kModuleName) {
           return std::make_shared<basalt::DesktopGestureHandlerModule>(jsInvoker);
         }
+#ifdef BASALT_HAS_SKIA
+        // @shopify/react-native-skia, when the build was pointed at an app that
+        // has it. Its `install` is what puts Skia's whole JavaScript API on the
+        // global object; see appkit/AppKitSkiaModule.h.
+        if (name == basalt::AppKitSkiaModule::kModuleName) {
+          return std::make_shared<basalt::AppKitSkiaModule>(jsInvoker);
+        }
+#endif
 #ifdef BASALT_HAS_WORKLETS
         // react-native-worklets, when the build was pointed at one. Reanimated
         // is built on it; see core/WorkletsModule.h.

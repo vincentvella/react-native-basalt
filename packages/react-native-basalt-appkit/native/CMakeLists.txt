@@ -211,6 +211,11 @@ if(TARGET basalt_core)
     target_link_libraries(basalt_appkit_mounting PUBLIC skia_core "-framework AppKit")
     target_sources(basalt_appkit_mounting PUBLIC $<TARGET_OBJECTS:skia_core>)
     target_compile_definitions(basalt_appkit_mounting PUBLIC BASALT_HAS_SKIA=1)
+    # This host's half: the TurboModule the package asks for by name, and the
+    # platform context it hands to Skia. See appkit/AppKitSkiaModule.h.
+    target_sources(basalt_appkit_mounting PRIVATE
+      appkit/AppKitSkiaModule.mm
+      appkit/AppKitSkiaContext.mm)
   endif()
   # UserNotifications, for AppKitNotifications.mm. Safe to link into every
   # build: the framework is present since 10.14 and the code behind it refuses
