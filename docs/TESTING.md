@@ -351,13 +351,25 @@ has a Metro connection triggers a second refresh that undoes the edit before the
 tree is dumped, which looks exactly like Fast Refresh being broken. A `kill -9`
 of the test would leave the demo edited; nothing softer will.
 
-**It does not run in CI.** Metro on a GitHub runner never notices an edit: the
-file changes on disk with a fresh mtime, a newly requested bundle still carries
-the old text, and Metro's log is empty of complaint. `fs.watch` sees the same
-edit on the same runner, the inotify limits are already generous, both sides run
-the same Node, and the upstream Watchman build reports `"watcher": "inotify"`
-over exactly the root Metro was given and changes nothing. `BASALT_SKIP_FAST_REFRESH`
-turns it off there. It passes on developer machines, on macOS and on Linux.
+**The edit does not work in CI.** Metro on a GitHub runner never notices one:
+the file changes on disk with a fresh mtime, a newly requested bundle still
+carries the old text, and Metro's log is empty of complaint. `fs.watch` sees the
+same edit on the same runner, the inotify limits are already generous, both sides
+run the same Node, and the upstream Watchman build reports `"watcher": "inotify"`
+over exactly the root Metro was given and changes nothing. It passes on
+developer machines, on macOS and on Linux.
+
+`BASALT_SKIP_FAST_REFRESH` therefore drops **the edit, not the scenario**. It
+used to drop the whole thing, which meant no machine other than somebody's
+laptop checked dev mode at all -- and what CI cannot do is one specific half of
+it. Everything before the edit is the host's own code: dev mode, the dev server
+helper, the websocket, the `DevSettings` TurboModule, and a bundle fetched from
+Metro rather than the release one sitting on disk. Two bugs have already lived
+in that half -- the host read its Metro entry from an argument nothing passed,
+and every platform reported a dev script URL naming `linux` -- and both would
+have been caught with no edit made. When the variable is set the scenario passes
+with a note saying what it did not check, which is the point: a scenario that
+quietly checks less than its name says is worse than one that skips outright.
 
 ## Input: real events, and where they are not
 

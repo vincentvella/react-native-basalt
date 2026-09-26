@@ -32,7 +32,13 @@
 ## 3. Turn it on
 
 - [ ] Drop `BASALT_SKIP_FAST_REFRESH` from whichever jobs can pass
-- [ ] If the runner cannot be fixed, split the assertion so the host half is still guarded
+- [x] If the runner cannot be fixed, split the assertion so the host half is still guarded
+      -- done ahead of section 2 rather than after it, because it does not depend
+      on the answer: `BASALT_SKIP_FAST_REFRESH` now drops the edit rather than the
+      scenario, so all three jobs check dev mode, the dev server helper, the
+      websocket, `DevSettings`, and that the app runs Metro's bundle instead of
+      the release one on disk. The scenario passes with a note naming what it did
+      not check
 - [ ] Note in the workflow why any remaining skip is there
 
 ## 4. Records

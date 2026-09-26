@@ -796,7 +796,7 @@ def wait_for_log(log: Path, needle: str, count: int, timeout: float) -> bool:
     return False
 
 
-def test_fast_refresh(bundle: Path) -> None:
+def test_fast_refresh(bundle: Path):
     """Edits the demo while it runs and checks the change lands in the window.
 
     This is the scenario that would have caught a wrong claim in the README:
@@ -811,11 +811,18 @@ def test_fast_refresh(bundle: Path) -> None:
     the first version and it failed in CI, where Metro is cold and a rebuild
     takes longer than a developer's warm one -- which is the same class of
     flake as any other "should be long enough".
+
+    `BASALT_SKIP_FAST_REFRESH` drops the *edit*, not the scenario. It used to
+    drop the whole thing, which meant that on every machine that is not
+    somebody's laptop nothing checked dev mode at all -- and the half CI cannot
+    do is one specific half. Metro on a GitHub runner never notices a file
+    change; everything before the edit is the host's own code, works there, and
+    is worth guarding. Two things have broken in that half already: the host
+    read its Metro entry from an argument nothing passed, and it reported a dev
+    script URL naming `linux` from every platform. Both would have been caught
+    here without an edit ever being made.
     """
-    if os.environ.get("BASALT_SKIP_FAST_REFRESH"):
-        raise Skipped(
-            "Metro does not notice file edits on this machine; see docs/TESTING.md"
-        )
+    skip_edit = bool(os.environ.get("BASALT_SKIP_FAST_REFRESH"))
     source = REPO / "js" / "index.js"
     original = source.read_text()
     if original.count(BEFORE) != 1:
@@ -884,6 +891,25 @@ def test_fast_refresh(bundle: Path) -> None:
                 if not wait_for_log(metro_log, "BUNDLE", 1, timeout=30):
                     raise diagnose(
                         "the app is running the on-disk release bundle, not Metro's"
+                    )
+
+                if skip_edit:
+                    # Everything above ran: dev mode, the dev server helper, the
+                    # websocket, and a bundle fetched from Metro rather than the
+                    # release one on disk. The edit is what this machine cannot
+                    # do, so stop here rather than fail at it.
+                    process.terminate()
+                    process.wait(timeout=60)
+                    stderr = log.read_text()
+                    check_output(stderr, process.returncode)
+                    if "Failed to load TurboModule: DevSettings" in stderr:
+                        raise Failure(
+                            "DevSettings was not served, so no __DEV__ bundle can run"
+                        )
+                    return (
+                        "the edit was not made: Metro does not notice file changes "
+                        "on this machine, so only the host half of dev mode was "
+                        "checked. See docs/TESTING.md"
                     )
 
                 edited = original.replace(BEFORE, AFTER)
@@ -3552,8 +3578,14 @@ def main() -> int:
     skipped = 0
     for name, scenario in wanted:
         try:
-            scenario(bundle)
+            # A scenario may return a note: something it could not check on this
+            # machine, where the rest of it still ran. Silence would be the
+            # alternative, and a scenario that quietly checks less than its name
+            # says is worse than one that skips outright.
+            note = scenario(bundle)
             print(f"  ok    {name}")
+            if note:
+                print(f"        {note}")
         except Skipped as reason:
             skipped += 1
             print(f"  skip  {name}")

@@ -312,6 +312,9 @@ jobs:
           #
           # It runs on developer machines, on macOS and on Linux, where it
           # passes.
+          #
+          # This drops the edit, not the scenario: everything before it is the
+          # host's own dev-mode code and works here. See docs/TESTING.md.
           BASALT_SKIP_FAST_REFRESH: "1"
         run: scripts/integration_test.py --shard ${{ matrix.shard }}/3
 
@@ -477,6 +480,11 @@ jobs:
 
       - name: End-to-end tests
         env:
+          # Drops the Fast Refresh *edit*, for the reason the Linux job spells
+          # out: Metro on a GitHub runner never notices a file change. The rest
+          # of that scenario -- dev mode, the dev server helper, the websocket,
+          # DevSettings, and a bundle served by Metro rather than read off disk
+          # -- runs here. See docs/TESTING.md.
           BASALT_SKIP_FAST_REFRESH: "1"
         run: python3 scripts/integration_test.py --platform macos --shard ${{ matrix.shard }}/3
 
@@ -818,6 +826,11 @@ jobs:
           # scripts/bundle.sh looks for a React Native checkout beside the repo,
           # and CI puts it inside the workspace instead.
           RN_DIR: react-native-src
+          # Drops the Fast Refresh *edit*, for the reason the Linux job spells
+          # out. Everything before the edit now runs on Windows too: the
+          # packager starts through scripts/metro.js rather than a shell script,
+          # which is what used to skip this scenario and the developer menu one
+          # here outright. See docs/TESTING.md.
           BASALT_SKIP_FAST_REFRESH: "1"
         run: |
           python scripts/integration_test.py --platform windows --shard ${{ matrix.shard }}/3
