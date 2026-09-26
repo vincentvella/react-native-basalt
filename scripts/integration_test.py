@@ -808,21 +808,39 @@ def wait_for_log(log: Path, needle: str, count: int, timeout: float,
     return False
 
 
-def stop_host(process: subprocess.Popen) -> bool:
+def stop_host(process: subprocess.Popen, quit_file: Path = None) -> bool:
     """Ends a host that is still running. Says whether its exit code means anything.
 
-    GTK and AppKit both install a SIGTERM handler that shuts the runtime down
-    and exits 0, so `terminate()` there is a request and the code is worth
-    checking. Windows has no SIGTERM: `Popen.terminate()` is `TerminateProcess`,
-    a hard kill that sets the exit code to 1, and no host can be written to
-    return 0 from it. So on Windows the code belongs to our own kill rather than
-    to the app, and asserting on it reports the kill as a crash -- which is
-    exactly what it did the first time the Fast Refresh scenario ran there,
-    against a host that had started perfectly well.
+    With a `quit_file`, asks: the path was given to the host as
+    `BASALT_TEST_QUIT_FILE`, the host polls for it and shuts down through the
+    same path `BASALT_QUIT_AFTER_MS` uses, so the widget tree is dumped and the
+    exit code is the app's. This is the portable way and the one to prefer --
+    measured at a quarter of a second on both hosts that can be measured here.
 
-    The JS-error scan in `check_output` is unaffected and still runs: it reads
-    what the host logged, which a kill does not change.
+    Without one, or if the ask is not answered, a signal. GTK and AppKit install
+    a SIGTERM handler and exit 0, so `terminate()` there is a request and the
+    code is worth checking. Windows has no SIGTERM: `Popen.terminate()` is
+    `TerminateProcess`, a hard kill that sets the exit code to 1 and that no host
+    can be written to return 0 from. So on Windows the code belongs to our own
+    kill rather than to the app, and asserting on it reports the kill as a crash
+    -- which is what it did the first time the Fast Refresh scenario ran there,
+    against a host that had started perfectly well. It also skips the tree dump,
+    which is why the quit file had to exist before that scenario could run there
+    at all.
+
+    The JS-error scan in `check_output` is unaffected either way: it reads what
+    the host logged, which a kill does not change.
     """
+    if quit_file is not None:
+        # Existence is the message; see core/TestQuitFile.h.
+        quit_file.write_text("")
+        try:
+            process.wait(timeout=60)
+            return True
+        except subprocess.TimeoutExpired:
+            # Fall through rather than hang. A host that did not answer is worth
+            # killing and worth not trusting the exit code of.
+            pass
     process.terminate()
     process.wait(timeout=60)
     return PLATFORM != "windows"
@@ -867,24 +885,18 @@ def test_fast_refresh(bundle: Path):
         log = Path(directory) / "host.log"
         env = dict(os.environ)
         env["BASALT_DUMP_TREE"] = str(dump)
-        # On Windows this is the schedule rather than a backstop, and the
-        # scenario waits it out. Everywhere else the host is asked to quit by
-        # signal as soon as the refresh shows up.
-        #
-        # Because the tree is dumped on the way out and a kill never gets there.
-        # `Popen.terminate()` on Windows is `TerminateProcess`, which no host can
-        # handle, and Win32 dumps in `captureBeforeTeardown` off `WM_CLOSE`.
-        # Measured on a Mac, where both are available: SIGTERM exits 0 and writes
-        # 8293 bytes, SIGKILL exits -9 and writes nothing. So killing the host on
-        # Windows would fail the final assertion with "host wrote no widget tree"
-        # whether or not Fast Refresh had worked -- a harness artefact wearing the
-        # costume of a platform bug.
-        #
-        # Only the edit path needs this. The skip path never reads the dump, so it
-        # keeps the long backstop and is killed the moment it has what it came
-        # for, which is what CI runs and what keeps the Windows shard quick.
-        self_quits = PLATFORM == "windows" and not skip_edit
-        env["BASALT_QUIT_AFTER_MS"] = "90000" if self_quits else "180000"
+        # A backstop, not the schedule: the host is asked to quit as soon as the
+        # refresh shows up, through the quit file below. Long, because the edit
+        # loop's own deadline is 150 seconds on a cold CI machine and a backstop
+        # that fires first would end the run mid-scenario.
+        env["BASALT_QUIT_AFTER_MS"] = "180000"
+        # The portable way to ask, which the host polls for. Windows is why it
+        # exists: `terminate()` there is `TerminateProcess`, which reaches
+        # neither `WM_CLOSE` nor the tree dump hanging off it, so the assertion
+        # at the end of this scenario failed on a host that had worked. See
+        # core/TestQuitFile.h.
+        quit_file = Path(directory) / "quit"
+        env["BASALT_TEST_QUIT_FILE"] = str(quit_file)
         env["BASALT_DEV"] = "1"
         env["BASALT_DEV_PORT"] = str(METRO_PORT)
         env.pop("BASALT_TEST_TAP", None)
@@ -959,7 +971,7 @@ def test_fast_refresh(bundle: Path):
                     # websocket, and a bundle Metro is now on record as having
                     # served to this process. The edit is what this machine
                     # cannot do, so stop here rather than fail at it.
-                    meaningful = stop_host(process)
+                    meaningful = stop_host(process, quit_file)
                     stderr = log.read_text()
                     check_output(stderr, process.returncode if meaningful else 0)
                     if "Failed to load TurboModule: DevSettings" in stderr:
@@ -1004,15 +1016,7 @@ def test_fast_refresh(bundle: Path):
 
                 # Rendering follows the reload; the tree is dumped on the way out.
                 time.sleep(3)
-                if self_quits:
-                    # Its own timer takes it through WM_CLOSE, so the dump
-                    # happens and the exit code is the app's. Costs the rest of
-                    # the budget, which is the price of a graceful exit until
-                    # there is a portable way to ask for one.
-                    process.wait(timeout=180)
-                    meaningful = True
-                else:
-                    meaningful = stop_host(process)
+                meaningful = stop_host(process, quit_file)
             finally:
                 source.write_text(original)
                 if process.poll() is None:

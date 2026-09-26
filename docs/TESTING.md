@@ -515,24 +515,20 @@ Native checkout in place:
 python scripts\integration_test.py --platform windows -k "Fast Refresh"
 ```
 
-Leave `BASALT_SKIP_FAST_REFRESH` unset -- that is the whole point -- and expect
-it to take about ninety seconds. There the host is given a quit budget and the
-scenario waits it out, rather than being killed when the refresh lands. A kill
-would be `TerminateProcess`, which no host can handle, and Win32 writes the tree
-in `captureBeforeTeardown` off `WM_CLOSE`; measured on a Mac, where both signals
-are available, SIGTERM exits 0 and writes 8293 bytes while SIGKILL writes
-nothing. So a killed host on Windows fails the last assertion with "host wrote
-no widget tree" whether or not Fast Refresh worked -- a harness artefact dressed
-as a platform bug.
+Leave `BASALT_SKIP_FAST_REFRESH` unset -- that is the whole point.
 
-The ninety seconds is the price of a graceful exit, and it buys back to zero the
-moment there is a portable way to ask a host to quit *now*. `BASALT_QUIT_AFTER_MS`
-is decided before launch, and the edit loop's own deadline is 150 seconds, so the
-budget cannot be short enough to be quick and long enough to be safe. A
-`BASALT_TEST_QUIT_FILE` the host polls for -- on the timer each host already has
-for `BASALT_QUIT_AFTER_MS` -- would fix it on all three at once. Not built:
-nothing else needs it yet, and an instrument goes on all three hosts or not at
-all.
+This did not work before `BASALT_TEST_QUIT_FILE` existed, for a reason that had
+nothing to do with Fast Refresh. The scenario's last assertion reads the dumped
+widget tree; every host writes that on the way out; and the harness ended the
+host with `terminate()`, which on Windows is `TerminateProcess` and reaches
+neither `WM_CLOSE` nor the dump hanging off it. Measured on a Mac, where both
+signals exist: SIGTERM exits 0 and writes 8293 bytes, SIGKILL exits -9 and
+writes nothing. So it failed with "host wrote no widget tree" on a host that had
+worked -- a harness artefact dressed as a platform bug, which is the worst thing
+to hand somebody about to go and test that platform by hand.
+
+That is what `BASALT_TEST_QUIT_FILE` is for, and it costs about a quarter of a
+second rather than ninety.
 
 `scripts/test_harness.py` checks the harness's own waits, and exists because of
 a bug in one. The Fast Refresh scenario waited for Metro to serve the running
@@ -634,6 +630,33 @@ reported something other than what it was testing. The same trap as the
 Windows one above, two years of API apart. GTK and Win32 need no exemption:
 their session signals are not on the path `g_application_quit` and
 `PostQuitMessage` take.
+
+`BASALT_TEST_QUIT_FILE` is how the harness ends a run at a moment it picks,
+rather than on a budget fixed before launch. The host polls for the path and
+shuts down as soon as it exists, through exactly the path `BASALT_QUIT_AFTER_MS`
+takes -- so the tree is dumped and the exit code is the app's. Existence is the
+whole message; nothing is read from the file, which is why there is no race
+between creating it and seeing it.
+
+It exists because the portable way to end a host used to be a signal, and there
+is no portable signal: Windows has no SIGTERM and `TerminateProcess` cannot be
+handled. The scenario that needed it is Fast Refresh, whose length is not known
+in advance -- an edit reaches the window in a second on a warm laptop and in up
+to two and a half minutes on a cold CI machine, so no fixed budget is both quick
+and safe.
+
+Polled at 250ms rather than watched, on the timer each host already runs for
+`BASALT_QUIT_AFTER_MS`. A file watcher is three APIs with three failure modes on
+network and virtual filesystems, and a quarter-second poll cannot fail to be
+delivered. Measured end to end on GTK and AppKit: 0.24s from writing the file to
+the process exiting 0 with its tree on disk.
+
+Not refusable, for the reason the timed quit is not -- see below. The variable
+name, the poll interval and the log line all live in `core/TestQuitFile.h` so the
+three hosts cannot disagree about them; `BASALT_QUIT_AFTER_MS elapsed; quitting`
+had to be retrofitted onto Windows after a scenario asserted on a string only two
+hosts printed, and `scripts/test_quit_file.cpp` asserts the shared spellings
+rather than trusting them.
 
 `BASALT_DUMP_TREE` writes every window, each under a `--- window <n> ---`
 header, for the same reason it already appended the error inspector: they are

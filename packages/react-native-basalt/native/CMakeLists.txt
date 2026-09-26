@@ -52,6 +52,7 @@ set(BASALT_CORE_TESTS
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_animation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_backface.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_drag_and_drop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_quit_file.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_image_cache.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_bounds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scroll_indicator.cpp
@@ -229,6 +230,9 @@ if(DEFINED RN_DIR)
     core/SourceCodeModule.cpp
     # Answering a modal dialog without showing one; see the header.
     core/TestDialog.cpp
+    # Quitting gracefully when the harness says so, rather than on a budget
+    # fixed before launch; see the header.
+    core/TestQuitFile.cpp
     core/StatusBarModule.cpp
     core/ReanimatedModule.cpp
     core/UIManagerAccess.cpp

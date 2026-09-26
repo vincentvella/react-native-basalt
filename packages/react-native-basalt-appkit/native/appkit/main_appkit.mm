@@ -41,6 +41,7 @@
 #include "MenuModel.h"
 #include "MenuModule.h"
 #include "WindowsModule.h"
+#include "TestQuitFile.h"
 #import "AppKitRunLoopObserver.h"
 #import "AppKitFocus.h"
 #import "AppKitTouchDispatcher.h"
@@ -1682,6 +1683,29 @@ int main(int argc, const char *argv[]) {
                          [NSApp terminate:nil];
                        });
       }
+    }
+
+    // BASALT_TEST_QUIT_FILE: the same quit, at a moment the harness picks
+    // rather than on a budget fixed before launch. `terminate:` either way, so
+    // applicationWillTerminate runs and the view tree is dumped -- which is the
+    // whole reason for asking rather than killing. See core/TestQuitFile.h.
+    //
+    // gQuittingForTest for the reason the timed quit sets it: this is the
+    // harness ending the run, and an app that intercepts its own quit would
+    // otherwise refuse it and hang. See applicationShouldTerminate:.
+    if (basalt::testQuitFilePath().has_value()) {
+      [NSTimer scheduledTimerWithTimeInterval:(double)basalt::kTestQuitFilePollMs / 1000.0
+                                     repeats:YES
+                                       block:^(NSTimer *timer) {
+                                         if (!basalt::testQuitFileAppeared()) {
+                                           return;
+                                         }
+                                         [timer invalidate];
+                                         NSLog(@"%s", basalt::kTestQuitFileMessage);
+                                         endAnyOpenSheets();
+                                         gQuittingForTest = true;
+                                         [NSApp terminate:nil];
+                                       }];
     }
 
     [NSApp run];

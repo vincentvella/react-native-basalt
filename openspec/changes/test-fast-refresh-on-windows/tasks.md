@@ -16,11 +16,24 @@
       does not terminate its children
 - [x] Remove both `Skipped("scripts/metro.sh has no Windows path")` branches
 - [x] Run the scenario on Windows and record the result
-      -- the **developer menu** scenario runs there now and passes. **Fast
-      Refresh itself still does not run on any CI machine**, because
-      `BASALT_SKIP_FAST_REFRESH` is set on all three jobs for a reason that is
-      section 2's. Removing the skip is what would exercise the Windows path,
-      and that is the one thing section 1 cannot finish on its own
+      -- the **developer menu** scenario runs there now and passes, and so does
+      the host half of Fast Refresh. Two harness bugs had to go first, neither
+      of them Windows': a bundle wait that counted `prewarm`'s own output and so
+      could not fail, and `terminate()` meaning a handled SIGTERM on two hosts
+      and an unhandleable `TerminateProcess` on the third. Both guarded by
+      `scripts/test_harness.py`
+- [x] A portable way to ask a host to quit *now*, so the edit half can be run on
+      Windows by hand
+      -- `BASALT_TEST_QUIT_FILE`, on all three hosts, polled at 250ms on the
+      timer each already runs for `BASALT_QUIT_AFTER_MS`. The scenario's last
+      assertion reads the dumped tree, every host writes that on the way out, and
+      a `TerminateProcess` kill reaches neither -- so this was the thing standing
+      between a Windows machine and a meaningful run. Shared spellings in
+      `core/TestQuitFile.h`, tested by `native/tests/test_quit_file.cpp`, measured
+      at 0.24s on GTK and AppKit
+- [ ] **Run the edit half on a Windows machine** -- the one step that needs a
+      Windows machine rather than CI, since CI's Metro never notices an edit.
+      `python scripts\integration_test.py --platform windows -k "Fast Refresh"`
 
 ## 2. Finish the CI diagnosis
 

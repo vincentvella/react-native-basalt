@@ -26,6 +26,7 @@
 #include "MenuModel.h"
 #include "MenuModule.h"
 #include "WindowsModule.h"
+#include "TestQuitFile.h"
 #include "GtkMountingManager.h"
 
 #include <react/io/ImageLoaderModule.h>
@@ -288,6 +289,20 @@ void callRenderFunction(Host *host, int step) {
 gboolean quitAfterTimeout(gpointer data) {
   auto *app = static_cast<GApplication *>(data);
   g_message("BASALT_QUIT_AFTER_MS elapsed; quitting");
+  g_application_quit(app);
+  return G_SOURCE_REMOVE;
+}
+
+// The same quit, when the harness asks for it rather than on a budget fixed
+// before the process started. `g_application_quit` either way, so `onShutdown`
+// runs and the widget tree is dumped -- which is the whole point of asking
+// rather than killing. See core/TestQuitFile.h.
+gboolean quitWhenTestFileAppears(gpointer data) {
+  if (!basalt::testQuitFileAppeared()) {
+    return G_SOURCE_CONTINUE;
+  }
+  auto *app = static_cast<GApplication *>(data);
+  g_message("%s", basalt::kTestQuitFileMessage);
   g_application_quit(app);
   return G_SOURCE_REMOVE;
 }
@@ -1503,6 +1518,13 @@ void onActivate(GtkApplication *app, gpointer data) {
     if (ms > 0) {
       g_timeout_add(static_cast<guint>(ms), quitAfterTimeout, app);
     }
+  }
+
+  // BASALT_TEST_QUIT_FILE, polled. Registered unconditionally when the variable
+  // is set, so a path whose file never appears leaves a harmless timer rather
+  // than changing how the app behaves.
+  if (basalt::testQuitFilePath().has_value()) {
+    g_timeout_add(basalt::kTestQuitFilePollMs, quitWhenTestFileAppears, app);
   }
 }
 

@@ -43,6 +43,7 @@
 #include "MenuModel.h"
 #include "MenuModule.h"
 #include "WindowsModule.h"
+#include "TestQuitFile.h"
 #include "Win32MountingManager.h"
 
 #include <react/io/ImageLoaderModule.h>
@@ -366,6 +367,10 @@ void requestRepaint() {
 // whether or not anything is animating wakes the process sixty times a second
 // forever, which matters more on a laptop than the frame interval does.
 constexpr UINT_PTR kSpinnerTimer = 102;
+
+// BASALT_TEST_QUIT_FILE's poll. Repeating, unlike kQuitAfterTimer's one shot:
+// it looks for the file until it finds it. See core/TestQuitFile.h.
+constexpr UINT_PTR kQuitFileTimer = 103;
 bool gSpinnerTimerRunning = false;
 
 void updateSpinnerTimer() {
@@ -723,11 +728,13 @@ constexpr UINT_PTR kScriptedInputTimerBase = 200;
 // it cancelled its own shutdown and hung. A static_assert cannot check the
 // scripted range against the rest, so the base is held above everything else.
 static_assert(kSecondTreeTimer != kQuitAfterTimer && kSecondTreeTimer != kSpinnerTimer &&
-                  kQuitAfterTimer != kSpinnerTimer,
+                  kSecondTreeTimer != kQuitFileTimer && kQuitAfterTimer != kSpinnerTimer &&
+                  kQuitAfterTimer != kQuitFileTimer && kSpinnerTimer != kQuitFileTimer,
               "two timers share an id, and SetTimer would silently replace one with the other");
 static_assert(kScriptedInputTimerBase > kSecondTreeTimer &&
                   kScriptedInputTimerBase > kQuitAfterTimer &&
-                  kScriptedInputTimerBase > kSpinnerTimer,
+                  kScriptedInputTimerBase > kSpinnerTimer &&
+                  kScriptedInputTimerBase > kQuitFileTimer,
               "the scripted-input ids count up from the base and must start above the rest");
 
 // The numbers in "10,20,30" -- however many there are, which is what lets one
@@ -2317,6 +2324,29 @@ int main(int argc, char **argv) {
           captureBeforeTeardown();
           DestroyWindow(hwnd);
         });
+  }
+
+  // BASALT_TEST_QUIT_FILE: the same shutdown, at a moment the harness picks
+  // rather than on a budget fixed before launch. captureBeforeTeardown and
+  // DestroyWindow either way, so the widget tree is dumped -- which is the whole
+  // reason this instrument exists. TerminateProcess, which is what
+  // Popen.terminate() is on this platform, reaches neither, so before this the
+  // scenarios that read the tree could not be run here at all.
+  //
+  // See core/TestQuitFile.h.
+  if (basalt::testQuitFilePath().has_value()) {
+    SetTimer(gHost.main().window,
+             kQuitFileTimer,
+             basalt::kTestQuitFilePollMs,
+             [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
+               if (!basalt::testQuitFileAppeared()) {
+                 return;
+               }
+               KillTimer(hwnd, id);
+               std::fprintf(stderr, "%s\n", basalt::kTestQuitFileMessage);
+               captureBeforeTeardown();
+               DestroyWindow(hwnd);
+             });
   }
 
   // Not a plain GetMessage loop: the event beat has to be induced each time the
