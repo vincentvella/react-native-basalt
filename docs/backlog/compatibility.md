@@ -44,8 +44,41 @@ Found by bundling and running a real application.
   exist is any Expo *module*: `ExpoAsset` and `ExponentConstants` are stubs that
   exist only so Expo's start-up survives, and `expo-font`, `expo-image` and
   every config plugin's native half are each their own port.
-- No `@shopify/react-native-skia`, which is not this platform's to fix, but is
-  worth knowing as the thing that stops one real app dead.
+- **No `@shopify/react-native-skia`**, which is the thing that stops kino dead --
+  and it is closer than "not this platform's to fix" suggested. Established by
+  bundling kino's `apps/desktop` against basalt and running it, 2026-09-26:
+
+  The bundle builds with no errors at all: Metro resolves kino's whole tree,
+  Expo included, through `withDesktopPlatforms`. The app then fails at
+  `TurboModuleRegistry.getEnforcing('Networking')`, which is the 0.81 gate above
+  and nothing to do with Skia. With `globalThis.RN$TurboInterop = true`
+  prepended, Networking resolves, `FormData` stops being missing, the app reaches
+  `Running "main"`, and the next and only blocker is
+  `getEnforcing('RNSkiaModule')`. So the version gate is one line and Skia is the
+  whole remaining distance.
+
+  What Skia actually needs here, from reading what it ships:
+
+  - **Skia itself is not the problem.** `libs/macos` holds prebuilt binaries and
+    `cpp/{api,jsi,rnskia}` is host-agnostic C++ over JSI.
+  - **`RNSkiaModule` is 61 lines.** One `RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install)`
+    that builds a `SkiaManager` from an `RCTBridge` and a `CallInvoker`, and
+    `SkiaManager` wraps `RNSkia::RNSkManager`. basalt has a runtime and a call
+    invoker; what it lacks is an `RNSkPlatformContext`, and
+    `RNSkApplePlatformContext` exists and is Metal and CoreGraphics -- so this is
+    adapting the places it reaches for `RCTBridge`, not writing it.
+  - **`<Canvas>` is the real work**, and it is separable. `SkiaPictureView` and
+    `SkiaUIView` are written against `RCTViewComponentView`, so an AppKit host
+    needs its own view hosting a `CAMetalLayer` plus the component registered in
+    `AppKitMountingManager`.
+
+  Which stages: the module alone unblocks Skia's imperative API -- `Skia.Path`,
+  image decoding, typefaces -- which is what kino's `runtime/images.ts`,
+  `runtime/media.ts` and `store.ts` use. `<Canvas>` is only needed for
+  `ui/Preview.tsx` and `ui/AnchorsPane.tsx`.
+
+  GTK and Win32 are a different proposition: no prebuilt Skia, and a GL, Vulkan
+  or D3D window context rather than Metal.
 - **The version this host reports cannot express a prerelease tag.** The Android
   spec it answers types `prerelease` as an optional int, so there is nowhere to
   put `-rc.1`. Stable releases have none, so this only matters for somebody
