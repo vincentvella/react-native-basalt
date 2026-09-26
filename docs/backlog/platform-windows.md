@@ -144,16 +144,20 @@ and none of it is a missing half.
   It retries now, with a test that holds the clipboard from a window and fails
   without the retry; what was holding it was never caught, and 190 runs with
   logging on every refusal saw none.
-- **`scripts/integration_test.py` skips Fast Refresh on Windows**, because
-  `scripts/metro.sh` is a shell script. That reason has gone. A development run
-  goes through `run-windows`, which starts Metro itself, and Fast Refresh works
-  on Windows now -- an edit to a running Expo app reaches the tree. It did not
-  before, for three separate reasons: the host read its Metro entry from an
-  argument nothing passed, React Native's `start` command needs
+- ~~**`scripts/integration_test.py` skips Fast Refresh on Windows**~~, because
+  `scripts/metro.sh` is a shell script. Both skips have gone: `scripts/metro.js`
+  starts the packager in Node, on any platform, and `metro.sh` now delegates to
+  it so there is one implementation rather than two that resolve `RN_DIR`
+  differently. It serves in-process rather than spawning `metro serve`, which is
+  what makes it stoppable on Windows -- terminating a process there does not
+  terminate its children, so a wrapper would have left the packager behind.
+  Fast Refresh already worked on Windows -- an edit to a running Expo app
+  reaches the tree -- after three separate fixes: the host read its Metro entry
+  from an argument nothing passed, React Native's `start` command needs
   `@react-native/metro-config` in the app, and every host reported a dev script
-  URL naming `linux`, so Metro sent Windows HMR updates for a Linux graph. The
-  scenario should start Metro the way the run command does and stop skipping.
-  The other four scenarios run.
+  URL naming `linux`, so Metro sent Windows HMR updates for a Linux graph. What
+  is still off in CI is `BASALT_SKIP_FAST_REFRESH`, on all three jobs, for a
+  reason that is Metro's file watching rather than Windows'.
 - ~~**CI does not build the Windows host.**~~ It does, as `windows-full`:
   vcpkg, Hermes from source, React Native's core under clang-cl, every Windows
   test, the demo bundle and the end-to-end suite. Green on its first run, and

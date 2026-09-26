@@ -26,7 +26,7 @@ The default picks real input when a display and xdotool are both present.
 
 One scenario is different: the Fast Refresh one starts its own Metro, runs the
 host in dev mode against it, and edits the demo while it is on screen. It needs
-a React Native checkout -- scripts/metro.sh looks for one beside the repo, and
+a React Native checkout -- scripts/metro.js looks for one beside the repo, and
 RN_DIR overrides that -- and it restores the file it edits once the host has
 exited.
 
@@ -600,14 +600,15 @@ class Metro:
         # *it* was started with. That happened: a Metro left over from a run
         # against another version served its bundle to this one for an hour,
         # and the symptom was a version mismatch nobody had introduced. Note
-        # that `pkill -f "cli.js start"` does not match these -- scripts/metro.sh
-        # execs `metro serve` -- which is why they accumulate unnoticed.
+        # that neither `pkill -f "cli.js start"` nor `pkill -f "metro serve"`
+        # matches these -- scripts/metro.js serves in-process -- which is why
+        # they accumulate unnoticed.
         if is_port_taken(METRO_PORT):
             raise Failure(
                 f"something is already listening on port {METRO_PORT}.\n"
                 "This scenario needs its own packager, and reusing a stranger's "
                 "would test whatever React Native that one was started with.\n"
-                'Stop it with: pkill -f "metro serve"'
+                'Stop it with: pkill -f "scripts/metro.js"'
             )
 
         # Kept rather than discarded: when this scenario fails it is almost
@@ -615,7 +616,7 @@ class Metro:
         # arrived" costs another four minutes to learn anything from.
         self.sink = self.log.open("w")
         self.process = subprocess.Popen(
-            [str(REPO / "scripts" / "metro.sh"), "--port", str(METRO_PORT)],
+            ["node", str(REPO / "scripts" / "metro.js"), "--port", str(METRO_PORT)],
             cwd=REPO,
             stdout=self.sink,
             stderr=subprocess.STDOUT,
@@ -815,14 +816,6 @@ def test_fast_refresh(bundle: Path) -> None:
         raise Skipped(
             "Metro does not notice file edits on this machine; see docs/TESTING.md"
         )
-    if PLATFORM == "windows":
-        # scripts/metro.sh is a shell script, and this scenario is the only one
-        # that shells out at all. Everything it would prove about the *host* --
-        # dev mode, the DevSettings TurboModule, the websocket -- is the same
-        # code on every platform; what would be platform-specific is Metro's
-        # file watching, which is Metro's.
-        raise Skipped("scripts/metro.sh has no Windows path")
-
     source = REPO / "js" / "index.js"
     original = source.read_text()
     if original.count(BEFORE) != 1:
@@ -2025,12 +2018,6 @@ def test_dev_menu(bundle: Path) -> None:
     automated run where it stands -- on macOS `popUpMenuPositioningItem` runs
     its tracking loop on the main thread. See core/TestDialog.h.
     """
-    if PLATFORM == "windows":
-        # scripts/metro.sh is a shell script, which is also why the Fast
-        # Refresh scenario skips here. Everything this proves about the *host*
-        # is the same code on every platform.
-        raise Skipped("scripts/metro.sh has no Windows path")
-
     def run(choice: str, run_ms: int) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as directory:
             dump = Path(directory) / "tree.txt"

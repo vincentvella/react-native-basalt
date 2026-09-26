@@ -226,7 +226,7 @@ And at the repository root:
     js/demo.js                  Drives Fabric's JSI binding by hand. No React.
     js/metro.config.js          Resolves react/react-native out of the checkout.
     examples/demo/              A small app that consumes it like a stranger.
-    scripts/bundle.sh           Builds a bundle. scripts/metro.sh serves one.
+    scripts/bundle.sh           Builds a bundle. scripts/metro.js serves one.
     scripts/compare_hosts.sh    Runs one app through every host that is built
                                 and diffs the trees. Needs two toolkits on one
                                 machine, so not CI.
@@ -848,16 +848,18 @@ In the order it is likely to be done. An entry with a proposal behind it names
 it; the rest are not designed yet. The per-area detail is `docs/BACKLOG.md`; how
 the thing is built is `docs/ARCHITECTURE.md`.
 
-1. **Fast Refresh end to end on Windows.** It works there -- observed, on a
-   development run through `run-windows`, which is what phase 43 was for. What
-   it is not is *tested*, anywhere, on any platform: `integration_test.py`
-   skips the scenario on Windows because `scripts/metro.sh` is a shell script,
-   and CI sets `BASALT_SKIP_FAST_REFRESH` on both jobs besides, because Metro
-   on a GitHub runner never notices an edit. So the one thing standing between
-   a working feature and a guarded one is a Windows path for the scenario, and
-   then a runner whose file watching works -- `docs/BACKLOG.md` has what is
-   left to try on the second. Proposed, as
-   `openspec/changes/test-fast-refresh-on-windows`.
+1. **Fast Refresh end to end in CI.** It works on all three desktops --
+   observed, including on Windows through `run-windows`, which is what phase 43
+   was for. What it is not is *tested* by any machine that is not somebody's
+   laptop. Half of that is now fixed: the scenario no longer skips on Windows,
+   because `scripts/metro.js` starts the packager in Node rather than in shell.
+   The other half is that CI sets `BASALT_SKIP_FAST_REFRESH` on all three jobs,
+   because Metro on a GitHub runner never notices an edit -- the file changes
+   with a fresh mtime, a freshly requested bundle still carries the old text,
+   and Metro logs nothing. So what stands between a working feature and a
+   guarded one is a runner whose file watching works, or an assertion split so
+   the host half is guarded regardless. `docs/BACKLOG.md` has what is left to
+   try. In progress, as `openspec/changes/test-fast-refresh-on-windows`.
 2. **A first release run.** `release.yml` has never run: its macOS job, Linux
    and Windows built from nothing, and the Expo install job are all unproven on
    hosted runners. Deliberately not yet. Windows belongs in the install job

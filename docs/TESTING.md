@@ -64,8 +64,10 @@ another.
 
 `integration_test.py` picks whichever host it finds and runs the same scenarios
 against it, because they are about React and Fabric rather than about a
-toolkit -- `--platform` overrides the guess. Windows skips the Fast Refresh
-scenario, which needs `scripts/metro.sh`.
+toolkit -- `--platform` overrides the guess. Every scenario runs on every
+platform; the packager the two development-mode ones need is started through
+`scripts/metro.js`, in Node, because a shell script is not a way to start one
+on Windows.
 
 On a headless machine, run either under a virtual display:
 
