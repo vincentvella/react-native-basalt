@@ -668,6 +668,17 @@ down again is measuring a decay. A settle cannot stand in for a duration that is
 the thing under test, and those keep their budgets. The list and each exclusion's
 failure text live in `scripts/integration_test.py`.
 
+**Off entirely in `real` input mode.** A settle accounts for what the host
+scheduled, and real input is driven from outside the process: the harness waits
+four seconds for a window and then moves the pointer with `xdotool`, having set
+none of the `BASALT_TEST_*` variables. Nothing is requested, so the host settles
+at the first mount and has quit before the click lands. Linux CI is the only
+place that mode runs, which is why every local run on a Mac passed and all three
+Linux shards failed on the first push. The rule underneath is the exclusion list's
+rule one step further out: **a settle cannot stand in for a duration it cannot
+see, and it cannot see another process.** So the saving is a macOS and Windows
+saving; Linux CI keeps its budgets.
+
 Guessing is only safe because getting it wrong fails loudly: everything opted in
 asserts on the dumped tree or a logged line, so quitting early produces a missing
 assertion rather than a quiet success. `BASALT_NO_SETTLE=1` turns the whole thing

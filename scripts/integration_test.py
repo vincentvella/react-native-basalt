@@ -3756,10 +3756,25 @@ def main() -> int:
         # Set here rather than in each scenario: the runner is the one place that
         # knows which scenario is about to run, so opting in costs a line in one
         # set instead of an edit in twenty function bodies.
+        # Never in `real` input mode. A settle accounts for what the *host*
+        # scheduled, and real input is driven from outside the process: the
+        # harness waits four seconds for a window and then moves the pointer
+        # with xdotool, having set none of the BASALT_TEST_* variables. So
+        # nothing is requested, the host settles at the first mount, and it has
+        # quit before the click arrives.
+        #
+        # Linux CI is the only place this runs -- it is chosen when DISPLAY is
+        # set and xdotool is installed -- so every local run on a Mac passed and
+        # all three Linux shards failed. The rule underneath is the same one the
+        # exclusion list is about, one step further out: a settle cannot stand in
+        # for a duration it cannot see, and it cannot see another process.
+        #
         # BASALT_NO_SETTLE turns the whole thing off, which is how the saving was
         # measured and how to tell "this scenario is broken" from "this scenario
         # needed longer than it was given".
-        if scenario.__name__ in SETTLES_EARLY and not os.environ.get("BASALT_NO_SETTLE"):
+        if (scenario.__name__ in SETTLES_EARLY
+                and INPUT_MODE != "real"
+                and not os.environ.get("BASALT_NO_SETTLE")):
             os.environ["BASALT_QUIT_WHEN_SETTLED"] = SETTLE_MS
         else:
             os.environ.pop("BASALT_QUIT_WHEN_SETTLED", None)
