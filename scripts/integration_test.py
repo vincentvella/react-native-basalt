@@ -993,6 +993,22 @@ def test_fast_refresh(bundle: Path):
                         raise Failure(
                             "DevSettings was not served, so no __DEV__ bundle can run"
                         )
+                    # That the quit file reached the *dump*, not merely that the
+                    # process ended. The edit path's last assertion reads this
+                    # file, and the whole reason the instrument exists is that a
+                    # killed host on Windows never writes it -- so without this
+                    # line CI proves the poll fires and says nothing about the
+                    # thing the poll was added to make possible. It costs a
+                    # stat, and it is the only place the full chain is checked
+                    # on a machine rather than by hand.
+                    if not dump.exists():
+                        raise Failure(
+                            "quitting through BASALT_TEST_QUIT_FILE wrote no widget "
+                            "tree.\nThe host exited cleanly, so the quit file was "
+                            "seen, but the shutdown did not reach the dump -- which "
+                            "is the half of this instrument the edit path depends "
+                            "on. See core/TestQuitFile.h."
+                        )
                     return (
                         "the edit was not made: Metro does not notice file changes "
                         "on this machine, so only the host half of dev mode was "

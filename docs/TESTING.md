@@ -651,6 +651,13 @@ network and virtual filesystems, and a quarter-second poll cannot fail to be
 delivered. Measured end to end on GTK and AppKit: 0.24s from writing the file to
 the process exiting 0 with its tree on disk.
 
+The skip path asserts that quitting this way **wrote the widget tree**, not
+merely that the process ended. Without that line CI proves the poll fires and
+says nothing about the half the instrument was added for, since the only
+scenario that reads the tree after a quit-file shutdown is the edit path, and
+the edit path cannot run on a CI machine. It costs a stat and it is the only
+place the whole chain is checked by a machine rather than by hand.
+
 A host that does not answer within 30 seconds **fails the scenario** rather than
 being quietly killed. It was quietly killed at first, and the consequence was
 immediate: the first Windows run reported green while proving nothing, because a
