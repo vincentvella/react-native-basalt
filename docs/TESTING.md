@@ -651,6 +651,14 @@ network and virtual filesystems, and a quarter-second poll cannot fail to be
 delivered. Measured end to end on GTK and AppKit: 0.24s from writing the file to
 the process exiting 0 with its tree on disk.
 
+A host that does not answer within 30 seconds **fails the scenario** rather than
+being quietly killed. It was quietly killed at first, and the consequence was
+immediate: the first Windows run reported green while proving nothing, because a
+dead poll and a working one are indistinguishable when the fallback is silent.
+Verifying it fired meant grepping a CI log for the shared line, and the grep
+matched a compiler diagnostic quoting the header rather than a host logging it.
+So the check moved into the harness, where it cannot be forgotten.
+
 Not refusable, for the reason the timed quit is not -- see below. The variable
 name, the poll interval and the log line all live in `core/TestQuitFile.h` so the
 three hosts cannot disagree about them; `BASALT_QUIT_AFTER_MS elapsed; quitting`

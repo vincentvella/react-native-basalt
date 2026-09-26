@@ -835,12 +835,27 @@ def stop_host(process: subprocess.Popen, quit_file: Path = None) -> bool:
         # Existence is the message; see core/TestQuitFile.h.
         quit_file.write_text("")
         try:
-            process.wait(timeout=60)
+            # Generous: the measured time from writing the file to the process
+            # being gone is 0.24s on GTK and on AppKit, and what follows the
+            # poll is an ordinary teardown.
+            process.wait(timeout=30)
             return True
         except subprocess.TimeoutExpired:
-            # Fall through rather than hang. A host that did not answer is worth
-            # killing and worth not trusting the exit code of.
-            pass
+            # Loudly, not quietly. This used to fall through to the kill and
+            # return the platform's verdict, which meant a host whose poll never
+            # fired produced a passing scenario -- the instrument would have been
+            # dead on a platform and nothing would have said so. That is the
+            # shape of bug this whole file keeps finding, so it does not get to
+            # live in the function that ends every host.
+            process.kill()
+            process.wait(timeout=15)
+            raise Failure(
+                f"the host ignored {quit_file.name} for 30 seconds.\n"
+                "BASALT_TEST_QUIT_FILE is meant to be polled on every host; see "
+                "core/TestQuitFile.h. Either this host does not poll it, or it "
+                "was too busy to. Killed instead, so no widget tree was written "
+                "and anything downstream of one would have failed next."
+            )
     process.terminate()
     process.wait(timeout=60)
     return PLATFORM != "windows"
