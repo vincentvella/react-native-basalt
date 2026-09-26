@@ -20,6 +20,8 @@
 
 #include <ReactCommon/TurboModule.h>
 
+#include "RNSkManager.h"
+
 #include <memory>
 
 namespace basalt {
@@ -30,6 +32,14 @@ public:
 
   explicit AppKitSkiaModule(std::shared_ptr<facebook::react::CallInvoker> jsInvoker);
   ~AppKitSkiaModule() override;
+
+  // The manager, or null before `install` has run. A `<Canvas>` needs it to
+  // register itself by nativeId, and the lifetime is the runtime's rather than
+  // any one view's -- which is why it is reachable here and not owned by a view.
+  //
+  // Only valid on the thread that installed it. Every caller so far is the UI
+  // thread, which is also where mounting happens.
+  static RNSkia::RNSkManager *manager();
 
 private:
   // A plain function, because `MethodMetadata::invoker` is a function pointer

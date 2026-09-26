@@ -39,6 +39,8 @@ AppKitSkiaModule::AppKitSkiaModule(std::shared_ptr<facebook::react::CallInvoker>
 
 AppKitSkiaModule::~AppKitSkiaModule() { skManager().reset(); }
 
+RNSkia::RNSkManager *AppKitSkiaModule::manager() { return skManager().get(); }
+
 facebook::jsi::Value AppKitSkiaModule::install(facebook::jsi::Runtime &runtime,
                                               facebook::react::TurboModule &module,
                                               const facebook::jsi::Value * /*args*/,
