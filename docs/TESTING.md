@@ -447,6 +447,14 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+**An instrument goes on all three hosts, or the scenario that uses it skips
+where it is missing.** Written down because it has been got wrong twice, the
+same way both times: `BASALT_TEST_QUIT` and then `BASALT_TEST_DROP` were added
+to GTK and AppKit, the scenario was written against those two, and Windows
+failed for a reason that had nothing to do with what the scenario tests. The
+failure is especially misleading -- "the inner target was not told" reads as a
+broken feature rather than a missing instrument, and the feature was fine.
+
 `BASALT_TEST_DROP` takes `x,y:path` and reports a file dropped at that point.
 It enters below the toolkit, the way `BASALT_TEST_TAP` does and for the same
 reason: a real drag needs a source outside the process, and no test can conjure

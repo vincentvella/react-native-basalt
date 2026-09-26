@@ -60,6 +60,7 @@
 #include "Win32Focus.h"
 #include "Win32TouchDispatcher.h"
 #include "Win32UiThread.h"
+#include "DragAndDrop.h"
 #include "Win32DropTarget.h"
 #include "Win32TitleBar.h"
 #include "Win32WindowModule.h"
@@ -679,7 +680,7 @@ void snapshotIfRequested() {
 // `hostProc` at all. A person clicking the window is still the only check on
 // that half, on all three platforms.
 struct ScriptedInput {
-  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus, Close, Quit };
+  enum class Kind { Tap, Hover, Drag, Wheel, Type, Focus, Close, Quit, Drop };
 
   Kind kind{Kind::Tap};
   double fromX{0};
@@ -886,6 +887,38 @@ void CALLBACK fireScriptedInput(HWND hwnd, UINT, UINT_PTR id, DWORD) {
                    "BASALT_TEST_TYPE: \"%s\"%s\n",
                    action.text.c_str(),
                    typed ? "" : " -- no field has focus");
+      break;
+    }
+
+    case ScriptedInput::Kind::Drop: {
+      // A file dropped at a point, reported the way OLE would report it.
+      // Entered below the toolkit for the reason the other hosts give: a real
+      // drag needs a source outside this process. `fromX`/`fromY` carry the
+      // point and `text` the path, reusing the fields the other kinds use.
+      basalt::DragPayload payload;
+      payload.files.push_back(action.text);
+
+      const facebook::react::Tag found = basalt::dropTargetAt(
+          gHost.windows.empty() ? nullptr : gHost.main().root,
+          action.fromX,
+          action.fromY,
+          basalt::DropAcceptsFiles);
+      std::fprintf(stderr,
+                   "BASALT_TEST_DROP: %s at %g,%g onto tag %d\n",
+                   action.text.c_str(),
+                   action.fromX,
+                   action.fromY,
+                   static_cast<int>(found));
+      if (found == 0) {
+        break;
+      }
+      basalt::DropEvent event;
+      event.tag = found;
+      event.phase = basalt::DropPhase::Drop;
+      event.x = action.fromX;
+      event.y = action.fromY;
+      event.payload = payload;
+      basalt::reportDrop(event);
       break;
     }
 
@@ -2183,6 +2216,27 @@ int main(int argc, char **argv) {
         ScriptedInput{.kind = ScriptedInput::Kind::Close,
                       .surfaceId = static_cast<facebook::react::SurfaceId>(std::atoi(closing))},
         scriptedDelayMs);
+  }
+
+  // BASALT_TEST_DROP: "x,y:path" -- a file dropped at that point. On all three
+  // hosts, because a scenario that uses an instrument two of them have is a
+  // scenario that fails on the third for a reason that has nothing to do with
+  // what it tests. Learned twice: BASALT_TEST_QUIT did the same.
+  if (const char *drop = std::getenv("BASALT_TEST_DROP")) {
+    const std::string spec(drop);
+    const size_t comma = spec.find(',');
+    const size_t colon = comma == std::string::npos ? std::string::npos : spec.find(':', comma);
+    if (comma == std::string::npos || colon == std::string::npos) {
+      std::fprintf(stderr, "BASALT_TEST_DROP: expected x,y:path\n");
+    } else {
+      scriptedDelayMs = scheduleScriptedInput(
+          ScriptedInput{.kind = ScriptedInput::Kind::Drop,
+                        .fromX = std::strtod(spec.substr(0, comma).c_str(), nullptr),
+                        .fromY = std::strtod(spec.substr(comma + 1, colon - comma - 1).c_str(),
+                                             nullptr),
+                        .text = spec.substr(colon + 1)},
+          scriptedDelayMs);
+    }
   }
 
   // BASALT_TEST_QUIT: ask the application to quit the way a person does. A
