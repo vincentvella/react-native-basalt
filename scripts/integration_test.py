@@ -3395,6 +3395,44 @@ SCENARIOS = [
 ]
 
 
+def parse_shard(text: str) -> tuple:
+    """`"2/4"` as `(2, 4)`, or a ValueError naming what was wrong.
+
+    One argument rather than two, because the two are only ever meaningful
+    together and a CI matrix writes them as one string anyway.
+    """
+    parts = text.split("/")
+    if len(parts) != 2:
+        raise ValueError(f"--shard wants I/N, not {text!r}")
+    try:
+        index, count = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise ValueError(f"--shard wants numbers, not {text!r}") from None
+    if count < 1:
+        raise ValueError(f"--shard needs at least one shard, not {count}")
+    if not 1 <= index <= count:
+        raise ValueError(f"--shard {index} is outside 1..{count}")
+    return (index, count)
+
+
+def shard_of(scenarios: list, index: int, count: int) -> list:
+    """The Ith of N shards, striding rather than slicing.
+
+    Striding, because the scenarios are registered in the order they were
+    written and neighbours tend to cost about the same -- the four scroll
+    scenarios sit together, and so do the two that wait twelve seconds for a
+    window. A contiguous slice would hand one shard all of them and leave
+    another with the cheap ones, and a shard set is only as fast as its
+    slowest member.
+
+    Every scenario lands in exactly one shard, which
+    `scripts/test_shards.py` checks: a sharding bug that drops one would make
+    CI greener while testing less, which is the worst direction for a bug in
+    a test harness to point.
+    """
+    return scenarios[index - 1 :: count]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", default="build")
@@ -3418,6 +3456,11 @@ def main() -> int:
         help="only scenarios whose name contains TEXT; repeatable",
     )
     parser.add_argument(
+        "--shard",
+        metavar="I/N",
+        help="run only the Ith of N shards, 1-based; see shard_of",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="print the scenario names and exit",
@@ -3425,7 +3468,17 @@ def main() -> int:
     arguments = parser.parse_args()
 
     if arguments.list:
-        for name, _ in SCENARIOS:
+        # Through the shard too, so that `--shard 2/4 --list` answers what
+        # that shard would run -- which is the question somebody balancing a
+        # matrix is actually asking.
+        listed = SCENARIOS
+        if arguments.shard:
+            try:
+                listed = shard_of(listed, *parse_shard(arguments.shard))
+            except ValueError as error:
+                print(f"error: {error}", file=sys.stderr)
+                return 1
+        for name, _ in listed:
             print(name)
         return 0
 
@@ -3486,12 +3539,27 @@ def main() -> int:
             )
             return 1
 
+    shard = None
+    if arguments.shard:
+        try:
+            shard = parse_shard(arguments.shard)
+        except ValueError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
+        wanted = shard_of(wanted, *shard)
+        if not wanted:
+            # An empty shard is legitimate -- more shards than scenarios -- but
+            # it must not read as a run that passed everything.
+            print(f"shard {shard[0]} of {shard[1]} has no scenarios in it")
+            return 0
+
     note = (
         "real pointer events through the X server"
         if INPUT_MODE == "real"
         else "taps injected at the dispatcher, skipping the window system"
     )
-    print(f"running {len(wanted)} scenarios against {bundle.name} on {PLATFORM}")
+    of_total = "" if shard is None else f" (shard {shard[0]} of {shard[1]})"
+    print(f"running {len(wanted)} scenarios against {bundle.name} on {PLATFORM}{of_total}")
     print(f"input: {INPUT_MODE} -- {note}")
     failed = 0
     skipped = 0

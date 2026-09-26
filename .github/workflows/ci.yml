@@ -69,9 +69,23 @@ env:
 
 jobs:
   linux:
-    name: build and test
+    name: build and test (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      # The end-to-end suite is nine of this job's thirteen minutes, and every
+      # scenario is an independent host process -- so it splits. Three shards
+      # rather than more because the rest of the job is fixed cost that each
+      # shard pays again: the build is nearly free with ccache, but installing
+      # dependencies and bootstrapping are not, and past three the repeated
+      # overhead grows faster than the saving.
+      #
+      # fail-fast off, so one shard failing still lets the others report. A
+      # sharded suite where the first failure hides the rest is worse for
+      # diagnosis than an unsharded one.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@v7
@@ -225,6 +239,10 @@ jobs:
         run: ./scripts/build_ts.sh
 
       - name: CLI tests
+        # Once per job, not once per shard: these read the same files and
+        # give the same answer three times over, and the CLI suite alone is a
+        # minute and a half of the saving sharding just bought.
+        if: matrix.shard == 1
         # `run-linux`, `run-macos` and `run-windows` are one function with three
         # names, so this checks all three wherever it runs -- which is why the
         # Windows job runs it too. Plus `init`, which is the one command that
@@ -232,12 +250,28 @@ jobs:
         run: node --test scripts/test_cli.js
 
       - name: Platform JavaScript tests
+        # Once per job, not once per shard: these read the same files and
+        # give the same answer three times over, and the CLI suite alone is a
+        # minute and a half of the saving sharding just bought.
+        if: matrix.shard == 1
         # react-native-basalt's JavaScript that needs no React Native to run --
         # today, the title bar's request stack. Plain Node, like the CLI tests,
         # and once: it cannot answer differently on another platform.
         run: node --test scripts/test_platform_js.js
 
+      - name: Shard arithmetic
+        # That every scenario lands in exactly one shard, for every shard
+        # count. Cheap, host-independent, and the bug it guards against points
+        # towards green: a boundary that dropped a scenario would make this
+        # suite pass while running less of it.
+        if: matrix.shard == 1
+        run: python3 scripts/test_shards.py
+
       - name: Include hygiene
+        # Once per job, not once per shard: these read the same files and
+        # give the same answer three times over, and the CLI suite alone is a
+        # minute and a half of the saving sharding just bought.
+        if: matrix.shard == 1
         # Here only. It reads text, so it cannot answer differently on another
         # platform, and running it twice would be the same answer twice. What
         # it guards against is platform-shaped all the same: a header reaching
@@ -279,7 +313,7 @@ jobs:
           # It runs on developer machines, on macOS and on Linux, where it
           # passes.
           BASALT_SKIP_FAST_REFRESH: "1"
-        run: scripts/integration_test.py
+        run: scripts/integration_test.py --shard ${{ matrix.shard }}/3
 
       - name: Save the widget tree on failure
         if: failure()
@@ -295,9 +329,19 @@ jobs:
           if-no-files-found: ignore
 
   macos:
-    name: the AppKit host
+    name: the AppKit host (shard ${{ matrix.shard }})
     runs-on: macos-15
     timeout-minutes: 120
+    strategy:
+      # Three, as on Linux, and this job has a second thing to split: the
+      # cross-host comparison is another nine minutes over eighteen
+      # independent apps. Both shard on the same index, so each shard runs a
+      # third of each -- which matters more here than anywhere, because this
+      # is the only job that pays five and a half minutes to build and pays it
+      # again per shard.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       # This workflow's top-level env is written for the Linux jobs: an Xvfb
       # display at :99 and GTK's x11 backend. Neither exists on a Mac, and
@@ -421,7 +465,12 @@ jobs:
         run: ./scripts/build_ts.sh
 
       - name: CLI tests
+        # Once per job, not once per shard: these read the same files and
+        # give the same answer three times over, and the CLI suite alone is a
+        # minute and a half of the saving sharding just bought.
+        if: matrix.shard == 1
         run: node --test scripts/test_cli.js
+
 
       - name: Bundle the demo
         run: scripts/bundle.sh react-native-src --prod --platform macos
@@ -429,12 +478,14 @@ jobs:
       - name: End-to-end tests
         env:
           BASALT_SKIP_FAST_REFRESH: "1"
-        run: python3 scripts/integration_test.py --platform macos
+        run: python3 scripts/integration_test.py --platform macos --shard ${{ matrix.shard }}/3
 
       - name: GTK and AppKit, compared
         # Every app in js/, through both hosts on this one runner -- the check
         # that the two desktops still produce the same tree, which no other
         # job can make because no other has both.
+        env:
+          BASALT_COMPARE_SHARD: ${{ matrix.shard }}/3
         run: scripts/compare_all.sh
 
       - uses: actions/upload-artifact@v7
@@ -445,9 +496,23 @@ jobs:
           if-no-files-found: ignore
 
   windows-full:
-    name: the whole Windows stack
+    name: the whole Windows stack (shard ${{ matrix.shard }})
     runs-on: windows-2022
     timeout-minutes: 150
+    strategy:
+      # The end-to-end suite is nine of this job's thirteen minutes, and every
+      # scenario is an independent host process -- so it splits. Three shards
+      # rather than more because the rest of the job is fixed cost that each
+      # shard pays again: the build is nearly free with ccache, but installing
+      # dependencies and bootstrapping are not, and past three the repeated
+      # overhead grows faster than the saving.
+      #
+      # fail-fast off, so one shard failing still lets the others report. A
+      # sharded suite where the first failure hides the rest is worse for
+      # diagnosis than an unsharded one.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # vcpkg, a React Native checkout, Hermes built from source, React Native's
     # C++ core under clang-cl, the host, every Windows test and the end-to-end
     # suite.
@@ -707,6 +772,10 @@ jobs:
         run: ./scripts/build_ts.sh
 
       - name: CLI tests
+        # Once per job, not once per shard: these read the same files and
+        # give the same answer three times over, and the CLI suite alone is a
+        # minute and a half of the saving sharding just bought.
+        if: matrix.shard == 1
         # The same three commands the Linux job checks. Here for the half that
         # only Windows can be wrong about: `basalt_win32.exe` carries an
         # extension, and `isExecutable` has to answer a different question on a
@@ -751,7 +820,7 @@ jobs:
           RN_DIR: react-native-src
           BASALT_SKIP_FAST_REFRESH: "1"
         run: |
-          python scripts/integration_test.py --platform windows
+          python scripts/integration_test.py --platform windows --shard ${{ matrix.shard }}/3
           if ($LASTEXITCODE -ne 0) { throw "end-to-end tests failed" }
 
   drift:

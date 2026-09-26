@@ -447,6 +447,38 @@ on Windows that meant the quit timer stopping going through `WM_CLOSE`, because
 otherwise the app would have refused the harness too and the failure would have
 been a hang rather than a test.
 
+## Sharding
+
+`--shard I/N` runs the Ith of N shards of the end-to-end suite, and
+`BASALT_COMPARE_SHARD=I/N` does the same for `compare_all.sh`. CI runs three of
+each, on the same index, so a shard does a third of both.
+
+Measured before it was built, because sharding the wrong thing is free to do
+and worthless: of the Linux job's 12.9 minutes, **9.3 were the end-to-end
+suite** and 0.2 were the build -- ccache having made the compile nearly free.
+The AppKit job is 26.8 minutes, of which 9.6 is the suite and another 8.8 is
+the cross-host comparison. So both of those shard, and the build does not need
+to.
+
+Striding rather than slicing: `scenarios[i - 1 :: n]`. The list is in the order
+things were written, so neighbours cost about the same -- the scroll scenarios
+sit together, and so do the two that wait twelve seconds for a window. A
+contiguous slice hands one shard all of them, and a shard set is only as fast
+as its slowest member. Striding gives 58, 83 and 73 seconds of explicit waiting
+across the three.
+
+What each shard pays again is the job's fixed cost -- installing dependencies,
+bootstrapping, building. Three rather than more for that reason: past three the
+repeated overhead grows faster than the saving. The steps that would give the
+same answer three times -- the CLI suite, the platform JavaScript tests,
+include hygiene -- run only on shard 1.
+
+`scripts/test_shards.py` checks that every scenario lands in exactly one shard,
+for every shard count, and that the parser refuses `0/4`, `5/4` and `2/4/8`. It
+is there because the bug it guards against points towards green: a boundary
+that dropped a scenario would make the suite pass while running less of it, and
+nothing in the output would look wrong.
+
 **Dragging *out* has no automated coverage at all**, and cannot have: once a
 drag begins the system owns it, and no instrument can put a file manager on the
 other end to receive the drop. What the suite does prove is that a drag source

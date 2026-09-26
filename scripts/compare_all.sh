@@ -102,7 +102,44 @@ echo
 quit_after="${BASALT_COMPARE_QUIT_AFTER_MS:-2800}"
 failures=0
 
+# BASALT_COMPARE_SHARD=I/N runs the Ith of N shards, 1-based, striding rather
+# than slicing -- the same arrangement scripts/integration_test.py uses and for
+# the same reason: apps sit in the list in the order they were written, so a
+# contiguous slice hands one shard several heavy ones. `index` counts every app
+# so the stride is over the whole list rather than over what survives it.
+#
+# Each app is two host runs and a diff, and nothing is shared between apps, so
+# this is free to split. It is the slowest step in the one job that has both
+# hosts.
+shard_index=0
+shard_count=1
+if [[ -n "${BASALT_COMPARE_SHARD:-}" ]]; then
+  if [[ ! "$BASALT_COMPARE_SHARD" =~ ^[0-9]+/[0-9]+$ ]]; then
+    echo "BASALT_COMPARE_SHARD wants I/N, not $BASALT_COMPARE_SHARD" >&2
+    exit 1
+  fi
+  shard_index="${BASALT_COMPARE_SHARD%%/*}"
+  shard_count="${BASALT_COMPARE_SHARD##*/}"
+  if (( shard_count < 1 || shard_index < 1 || shard_index > shard_count )); then
+    echo "BASALT_COMPARE_SHARD $BASALT_COMPARE_SHARD is out of range" >&2
+    exit 1
+  fi
+  echo "shard $shard_index of $shard_count"
+  echo
+fi
+
+index=0
+# Counted rather than taken from the list: with a shard those are different
+# numbers, and reporting the list would claim eighteen comparisons from three.
+compared=0
 for entry in "${APPS[@]}"; do
+  if (( shard_count > 1 )); then
+    index=$(( index + 1 ))
+    if (( (index - 1) % shard_count != shard_index - 1 )); then
+      continue
+    fi
+  fi
+  compared=$(( compared + 1 ))
   name="${entry%%:*}"
   module="${entry##*:}"
 
@@ -137,8 +174,8 @@ done
 
 echo
 if [[ $failures -eq 0 ]]; then
-  echo "the ${#platforms[@]} hosts agree on all ${#APPS[@]} apps"
+  echo "the ${#platforms[@]} hosts agree on all $compared apps"
 else
-  echo "$failures of ${#APPS[@]} disagree; rerun that one through compare_hosts.sh for the diff" >&2
+  echo "$failures of $compared disagree; rerun that one through compare_hosts.sh for the diff" >&2
 fi
 exit $failures
