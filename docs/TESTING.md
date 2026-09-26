@@ -695,7 +695,25 @@ their session signals are not on the path `g_application_quit` and
 `PostQuitMessage` take.
 
 `BASALT_QUIT_WHEN_SETTLED=<ms>` ends a run when there is nothing left to wait
-for, rather than on a budget chosen before the process started. **Settled** means
+for, rather than on a budget chosen before the process started.
+
+**No scenario opts into it today, and the reason is worth reading before
+re-enabling any.** A settle waits for the first mount and for scripted input to
+be *delivered*. It cannot wait for the round trip to JavaScript, and most
+scenarios assert on what JavaScript logged -- so the host quits while the
+evidence is still in flight. `Alert.alert` failed on CI with "the alert's
+callback never reached JavaScript"; the hover scenario failed locally with a
+truncated event list. The opt-in list was built by opting everything in, running
+the suite and keeping what passed, which is unsound: passing four times does not
+establish the absence of a race. It was trimmed twice before the method rather
+than the entries was accepted as the problem, and the suite went back to 445
+seconds from 298. Those 147 seconds were not real.
+
+**The right shape is per scenario, and the tool already exists:** wait for the
+line the scenario is about to assert on, then write `BASALT_TEST_QUIT_FILE`. That
+is what `stop_host` does for Fast Refresh. It is correct rather than
+probabilistic, and it is *faster* than a settle, because it ends at the evidence
+rather than at a fixed delay after input. **Settled** means
 the first mount has been applied and any scripted input has been delivered, plus
 a short settle for React's next commit. `BASALT_QUIT_AFTER_MS` stays as the
 backstop, so nothing can get slower and a host that never settles still ends.

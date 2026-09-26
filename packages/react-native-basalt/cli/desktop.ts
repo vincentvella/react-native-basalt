@@ -350,6 +350,21 @@ export function optionalNativeModules(projectRoot: string): ContributedArgs {
     notes.push(`worklets, from ${worklets}`);
   }
 
+  // @shopify/react-native-skia. Only on macOS, and it says so rather than
+  // silently doing nothing: the published Skia binaries are Apple's, and an app
+  // that draws with Skia will start on Linux or Windows and then fail at
+  // `getEnforcing('RNSkiaModule')`, which is a long way from the cause.
+  const skia = findPackage('@shopify/react-native-skia', projectRoot);
+  if (skia != null && process.platform === 'darwin') {
+    define('BASALT_SKIA', skia);
+    notes.push(`Skia, from ${skia}`);
+  } else if (skia != null) {
+    notes.push(
+      `not building @shopify/react-native-skia (${skia}): the published binaries ` +
+        'are Apple\'s, and Linux and Windows need Skia built from source first',
+    );
+  }
+
   const reanimated = findPackage('react-native-reanimated', projectRoot);
   if (reanimated != null && worklets != null) {
     define('BASALT_REANIMATED', reanimated);

@@ -300,6 +300,20 @@ test('the native halves an app has installed are the ones built', () => {
   assert.ok(found.args.includes(`-DBASALT_WORKLETS=${cmakePath(worklets)}`));
   assert.ok(found.args.includes(`-DBASALT_REANIMATED=${cmakePath(reanimated)}`));
 
+  // Skia, found under its scope. On a Mac it is passed to the configure; on the
+  // other two it is reported as skipped rather than dropped, because the failure
+  // it would otherwise cause -- getEnforcing('RNSkiaModule') at start-up -- is a
+  // long way from the cause, and "nothing happened" is the worst possible
+  // explanation for an app that draws with Skia not starting.
+  const skia = install(project, '@shopify/react-native-skia');
+  found = desktop.optionalNativeModules(project);
+  if (process.platform === 'darwin') {
+    assert.ok(found.args.includes(`-DBASALT_SKIA=${cmakePath(skia)}`));
+  } else {
+    assert.ok(!found.args.some(arg => arg.startsWith('-DBASALT_SKIA')));
+    assert.ok(found.notes.some(note => note.includes('react-native-skia')));
+  }
+
   fs.rmSync(project, {recursive: true, force: true});
 });
 

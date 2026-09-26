@@ -841,6 +841,26 @@ def wait_for_log(log: Path, needle: str, count: int, timeout: float,
 #   test_debugging_overlay            a trace update that takes itself down again
 #   test_fast_refresh                 an edit arriving from another process
 #
+# And five more that passed the probe and then flaked in CI, which is the same
+# category arriving late: every scenario that answers a **dialog or a menu**.
+#
+#   test_alert, test_share, test_file_dialogs   BASALT_TEST_DIALOG
+#   test_context_menu, test_dev_menu            BASALT_TEST_MENU
+#
+# Those instruments are *reactive*: they answer something when it appears, rather
+# than being laid out on a host's timer, so the settle cannot see them and the
+# callback they provoke arrives after it. `Alert.alert` failed on a macOS shard
+# with "the alert's callback never reached JavaScript" -- the host had quit.
+#
+# This is the distinction core/TestSettle.h already draws, and drawing it there
+# and not here is the mistake. BASALT_TEST_MENU and BASALT_TEST_DIALOG were taken
+# *out* of scriptedInputVars for exactly this reason, and the scenarios that
+# depend on them were left opted in. One fact, two places, and it only got
+# applied to one of them.
+#
+# It cost about 70 of the 235 seconds. A flaky suite is worse than a slow one,
+# which is the argument that justified this work in the first place.
+#
 # Those keep their budgets, and should: a settle cannot stand in for a duration
 # that is the thing under test. Everything else here was run and seen to pass.
 #
@@ -848,32 +868,35 @@ def wait_for_log(log: Path, needle: str, count: int, timeout: float,
 # asserts on the dumped tree or a logged line, so quitting early produces a
 # missing assertion rather than a quiet success. It is still a list of scenarios
 # that have been *run*, not of scenarios that looked fine.
-SETTLES_EARLY = {
-    "test_initial_render",
-    "test_initial_url",
-    "test_share",
-    "test_alert",
-    "test_notifications",
-    "test_controls",
-    "test_dev_menu",
-    "test_file_dialogs",
-    "test_windows",
-    "test_window_close_request",
-    "test_press_location",
-    "test_image_get_size",
-    "test_displays",
-    "test_application_menu",
-    "test_context_menu",
-    "test_pointer_events",
-    "test_hover",
-    "test_keyboard_focus",
-    "test_text_input",
-    "test_scroll_round_trip",
-    "test_scroll_to_end",
-    "test_window",
-    "test_window_limits",
-    "test_drop_target",
-}
+SETTLES_EARLY: set = set()
+# Empty, deliberately, and the instrument it opts into is kept. See below.
+#
+# BASALT_QUIT_WHEN_SETTLED waits for the first mount and for scripted input to be
+# *delivered*. It cannot wait for the round trip to JavaScript, and most of these
+# scenarios assert on what JavaScript logged -- so the host quits while the
+# evidence is still in flight. Three scenarios proved it, in three different
+# ways:
+#
+#   Alert.alert   "the alert's callback never reached JavaScript", on CI
+#   hover         a truncated event list: over/enter/leave arrived, the rest did not
+#   the dialogs   answered reactively, so nothing schedules the answer at all
+#
+# The list was built by opting everything in, running the suite, and keeping
+# what passed. That is unsound and this is what unsound looks like: passing four
+# times does not establish the absence of a race, and I trimmed the list twice
+# before accepting that the method rather than the entries was wrong.
+#
+# **The right shape is per scenario, and the tool for it already exists.** Wait
+# for the evidence in the log -- the line the scenario is about to assert on --
+# and then write BASALT_TEST_QUIT_FILE. That is what stop_host does for Fast
+# Refresh, it is correct rather than probabilistic, and it is faster than a
+# settle because it ends at the evidence instead of at a fixed delay after
+# input. It is also more work per scenario, which is why this took the blanket
+# route first.
+#
+# So the suite is back to its budgets and 445 seconds, from 298. The 147 seconds
+# were not real: a suite that fails one run in two is worth less than a slow one,
+# which is the argument that justified the work in the first place.
 
 # How long after settling to go. A guess about one React commit and the frame
 # that draws it, rather than about a whole scenario -- which is the difference
